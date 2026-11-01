@@ -1,0 +1,14 @@
+# docker compose up -d   (or: podman compose up -d)
+# then open http://127.0.0.1:8000/
+services:
+  firebridgelab:
+    build: .
+    image: firebridgelab:latest
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - scenarios:/app/scenarios
+    restart: unless-stopped
+
+volumes:
+  scenarios:

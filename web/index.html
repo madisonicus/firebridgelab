@@ -1,0 +1,1414 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FIRE Bridge Lab</title>
+  <!-- Dark-mode slice 2: anti-flash. Runs BEFORE the stylesheet so data-theme
+       is on <html> at first paint (no light->dark flash). READS localStorage
+       only; absence of a stored value = "auto" (follow OS). Never writes here. -->
+  <script>
+(function(){try{var t=localStorage.getItem('rm-theme');if(t!=='dark'&&t!=='light'){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}document.documentElement.dataset.theme=t;}catch(e){}})();
+  </script>
+  <link rel="stylesheet" href="static/styles.css?v=r1011">
+</head>
+<body>
+  <main>
+    <header>
+      <button id="theme-toggle" class="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode"></button>
+      <h1>FIRE Bridge Lab</h1>
+      <p class="subtitle">Compare two scenarios. Linked fields apply to both; unlink a field to vary it.</p>
+    </header>
+
+    <!-- ============ LAYOUT ============ -->
+    <!-- Slice 9: two-region split. The inputs section becomes a left sidebar
+         pane (sticky, fixed width) on wide screens; the comparison panels fill
+         the reclaimed width to the right. On narrow screens the .layout grid
+         collapses to a single column, so the sidebar reflows to a full-width
+         top section and the panels stack below it — i.e. the pre-slice-9
+         narrow layout. Pure layout: no inputs/output logic changes. -->
+    <div class="layout">
+    <!-- ============ INPUTS ============ -->
+    <!-- Single link-aware inputs section. Each field row is rendered by JS
+         (buildInputs in app.js): a LINKED field shows one input, an UNLINKED
+         field shows two (A | B). Recompute drives both output panels. -->
+    <aside class="inputs-section" aria-label="Inputs">
+      <div class="inputs-header">
+        <h2 class="inputs-title">Inputs</h2>
+      </div>
+
+      <!-- UX REFRESH (ux2): the engine-mode toggle (#mode-toggle) has been
+           RELOCATED out of this sidebar to the top of the content column, where
+           it now reads as a "lens" over the plan ("how I'm viewing this plan")
+           rather than a plan input. See .content-region below. The node was
+           re-parented, not recreated: same id, same data-mode buttons, same
+           .mode-toggle-btn class the JS (setMode wiring, querySelectorAll is
+           document-scoped) keys off. The always-visible Plan block (#plan-group)
+           is now the visual top of the sidebar. -->
+
+      <form id="inputs-form" class="inputs-form" novalidate>
+        <!-- ============ PLAN (always visible) ============ -->
+        <!-- UX REFRESH (ux1): the always-visible "Plan" block — the few decisions
+             a user actually sets first: portfolio + annual spending (#primary-fields)
+             and the spending-shape (how the plan behaves over time). Everything
+             else (allocation, sourcing, assumptions) nests under the Strategy &
+             tuning disclosure below. Pure re-parent: no behavior change. -->
+        <div class="plan-group" id="plan-group">
+          <!-- Master collapse control, relocated DOWN out of .inputs-header to sit
+               just above the field rows. When everything is linked, the single
+               "Unlink all" button starts a comparison. When comparing (any field
+               or the allocation unlinked), it is replaced by a "Focus A | Focus B"
+               segmented control that collapses the comparison back to ONE scenario,
+               keeping whichever side the user chose: Focus A keeps A's values
+               (the original relink behaviour); Focus B copies B's values into the
+               canonical inputs first, so the surviving single scenario is B's
+               configuration. JS (updateMasterButton) flips which is visible. -->
+          <div class="inputs-link-controls">
+            <button type="button" id="link-master" class="btn btn-secondary link-master">Unlink all</button>
+            <div class="focus-control" id="focus-control" role="group" aria-label="Keep one scenario" hidden>
+              <button type="button" class="focus-btn" data-focus="a" aria-label="Keep Scenario A and stop comparing">Focus <span class="focus-ab focus-ab-a">A</span></button>
+              <button type="button" class="focus-btn" data-focus="b" aria-label="Keep Scenario B and stop comparing">Focus <span class="focus-ab focus-ab-b">B</span></button>
+            </div>
+          </div>
+
+          <!-- Column headers shown only when at least one field is unlinked. -->
+          <div id="ab-legend" class="ab-legend" hidden>
+            <span class="ab-tag ab-tag-a">A</span>
+            <span class="ab-tag ab-tag-b">B</span>
+          </div>
+
+          <!-- Split into two JS-render targets so the tax-location section can sit
+               BETWEEN the Starting portfolio field (rendered into
+               #primary-fields-portfolio) and the Annual spending field (rendered
+               into #primary-fields-spending). Both reuse the #primary-fields grid
+               styling via the shared .primary-fields class. -->
+          <div id="primary-fields-portfolio" class="field-rows primary-fields"></div>
+
+          <!-- ============ TAX LOCATION OF PORTFOLIO (tax-buckets design tb1 / polish tb1c) ============ -->
+          <!-- Three OPTIONAL additive balances — taxable brokerage / tax-deferred /
+               Roth — that split the starting portfolio by where it lives for tax
+               purposes. Empty = feature off (today's single undifferentiated pool;
+               the canary is preserved). When supplied they must sum to the starting
+               portfolio (#tax-location-sum shows the running total live). This is a
+               DIFFERENT axis from the cash/income/growth buckets — never conflated.
+               tb1 is SINGLE-sourcing only: under Buckets sourcing the inputs are
+               disabled with #tax-location-gate-note shown (setSourcingMode toggles
+               it). The three inputs save/load (captureScenario/applyScenarioToForm)
+               and clear on Reset. JS reads them by id (readTaxLocation).
+
+               POLISH (tb1c): relocated to sit immediately after the Starting
+               portfolio input (it's a decomposition of the portfolio number, not a
+               spending decision) and made SUBTLE by default — the heavy uppercase
+               title is gone; the checkbox label IS the affordance, with the ⓘ inline
+               next to it. When OFF the section is just the one muted checkbox line;
+               the three balance fields + the sum helper live in #tax-location-reveal,
+               hidden until a split is present (checkbox checked / hasSplit). The
+               reveal is driven by updateTaxLocationReveal(), called from
+               syncTaxLocationEnable() so every state path keeps it in lockstep. -->
+          <section class="tax-location-inputs tax-location-quiet" id="tax-location-inputs" aria-label="Tax location of portfolio">
+            <!-- The checkbox label is the whole affordance when OFF. Checking it
+                 pre-fills the three balances from the starting portfolio at an
+                 illustrative split (30% taxable / 60% tax-deferred / 10% Roth, Roth
+                 balancing to the exact sum) and reveals the fields; the inputs stay
+                 editable. Unchecking clears them + collapses (feature off). The box is
+                 a fill/clear control + a "has split" INDICATOR — taxLocationActive()
+                 is still driven by the inputs, not this box. Disabled under buckets
+                 sourcing (with the inputs). The ⓘ explains the concept. -->
+            <div class="tax-location-head">
+              <label class="tax-location-enable" for="tax-location-enable">
+                <input type="checkbox" id="tax-location-enable" name="tax-location-enable">
+                Model accounts by tax location
+              </label>
+              <details class="info">
+                <summary aria-label="What tax location means" title="What tax location means">&#9432;</summary>
+                <div class="info-popover" role="note">
+                  Split your starting portfolio by account type. Tax-deferred
+                  (Traditional 401(k)/IRA) is behind a 10% early-withdrawal penalty
+                  until 59&frac12;, so the years before then are funded from taxable
+                  and Roth. Leave blank to model one undifferentiated pool.
+                </div>
+              </details>
+            </div>
+            <!-- The balance fields + live sum: revealed only when a split is present
+                 (checkbox checked / hasSplit). Hidden + collapsed when OFF so the
+                 section reads as one quiet line. Toggled by updateTaxLocationReveal. -->
+            <div class="tax-location-reveal" id="tax-location-reveal" hidden>
+              <div class="tax-location-fields">
+                <div class="tax-location-field">
+                  <label class="tax-location-label" for="tax-taxable">Taxable brokerage ($)</label>
+                  <input type="number" id="tax-taxable" name="tax-taxable" class="tax-location-input"
+                         min="0" step="1000" inputmode="numeric" placeholder="0">
+                </div>
+                <div class="tax-location-field">
+                  <label class="tax-location-label" for="tax-deferred">Tax-deferred ($)</label>
+                  <input type="number" id="tax-deferred" name="tax-deferred" class="tax-location-input"
+                         min="0" step="1000" inputmode="numeric" placeholder="0">
+                </div>
+                <div class="tax-location-field">
+                  <label class="tax-location-label" for="tax-roth">Roth ($)</label>
+                  <input type="number" id="tax-roth" name="tax-roth" class="tax-location-input"
+                         min="0" step="1000" inputmode="numeric" placeholder="0">
+                </div>
+              </div>
+              <!-- Live running-sum helper: "$1.8M of $1.8M — balanced" / "$150k over"
+                   (red) / "$150k under" (red). Empty inputs => hidden (feature off).
+                   Written + toggled by updateTaxLocationSum. -->
+              <p id="tax-location-sum" class="tax-location-sum" role="status" hidden></p>
+              <!-- ============ TAXABLE-GAINS FRACTION KNOB (federal-tax overlay design
+                   ft1, DECISION 4) ============ -->
+              <!-- The flat LTCG-taxable share of each taxable-brokerage withdrawal —
+                   a single user-set knob (default 50%), entered here as a percent and
+                   sent to the API as a 0..1 fraction (readTaxableGainsFraction). It
+                   rides the SAME reveal/gate as the three balances above (shown only
+                   when the split is on, disabled under buckets sourcing —
+                   updateTaxLocationGate), but is a SEPARATE axis from them: it has no
+                   effect on the running sum and isn't cleared when the split is
+                   unchecked (it just goes inert — the overlay only reads it when the
+                   split is active). Basis tracking was considered and declined
+                   (DECISION 4) in favor of this leaner single knob. -->
+              <div class="tax-location-field tax-gains-field" id="tax-gains-field">
+                <label class="tax-location-label" for="tax-gains-fraction">Taxable-gains share of withdrawals (%)</label>
+                <input type="number" id="tax-gains-fraction" name="tax-gains-fraction" class="tax-location-input"
+                       min="0" max="100" step="1" inputmode="numeric" value="50">
+                <details class="info">
+                  <summary aria-label="What the taxable-gains fraction means" title="What the taxable-gains fraction means">&#9432;</summary>
+                  <div class="info-popover" role="note">
+                    The share of each taxable-brokerage withdrawal that's a capital
+                    gain, versus a tax-free return of your own contributed basis — a
+                    single flat knob for the federal-tax estimate, not a tracked cost
+                    basis. Default 50%. Only affects the federal-tax overlay; has no
+                    effect unless "Model accounts by tax location" is on.
+                  </div>
+                </details>
+              </div>
+              <!-- ============ VOLUNTARY BRACKET-FILL LEVER (tax-drag design td1,
+                   DECISION 5) ============ -->
+              <!-- One optional dollar field: each year from 60-74, draw enough EXTRA
+                   from tax-deferred to fill ordinary taxable income up to this target
+                   — shrinking the tax-deferred base before RMDs start at 75. Empty =
+                   off (the default). Rides the SAME reveal/gate as the balances +
+                   gains-fraction knob above (visible only when the split is on,
+                   disabled under buckets sourcing — updateTaxLocationGate); POST-body
+                   only, like the balances (readBracketFillTarget / attachBracketFillTarget
+                   only send it while the split is active). The two hint presets are the
+                   real 2026 MFJ taxable-income bracket tops (12% -> $100,800, 22% ->
+                   $211,400); they're informational text, not clickable chips, since the
+                   field takes a raw dollar value the user can type or adjust from there. -->
+              <div class="tax-location-field bracket-fill-field" id="bracket-fill-field">
+                <label class="tax-location-label" for="bracket-fill-target">Bracket-fill lever: draw extra from tax-deferred up to ($)</label>
+                <input type="number" id="bracket-fill-target" name="bracket-fill-target" class="tax-location-input"
+                       min="0" max="5000000" step="1000" inputmode="numeric" placeholder="off">
+                <details class="info">
+                  <summary aria-label="What the bracket-fill lever means" title="What the bracket-fill lever means">&#9432;</summary>
+                  <div class="info-popover" role="note">
+                    Each year from 60 through 74, draw enough extra from tax-deferred to
+                    fill your ordinary taxable income up to this target, moving the excess
+                    into taxable — a voluntary withdrawal, not spending. The point is to
+                    shrink the tax-deferred balance at cheap brackets before Required
+                    Minimum Distributions take over at 75. Leave blank for off. Reference
+                    points (2026 MFJ taxable income): top of the 12% bracket is $100,800;
+                    top of the 22% bracket is $211,400.
+                  </div>
+                </details>
+              </div>
+            </div>
+            <!-- Buckets-mode gate note: shown (and the inputs disabled) when sourcing
+                 is Buckets — tb1 supports the split in single-portfolio sourcing only. -->
+            <p id="tax-location-gate-note" class="tax-location-gate-note" role="note" hidden>
+              Tax-location view is available in single-portfolio sourcing; bucket sourcing coming later.
+            </p>
+          </section>
+
+          <!-- Annual spending renders here (group "primarySpending"), so it lands
+               AFTER the tax-location section in the sidebar. -->
+          <div id="primary-fields-spending" class="field-rows primary-fields"></div>
+
+          <!-- Lifecycle spending: a GLOBAL spending-shape toggle (Constant-real |
+               Lifecycle | Guardrails). UX REFRESH (ux1): promoted into the always-
+               visible Plan block (it's a top-level "how my plan behaves" decision),
+               moved INSIDE #inputs-form so its inputs stay within the form boundary.
+               Constant-real (default) spends the annual-spending input flat in real
+               terms forever — today's behavior, unchanged. Lifecycle treats that
+               input as the GO-GO (peak) level and tapers later: slow-go ×0.85,
+               no-go ×0.75. When Lifecycle is selected, #spending-phase-breakdown
+               shows the three phase $ levels computed from the current input so the
+               user sees exactly what it does. Applies to BOTH scenarios + BOTH
+               modes (it just sets spending_mode on the API calls). JS: setSpendingMode. -->
+          <div class="spending-shape">
+            <span class="spending-shape-label">Spending</span>
+            <div class="mode-toggle spending-toggle" id="spending-toggle" role="group" aria-label="Spending shape">
+              <button type="button" class="mode-toggle-btn is-selected" data-spending-mode="constant" aria-pressed="true">Constant-real</button>
+              <button type="button" class="mode-toggle-btn" data-spending-mode="lifecycle" aria-pressed="false">Lifecycle</button>
+              <button type="button" class="mode-toggle-btn" data-spending-mode="guardrails" aria-pressed="false">Guardrails</button>
+              <button type="button" class="mode-toggle-btn" data-spending-mode="fr_smooth" aria-pressed="false">Funded ratio (smooth)</button>
+              <button type="button" class="mode-toggle-btn" data-spending-mode="fr_guardrail" aria-pressed="false">Funded ratio (bands)</button>
+              <button type="button" class="mode-toggle-btn" data-spending-mode="fr_tiers" aria-pressed="false">Funded ratio (tiers)</button>
+              <button type="button" class="mode-toggle-btn" data-spending-mode="amortization" aria-pressed="false">Amortization Frontier</button>
+            </div>
+            <p id="spending-phase-breakdown" class="spending-phase-breakdown" role="note" hidden></p>
+          </div>
+
+          <!-- Social Security: claim-age sliders surfaced into the always-visible Plan
+               block — SS is a primary plan-viability lever, not a deep-tuning variable. -->
+          <div class="ss-claim-section">
+            <span class="ss-claim-label">Social Security</span>
+            <div id="primary-fields-ss" class="field-rows primary-fields"></div>
+          </div>
+        </div>
+
+        <!-- ============ STRATEGY & TUNING (single disclosure) ============ -->
+        <!-- UX REFRESH (ux1): everything that isn't a top-level Plan decision lives
+             under ONE disclosure — Allocation, Sourcing, and (nested) Assumptions.
+             Open/closed state persists within the session (sessionStorage key
+             modeler.strategyOpen), wired in app.js; default closed on first load.
+             Pure re-parent of existing nodes; zero logic change to any setter. -->
+        <details class="strategy-group" id="strategy-group">
+          <summary>
+            <span class="summary-label">Strategy &amp; tuning</span>
+            <span class="summary-hint">click to expand</span>
+          </summary>
+
+        <!-- Slice 11b-2: editable asset-class allocation matrix, now UNLINKABLE
+             into an A│B comparison. Its own link/unlink toggle (mirroring the
+             per-field buttons) sits in the header. LINKED: one weight column
+             drives both scenarios. UNLINKED: two weight columns (A│B), each
+             scenario independent; returns stay shared. Rows, per-column Total
+             lines, and per-column blended-return lines are rendered from JS
+             (renderAllocationRows / refreshAllocation in app.js) off
+             ASSET_CLASSES. Weights are integers (0–100). -->
+        <section id="allocation-section" class="allocation-section" aria-label="Allocation">
+          <div class="allocation-head">
+            <h3 class="allocation-title">Allocation</h3>
+            <button type="button" id="allocation-link" class="link-toggle is-linked"
+                    aria-pressed="false"
+                    aria-label="Linked — one allocation for both scenarios. Click to unlink."
+                    title="Linked — one allocation for both scenarios. Click to unlink.">&#128279;</button>
+          </div>
+
+          <!-- Glidepath / bond-tent toggle (glidepath design). Constant (default)
+               holds ONE allocation across the whole horizon — today's behavior,
+               byte-for-byte unchanged. Glidepath carries one allocation per DERIVED
+               phase (boundaries derived from the plan's 401(k)/pension/SS ages). The
+               toggle mirrors the spending-shape toggle's look + placement. JS:
+               setAllocationMode. -->
+          <div class="mode-toggle spending-toggle allocation-mode-toggle"
+               id="allocation-mode-toggle" role="group" aria-label="Allocation shape">
+            <button type="button" class="mode-toggle-btn is-selected" data-allocation-mode="constant" aria-pressed="true">Constant</button>
+            <button type="button" class="mode-toggle-btn" data-allocation-mode="glidepath" aria-pressed="false">Glidepath</button>
+          </div>
+
+          <!-- CONSTANT-mode body: preset picker + the single editable matrix. Hidden
+               (JS) when glidepath is on. -->
+          <div id="constant-allocation-body">
+            <!-- Slice 4b: preset picker. Choosing a named portfolio populates the
+                 matrix weights (applyPreset in app.js, off /api/presets) and
+                 recomputes. Returns to "Custom" the moment any weight is edited.
+                 When unlinked it targets the focused column (A by default). -->
+            <div class="allocation-preset" id="allocation-preset">
+              <label class="allocation-preset-label" for="preset-select">Preset</label>
+              <select id="preset-select" class="allocation-preset-select" aria-label="Portfolio preset">
+                <option value="">Custom</option>
+              </select>
+              <span id="preset-note" class="allocation-preset-note" role="note" hidden></span>
+            </div>
+            <div id="allocation-rows" class="allocation-rows"></div>
+            <div id="allocation-totals" class="allocation-totals"></div>
+            <div id="allocation-blended" class="allocation-blended"></div>
+          </div>
+
+          <!-- gpp1: glide-preset picker. Mirrors the constant-mode portfolio Preset
+               dropdown (styling + fire-once apply), but fills the per-phase glidepath
+               weights from a named glide shape (bond tent, declining, flat). Options
+               are populated by renderGlidePresetOptions; applyGlidePreset switches to
+               glidepath mode if needed, interpolates equity% across the derived
+               phases, maps onto the allocation, renders, and recomputes once. Hidden
+               in constant mode (updateAllocationModeView toggles it with the phases). -->
+          <div class="allocation-preset glide-preset" id="glide-preset" hidden>
+            <label class="allocation-preset-label" for="glide-preset-select">Glide preset</label>
+            <select id="glide-preset-select" class="allocation-preset-select" aria-label="Glide preset">
+              <option value="">Glide preset…</option>
+            </select>
+          </div>
+
+          <!-- GLIDEPATH-mode body: one editable allocation matrix per DERIVED phase,
+               labeled "age-range · event" (e.g. "50–59 · Bridge"). Rendered by JS
+               (renderGlidepathPhases off the GI-age inputs). Hidden in constant mode.
+               In v1 the phase allocations are GLOBAL (one set applied to both A and B
+               scenarios) — the constant matrix remains the A│B comparison surface. -->
+          <div id="glidepath-phases" class="glidepath-phases" hidden></div>
+          <!-- UX REFRESH (ux4): purely explanatory "how glidepath works" prose tucked
+               behind an ⓘ popover (the existing .info / .info-popover idiom). The OUTER
+               #glidepath-caption element keeps its id, class, and role unchanged so the
+               JS toggle (updateAllocationModeView: captionEl.hidden = !isGlide) still
+               controls the whole unit by id; only its internals changed from a bare
+               paragraph to a label + ⓘ. -->
+          <div id="glidepath-caption" class="allocation-caption glidepath-caption caption-info-row" role="note" hidden>
+            <span class="caption-info-label">Glidepath phases</span>
+            <details class="info">
+              <summary aria-label="How the glidepath phases work" title="How the glidepath phases work">&#9432;</summary>
+              <div class="info-popover" role="note">De-risk the bridge years before guaranteed income arrives, then re-risk once the income floor is covered. Phase boundaries are derived from your 401(k) access, pension, and Social Security ages.</div>
+            </details>
+          </div>
+        </section>
+
+        <!-- Withdrawal SOURCING shape (bucket-strategy design). A GLOBAL toggle
+             (Single | Buckets) mirroring the spending-shape toggle. Single (default)
+             holds the single blended balance — today's behavior, byte-for-byte. Buckets
+             routes to the 3-bucket cash/income/growth time-segmentation sourcing
+             (sources cash-first, refills one-sidedly). Slice 1a is THIN: the toggle
+             renders the existing portfolio fan + a text buffer-survival readout in
+             Historical/MC; the editable bucket matrices + bucket-balance chart are
+             slice 1b. JS: setSourcingMode.
+             UX REFRESH (ux1): relocated from above the form into the Strategy &
+             tuning disclosure, after Allocation. Now INSIDE #inputs-form so its
+             #bucket-n1/#bucket-n2 inputs stay within the form boundary.
+             UX REFRESH (ux3): the #buffer-survival-readout + #effective-equity-readout
+             — the model's *answers* about the buckets — have been RELOCATED out of
+             this sidebar to the content column, immediately after #bucket-chart-view,
+             so they sit with the chart they describe. The nodes were re-parented (same
+             ids, same classes, same role); the updater functions resolve them by id
+             (updateBufferSurvivalReadout / updateEffectiveEquityReadout via
+             getElementById) and key their show/hide off the sourcingMode/simMode
+             globals, so the move does not change behavior. They are deliberately
+             OUTSIDE #bucket-chart-view (a sibling wrapper) because that container is
+             hidden in Monte Carlo / no-payload states where the buffer-survival
+             readout must still show. -->
+        <div class="spending-shape">
+          <span class="spending-shape-label">Sourcing</span>
+          <div class="mode-toggle spending-toggle" id="sourcing-toggle" role="group" aria-label="Withdrawal sourcing">
+            <button type="button" class="mode-toggle-btn is-selected" data-sourcing-mode="single" aria-pressed="true">Single</button>
+            <button type="button" class="mode-toggle-btn" data-sourcing-mode="buckets" aria-pressed="false">Buckets</button>
+          </div>
+
+          <!-- Bucket config (bucket-strategy design slice 1b): the N1/N2 forward-gap
+               year knobs + the three editable per-bucket allocation matrices. Shown
+               ONLY in Buckets sourcing; hidden in Single. The matrices reuse the
+               glidepath per-phase matrix pattern (one editable-weights component per
+               bucket, with a per-bucket Total + Blended readout + 100% validation).
+               Rendered by JS (renderBucketMatrices); the global sourcing toggle
+               applies to BOTH scenarios, and the bucket config is the per-scenario A/B
+               surface in a later slice — v1 sends one GLOBAL bucket config to both. -->
+          <div id="bucket-config" class="bucket-config" hidden>
+            <div class="bucket-years">
+              <div class="bucket-year-field">
+                <label class="bucket-year-label" for="bucket-n1">Cash years (N1)</label>
+                <input type="number" id="bucket-n1" name="bucket-n1" class="bucket-year-input"
+                       min="0" max="40" step="1" value="2" required>
+              </div>
+              <div class="bucket-year-field">
+                <label class="bucket-year-label" for="bucket-n2">Income years (N2)</label>
+                <input type="number" id="bucket-n2" name="bucket-n2" class="bucket-year-input"
+                       min="0" max="40" step="1" value="7" required>
+              </div>
+            </div>
+            <!-- UX REFRESH (ux4): purely explanatory "what N1/N2 mean" prose tucked
+                 behind an ⓘ popover. Same .bucket-years-hint class + role on the outer
+                 element (no JS toggles it; always shown with #bucket-config); only the
+                 internals changed to a label + ⓘ. -->
+            <div class="bucket-years-hint caption-info-row" role="note">
+              <span class="caption-info-label">Gap years (N1 / N2)</span>
+              <details class="info">
+                <summary aria-label="How the cash and income bucket years work" title="How the cash and income bucket years work">&#9432;</summary>
+                <div class="info-popover" role="note">
+                  The cash bucket holds N1 years of the spending gap (spending &minus;
+                  guaranteed income); the income bucket the next N2 years. As pensions and
+                  Social Security land, the gap &mdash; and the safe buckets &mdash; shrink.
+                </div>
+              </details>
+            </div>
+            <!-- One editable allocation matrix per bucket (Cash / Income / Growth). -->
+            <div id="bucket-matrices" class="bucket-matrices"></div>
+            <!-- Substrate-honest framing (bucket-strategy design — do not soften).
+                 UX REFRESH (ux4): this is an honesty note that prevents MISREADING the
+                 buckets result (the win is buffer survival, NOT higher terminal wealth),
+                 so it keeps a concise visible LEAD and tucks the full do-not-soften text
+                 behind ⓘ — the user must not be silently misled. Same .allocation-caption
+                 .bucket-caption class + role on the outer element (no JS toggles it;
+                 always shown with #bucket-config); only the internals changed. -->
+            <div class="allocation-caption bucket-caption caption-info-row" role="note">
+              <span class="caption-info-lead">Buckets win on buffer survival, not on higher terminal wealth.</span>
+              <details class="info">
+                <summary aria-label="Why buckets don't raise terminal wealth" title="Why buckets don't raise terminal wealth">&#9432;</summary>
+                <div class="info-popover" role="note">
+                  Buckets rebalance in up years and ride in down years (spend cash, don't
+                  sell growth low). The win is buffer survival + not being forced to sell at
+                  a loss &mdash; not higher terminal wealth (cash drag &asymp; cancels it on
+                  final dollars).
+                </div>
+              </details>
+            </div>
+            <!-- UX REFRESH (ux3): #effective-equity-readout relocated to the content
+                 column, alongside #buffer-survival-readout, immediately after
+                 #bucket-chart-view. See .content-region below. -->
+          </div>
+        </div>
+
+        <!-- Assumptions sub-fold = the former "Advanced" details, relocated INSIDE
+             the Strategy & tuning disclosure (nested details). UX REFRESH (ux1):
+             the visible summary label is renamed to "Assumptions — horizon,
+             guaranteed income, returns", but the advanced id is PRESERVED (the JS
+             keys off the contained ids, not this element). -->
+        <details class="advanced" id="advanced">
+          <summary>
+            <span class="summary-label">Assumptions &mdash; horizon, guaranteed income, returns</span>
+            <span class="summary-hint">click to expand</span>
+          </summary>
+
+          <div id="horizon-fields" class="field-rows"></div>
+
+          <!-- Asset-class CMA assumptions. SHARED — one set applied to both
+               scenarios A and B. Inputs rendered from JS (renderReturnInputs in
+               app.js) off ASSET_CLASSES: the per-class real RETURN (always shown)
+               and, co-located beside it, the Monte Carlo VOLATILITY (Build 2,
+               shown only in Monte Carlo mode — meaningless to Det/Hist). The
+               single equity–bond CORRELATION input (#correlation-field) sits
+               below, also Monte-Carlo-only. Editing a return updates the blended-
+               return line live; editing a vol/correlation moves the MC fan on
+               recompute. The legend text flips between returns-only and
+               returns+volatility with the mode (updateMcInputsVisibility). -->
+          <fieldset class="returns-group">
+            <legend id="returns-legend">Asset-class real returns (%)</legend>
+            <div id="returns-fields" class="field-rows"></div>
+            <div id="correlation-field" class="correlation-field" hidden></div>
+          </fieldset>
+
+          <!-- Model assumptions (review 2026-10-11). SHARED across scenarios A and
+               B, saved with a scenario (inputs.model_assumptions), restored on
+               Reset from the engine's echoed defaults. Read by
+               readModelAssumptions() in app.js; every control recomputes on change. -->
+          <fieldset class="model-assumptions-group" id="model-assumptions">
+            <legend>Costs, inflation, pensions and survivor</legend>
+            <div class="field-rows">
+              <div class="field-row"><label class="field-label" for="ma-annual-fee">Annual investment cost (%)</label>
+                <input type="number" id="ma-annual-fee" min="0" max="3" step="0.05" value="0"></div>
+              <div class="field-row"><label class="field-label" for="ma-assumed-inflation">Assumed inflation (%)</label>
+                <input type="number" id="ma-assumed-inflation" min="0" max="10" step="0.1" value="2.5"></div>
+              <label class="field-row ma-check" for="ma-pension-nominal"><input type="checkbox" id="ma-pension-nominal"> <span class="field-label">Pensions fixed in dollars until they start</span></label>
+              <div class="field-row"><label class="field-label" for="ma-pension-cola">Pension cost-of-living adjustment</label>
+                <select id="ma-pension-cola">
+                  <option value="full">Full CPI</option>
+                  <option value="fers_diet">FERS-style (2% cap at 2&ndash;3% CPI, CPI&minus;1% above 3%)</option>
+                </select></div>
+              <div class="field-row"><label class="field-label" for="ma-mc-distribution">Monte Carlo return shape</label>
+                <select id="ma-mc-distribution">
+                  <option value="normal">Normal</option>
+                  <option value="student_t">Fat-tailed (Student-t, 5 df)</option>
+                </select></div>
+              <label class="field-row ma-check" for="ma-guard-clamp"><input type="checkbox" id="ma-guard-clamp"> <span class="field-label">Keep the guardrail budget inside the floor and ceiling</span></label>
+              <label class="field-row ma-check" for="ma-survivor-on"><input type="checkbox" id="ma-survivor-on"> <span class="field-label">Model a first death</span></label>
+              <div class="field-row ma-survivor"><label class="field-label" for="ma-survivor-age">Age at first death</label>
+                <input type="number" id="ma-survivor-age" min="19" max="110" step="1" value="80"></div>
+              <div class="field-row ma-survivor"><label class="field-label" for="ma-survivor-decedent">Who dies first</label>
+                <select id="ma-survivor-decedent">
+                  <option value="b">Person B</option>
+                  <option value="a">Person A</option>
+                </select></div>
+              <div class="field-row ma-survivor"><label class="field-label" for="ma-survivor-pension">Decedent&rsquo;s pension that continues (%)</label>
+                <input type="number" id="ma-survivor-pension" min="0" max="100" step="5" value="50"></div>
+              <div class="field-row ma-survivor"><label class="field-label" for="ma-survivor-spending">Survivor spending (% of two-person spending)</label>
+                <input type="number" id="ma-survivor-spending" min="0" max="100" step="5" value="75"></div>
+            </div>
+            <div class="cma-hint caption-info-row">
+              <span class="caption-info-label">How these work</span>
+              <details class="info">
+                <summary aria-label="How these assumptions work" title="How these assumptions work">&#9432;</summary>
+                <div class="info-popover" role="note">
+                  Investment cost comes off every year&rsquo;s return. With pensions fixed until they
+                  start, each pension amount is read as the dollar check at its start age and
+                  deflated to today at the assumed inflation. The FERS-style adjustment then trails
+                  inflation each year it&rsquo;s paid. A first death keeps the larger Social Security
+                  benefit, continues the chosen share of the decedent&rsquo;s pension, scales spending,
+                  and switches federal tax to single-filer brackets.
+                </div>
+              </details>
+            </div>
+          </fieldset>
+
+          <!-- Guardrail knobs (variable-spending design slice 3, deliverable B).
+               Editable ONLY in Guardrails spending mode (the four params are
+               read only by the GK strategy); the fieldset is hidden + its inputs
+               ignored in Constant/Lifecycle. Seeded with the research defaults
+               ($85k operational floor / $150k ceiling, ±20% band, 10% nudge). Inputs rendered
+               from JS (renderGuardrailInputs); show/hide via
+               updateGuardrailInputsVisibility on the spending-mode flip. The band
+               + nudge are PERCENT (20, 10) and convert to fractions on the API
+               path; the floor + ceiling are real dollars. -->
+          <fieldset class="guardrail-group" id="guardrail-group" hidden>
+            <legend>Guardrail rule (Guyton-Klinger)</legend>
+            <div id="guardrail-fields" class="field-rows"></div>
+            <!-- UX REFRESH (ux4): purely explanatory "how the ceiling/floor knobs
+                 trade off" prose tucked behind an ⓘ popover. Same .cma-hint class +
+                 #guardrail-satiation-hint id on the outer element (no JS toggles it
+                 directly — visibility rides on #guardrail-group); only the internals
+                 changed to a label + ⓘ. -->
+            <div class="cma-hint caption-info-row" id="guardrail-satiation-hint">
+              <span class="caption-info-label">Ceiling vs floor tradeoff</span>
+              <details class="info">
+                <summary aria-label="How the ceiling and floor knobs trade off" title="How the ceiling and floor knobs trade off">&#9432;</summary>
+                <div class="info-popover" role="note">
+                  Lowering the ceiling caps the upside &mdash; the median spend stops
+                  rising sooner in strong markets. Raising the floor lifts the worst
+                  case but leaves less for the bridge years.
+                </div>
+              </details>
+            </div>
+          </fieldset>
+
+          <!-- Amortization-frontier knob (amortization-frontier design decision 4).
+               Editable ONLY in Amortization Frontier spending mode. ONE slider: the
+               planning real return the frontier discounts the GI-netted gap stream
+               at when it solves each year for the constant-real spend that depletes
+               the portfolio to zero by the plan horizon. Default 1% real (the same
+               value the funded-ratio NPV already discounts at). Drag it to explore: pushing it toward the allocation's expected return
+               raises the frontier and craters the late-life fan — the open question
+               this prototype exists to settle. Rendered from JS
+               (renderAmortizationInput); show/hide via
+               updateAmortizationInputsVisibility on the spending-mode flip. Entered
+               as PERCENT (1.0) and converted to a fraction on the API path. -->
+          <fieldset class="amortization-group" id="amortization-group" hidden>
+            <legend>Amortization Frontier</legend>
+            <div id="amortization-fields" class="field-rows"></div>
+            <div class="cma-hint caption-info-row" id="amortization-return-hint">
+              <span class="caption-info-label">What this dial does</span>
+              <details class="info">
+                <summary aria-label="How the amortization return knob works" title="How the amortization return knob works">&#9432;</summary>
+                <div class="info-popover" role="note">
+                  The frontier is the most you could spend each year if you drew the
+                  portfolio down to zero by the end of the plan. This is the
+                  conservative real return it assumes while doing that math. Drag it
+                  up toward your allocation's expected return and the frontier rises
+                  &mdash; but the late-life downside fan craters, because you'd be
+                  spending against returns you might not get. The $85k floor and
+                  $150k ceiling are drawn as reference lines only; the frontier is
+                  free to cross them.
+                </div>
+              </details>
+            </div>
+          </fieldset>
+
+          <fieldset class="gi-group">
+            <legend>Person A's guaranteed income</legend>
+            <div id="person-a-gi-fields" class="field-rows"></div>
+          </fieldset>
+
+          <fieldset class="gi-group">
+            <legend>Person B's guaranteed income</legend>
+            <div id="person-b-gi-fields" class="field-rows"></div>
+          </fieldset>
+        </details>
+        </details><!-- /#strategy-group -->
+      </form>
+    </aside>
+
+    <!-- Groups the output containers into the layout grid's second column. -->
+    <div class="content-region">
+
+    <!-- ============ ENGINE-MODE LENS (UX REFRESH ux2) ============ -->
+    <!-- The engine-mode switch (Deterministic | Historical | Monte Carlo),
+         RELOCATED here from the sidebar. It now reads as a "lens" over the plan
+         — "how am I viewing this?" — sitting at the very top of the content
+         column, above the run controls and the comparison view-toggle, and
+         visually DISTINCT from the sidebar's blue segmented input toggles (it is
+         a light tabbed/underlined bar with a leading "View" label, not a filled
+         pill row). #mode-toggle and its three data-mode buttons / .mode-toggle-btn
+         classes are PRESERVED (the JS wiring and setMode key off them, scoped to
+         document); the .lens / .lens-toggle classes restyle it without touching
+         those hooks. In the wide 2-column layout it sits at the top of the
+         scrolling content column; in the narrow single-column reflow it is the
+         first thing in the stacked content (directly under the reflowed sidebar),
+         so the "what am I looking at" control stays at the top, not buried. -->
+    <div class="lens" id="lens">
+      <span class="lens-label" id="lens-label">View</span>
+      <div class="mode-toggle lens-toggle" id="mode-toggle" role="tablist" aria-labelledby="lens-label" aria-label="Simulation mode">
+        <button type="button" class="mode-toggle-btn lens-tab is-selected" data-mode="deterministic" role="tab" aria-pressed="true" aria-selected="true">Deterministic</button>
+        <button type="button" class="mode-toggle-btn lens-tab" data-mode="historical" role="tab" aria-pressed="false" aria-selected="false">Historical</button>
+        <button type="button" class="mode-toggle-btn lens-tab" data-mode="monte_carlo" role="tab" aria-pressed="false" aria-selected="false">Monte Carlo</button>
+        <!-- Stress Test (stress-test design slice 1): ONE VIEW entry that opens a
+             sub-selector, so the battery never clutters VIEW with one entry per
+             scenario. Selecting it overlays the chosen adverse return world on the
+             CURRENT plan (allocation / spend / GI unchanged) and renders the single
+             stressed trajectory on the deterministic single-line chart. -->
+        <button type="button" class="mode-toggle-btn lens-tab" data-mode="stress" role="tab" aria-pressed="false" aria-selected="false">Stress Test</button>
+      </div>
+      <!-- Stress sub-selector — shown only when the Stress Test lens is active (JS
+           setMode toggles [hidden]). Slice 1 lists a single scenario; later slices
+           add the rest of the battery. Changing it re-runs the overlay. -->
+      <label class="lens-stress" id="stress-selector" hidden>
+        <span class="lens-stress-label">Scenario</span>
+        <select id="stress-select" aria-label="Stress scenario">
+          <!-- The six ADVERSE Family-A worlds (stress-test design slice 2),
+               ordered roughly worst-to-tamest trough. The dropped tailwind /
+               false-positive scenarios are out of scope by design. -->
+          <option value="depression_extreme">Depression Extreme (no recovery)</option>
+          <option value="historical_depression_1929">Great Depression (1929)</option>
+          <option value="valuation_unwind_2025">2025 Valuation Unwind</option>
+          <option value="stagflation_1970s">1970s Stagflation</option>
+          <option value="gfc_2008">GFC Crash (2008)</option>
+          <option value="slow_grind_2000">Dot-com Slow Grind (2000–02)</option>
+          <!-- Family-B perturbations (stress-test design slice 3): a transform on the
+               Scenario itself, run through the ordinary engine and rendered as a
+               single Deterministic line — same output shape as Family A. -->
+          <option value="ss_haircut_23">Social Security cut −23%</option>
+          <option value="cost_of_living_shock">Cost-of-living shock (+20%)</option>
+          <!-- Family-B COLA-bearing concentration-risk perturbations (stress-test
+               design slice 4): government-income austerity (both checks cut together)
+               and a sustained cost-of-living drift. -->
+          <option value="government_austerity">Government-income austerity (SS −23% + pension freeze)</option>
+          <option value="sustained_cost_drift">Sustained cost-of-living drift (+1.5%/yr)</option>
+        </select>
+      </label>
+    </div>
+
+    <!-- ============ PINNED ACTION BAR ============ -->
+    <!-- The run-controls, relocated out of the sidebar to the top of the chart
+         column and pinned (sticky) so they never scroll off while the chart
+         column scrolls. Order: Recompute → confidence dial → Solve. Recompute is
+         the primary (blue) action and leads; the solve cluster (dial + Solve)
+         follows. The solve cluster is available in Deterministic and Historical
+         only — in Monte Carlo (view-the-distribution only) Solve is DISABLED +
+         greyed and the confidence dial is hidden. While a comparison is active
+         the cluster is likewise DISABLED + greyed (Solve is single-scenario
+         only) rather than hidden, with a tooltip on Solve explaining why in
+         either case; Recompute stays enabled. The form-error
+         span lives here too so validation/allocation errors stay next to the
+         buttons that produce them. #solve-readout + #solve-caption sit directly
+         beneath the bar (above the chart). These are the SAME elements (same
+         IDs) moved from the sidebar — relocated, not recreated. -->
+    <div class="action-bar" id="action-bar">
+      <div class="action-bar-controls">
+        <!-- Recompute, relocated out of the form's .form-actions. It now sits
+             outside the <form>, so JS wires its click to the same recompute
+             handler (onRecompute). Always enabled, and leftmost / primary. -->
+        <button type="button" id="recompute-btn" class="btn btn-primary">Recompute</button>
+        <!-- Saved Scenarios (sv1): the "Scenarios" control. A SECONDARY (grey)
+             button that toggles a plain DOM popover (NOT a modal) anchored to it,
+             listing saved scenarios (load / delete) + an inline save-as row. The
+             popover body is built by app.js (renderScenariosPopover). -->
+        <div class="scenarios-control" id="scenarios-control">
+          <button type="button" id="scenarios-btn" class="btn btn-secondary"
+                  aria-haspopup="true" aria-expanded="false"
+                  aria-controls="scenarios-popover">Scenarios &#9662;</button>
+          <div class="scenarios-popover" id="scenarios-popover" role="dialog"
+               aria-label="Saved scenarios" hidden></div>
+        </div>
+        <!-- Reset (rst1): a SECONDARY (grey) button — NOT primary-blue — that
+             restores the full default-load state in place WITHOUT a page reload
+             (confirm first, since it discards the working scenario / comparison;
+             saved scenarios are kept). Sits next to the Scenarios control. -->
+        <button type="button" id="reset-btn" class="btn btn-secondary"
+                title="Restore the default scenario, lens, and allocation (your saved scenarios are kept)">Reset</button>
+        <div class="solve-control" id="solve-control">
+          <div class="solve-dial" id="solve-dial" role="group" aria-label="Confidence target">
+            <span class="solve-dial-label">Confidence</span>
+            <div class="solve-dial-buttons">
+              <button type="button" class="solve-dial-btn is-selected" data-confidence="80" aria-pressed="true">80</button>
+              <button type="button" class="solve-dial-btn" data-confidence="90" aria-pressed="false">90</button>
+              <button type="button" class="solve-dial-btn" data-confidence="95" aria-pressed="false">95</button>
+              <button type="button" class="solve-dial-btn" data-confidence="100" aria-pressed="false">100</button>
+            </div>
+          </div>
+          <button type="button" id="solve-btn" class="btn btn-secondary solve-btn">Solve max spend</button>
+        </div>
+        <!-- Validation / allocation error, relocated from .form-actions. -->
+        <span id="form-error" class="form-error" role="alert"></span>
+      </div>
+      <!-- One-line achieved-% readout written after a solve (or an error). -->
+      <p id="solve-readout" class="solve-readout" role="status" hidden></p>
+      <!-- Muted caption matching .allocation-caption. Shown alongside a
+           successful readout. -->
+      <!-- UX REFRESH (ux4): purely explanatory "what the solved number means" prose
+           tucked behind an ⓘ popover. OUTER #solve-caption keeps id/class/role so
+           setSolveReadout still toggles the whole unit by id (caption.hidden = !text ||
+           isError); only the internals changed to a label + ⓘ. -->
+      <div id="solve-caption" class="allocation-caption solve-caption caption-info-row" role="note" hidden>
+        <span class="caption-info-label">About this number</span>
+        <details class="info">
+          <summary aria-label="What this safe-spend number means" title="What this safe-spend number means">&#9432;</summary>
+          <div class="info-popover" role="note">This is your safe spend if you never adjust. In practice you would &mdash; switch the spending strategy to guardrails, one of the funded-ratio rules, or the amortization frontier to see how flexing lets you spend more.</div>
+        </details>
+      </div>
+    </div>
+
+    <!-- ============ WORKING INDICATOR (tax-drag design td1 — timing
+         acceptance: long runs are fine as long as the UI shows it's working,
+         not hanging) ============ -->
+    <!-- A live elapsed-seconds counter + expected-duration copy, shown while a
+         run (Recompute or Solve) is in flight past ~2s — fast runs never see it.
+         Split-active Monte Carlo runs the dragged fixed point across 10,000
+         trials (~15-25s measured post-memoization parallelism; was ~45-60s); the copy
+         calls that out explicitly so the wait reads as "working," not
+         "hung." Ticks via setInterval
+         (startRunProgress); cleared on response OR error (stopRunProgress) so it
+         can never linger stale. Stable ids for the integrator's live gate. -->
+    <p class="run-progress" id="run-progress" role="status" aria-live="polite" hidden>
+      <span id="run-progress-elapsed" class="run-progress-elapsed"></span>
+      <span id="run-progress-copy" class="run-progress-copy"></span>
+    </p>
+
+    <!-- Saved Scenarios (sv2): chart-adjacent note for a "Compare with…" load.
+         Surfaces the mode-mismatch / glidepath-buckets-limit explainer near the
+         chart (the popover #scenarios-status closes with the popover on a clean
+         compare). Written + toggled by app.js (setCompareNote); empty == hidden. -->
+    <p id="compare-note" class="compare-note" role="status" hidden></p>
+
+    <!-- ---- View toggle (Overlay | Side-by-side), comparing-only ---- -->
+    <!-- Build 3: moved OUT of #deterministic-region so the SAME toggle drives
+         the comparison view in BOTH Deterministic and Historical mode. JS
+         (updateViewToggle) shows it whenever isComparing() in either mode;
+         switchView() flips overlay <-> side-by-side and re-renders the active
+         mode's comparison from cached payloads. -->
+    <div class="view-toggle" id="view-toggle" role="group" aria-label="Comparison view" hidden>
+      <button type="button" class="view-toggle-btn is-selected" data-view="overlay" aria-pressed="true">Overlay</button>
+      <button type="button" class="view-toggle-btn" data-view="sidebyside" aria-pressed="false">Side-by-side</button>
+    </div>
+
+    <!-- Build 3: deterministic-model limitation caption, also shared across both
+         modes now (moved out of #deterministic-region). Shown by JS
+         (updateAllocationCaption) ONLY when the allocation is unlinked AND the
+         mode is Deterministic — Historical mode IS the answer to "higher equity
+         always wins," so the caveat is irrelevant (indeed wrong) there. -->
+    <!-- UX REFRESH (ux4): the deterministic-model caveat is an honesty note that
+         prevents MISREADING the unlinked-allocation comparison ("higher equity always
+         wins" is a model artefact, not a real result), so it keeps a concise visible
+         LEAD and tucks the full caveat behind ⓘ. The OUTER #allocation-caption element
+         keeps its id, class, and role unchanged so updateAllocationCaption still toggles
+         the whole unit by id (cap.hidden = allocationLinked() || simMode !== det); only
+         its internals changed. -->
+    <div class="allocation-caption caption-info-row" id="allocation-caption" role="note" hidden>
+      <span class="caption-info-lead">Deterministic model: higher equity always projects a higher ending value (a model artefact, not a real result).</span>
+      <details class="info">
+        <summary aria-label="Why higher equity always wins in the deterministic model" title="Why higher equity always wins in the deterministic model">&#9432;</summary>
+        <div class="info-popover" role="note">
+          Deterministic model: higher equity always projects a higher ending value &mdash; there's no
+          volatility or sequence-of-returns penalty. The risk tradeoff that justifies holding bonds
+          shows up in the Historical and Monte Carlo modes.
+        </div>
+      </details>
+    </div>
+
+    <!-- ============ BUCKET-BALANCE VIEW (bucket-strategy design slice 1b) ============ -->
+    <!-- The 3-bucket cash/income/growth balance chart, shown ONLY in Buckets
+         sourcing. Lives ABOVE the mode-specific output regions so the SAME element
+         serves Deterministic (the exact 3 balances), Historical (the WORST cohort's
+         3 balances), and is hidden in Monte Carlo (synthetic trials have no calendar
+         cohort to draw — MC shows buffer-survival stats only, consistent with the
+         guardrails worst-cohort drill-down being Historical-only). JS
+         (renderBucketBalanceChart / updateBucketChartView) draws + manages the
+         chart instance off payload.bucket_balances (Deterministic) or
+         payload.worst_bucket_cohort (Historical). -->
+    <div class="bucket-chart-view" id="bucket-chart-view" hidden>
+      <section class="chart-wrap bucket-chart-wrap">
+        <h3 class="bucket-chart-title" id="bucket-chart-title">Bucket balances over time (real $)</h3>
+        <p class="bucket-chart-note" id="bucket-chart-note" role="note"></p>
+        <div class="bucket-chart-canvas-box">
+          <canvas id="bucket-balance-chart"></canvas>
+        </div>
+      </section>
+      <!-- CHART EXPLAINER — BUCKET BALANCES (ctx1). Its OWN "How to read ▾"
+           (paragraph only, no params — the key-parameters digest lives under the
+           MAIN chart since it describes the scenario as a whole). Rides with
+           #bucket-chart-view's visibility (shown only in buckets sourcing), so no JS
+           toggles it; renderChartExplainers just keeps #explainer-bucket-text current.
+           Collapsed by default. -->
+      <details class="chart-explainer" id="explainer-bucket">
+        <summary class="explainer-summary">
+          <span class="summary-label">How to read this chart</span>
+          <span class="summary-hint">click to expand</span>
+        </summary>
+        <div class="explainer-body">
+          <p class="explainer-text" id="explainer-bucket-text" role="note"></p>
+        </div>
+      </details>
+      <!-- Matched-allocation guidance (bucket-strategy design — REQUIRED, do not
+           soften). A fair buckets-vs-single head-to-head sets the SAME overall
+           equity/bond split on both; the DEFAULT bucket config is ~46% equity vs a
+           single 60/40, so default-vs-default depletes more purely from being more
+           conservative, not from sourcing. Shown whenever a comparison is active in
+           buckets mode (JS: updateBucketMatchedAllocationNote). -->
+      <!-- UX REFRESH (ux4): honesty note that prevents MISREADING a buckets-vs-single
+           comparison (you're comparing conservatism, not sourcing, unless you match the
+           split). Keeps a concise visible LEAD + the full do-not-soften text behind ⓘ.
+           OUTER #bucket-matched-note keeps id/class/role so updateBucketChartView still
+           toggles the whole unit by id (matchedNote.hidden = !isComparing()). -->
+      <div class="allocation-caption bucket-matched-note caption-info-row" id="bucket-matched-note" role="note" hidden>
+        <span class="caption-info-lead">Comparing buckets vs single? Match the equity/bond split on both &mdash; otherwise you're comparing conservatism, not sourcing.</span>
+        <details class="info">
+          <summary aria-label="Why match the equity split when comparing buckets vs single" title="Why match the equity split when comparing buckets vs single">&#9432;</summary>
+          <div class="info-popover" role="note">
+            Comparing buckets vs single? Set the SAME overall equity/bond split on both
+            &mdash; otherwise you're comparing conservatism, not sourcing. The default
+            bucket config is about 46% equity against a single 60/40, so default-vs-default
+            depletes more purely from being more conservative.
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <!-- ============ BUCKET READOUTS (UX REFRESH ux3) ============ -->
+    <!-- The buckets-only result readouts, RELOCATED here from the sidebar Sourcing
+         block so the model's *answers* sit with the bucket chart they describe.
+         They are SIBLINGS of #bucket-chart-view (not children) on purpose: that
+         container is hidden in Monte Carlo and in no-payload states, but
+         #buffer-survival-readout must still show in Monte Carlo (its headline
+         metric) and #effective-equity-readout shows in every buckets mode. Each
+         readout keeps its own id, classes, and role; the updater functions
+         (updateBufferSurvivalReadout / updateEffectiveEquityReadout) resolve them
+         by getElementById and toggle [hidden] off the sourcingMode/simMode globals,
+         so re-parenting is behavior-neutral. The wrapper carries no show/hide logic
+         of its own (the JS never targets it); it only groups the two lines under
+         the chart. -->
+    <div class="bucket-readouts" id="bucket-readouts">
+      <!-- Buffer-survival readout (buckets-only): how often the cash+income buffer
+           was breached and a growth sale forced, across the histories. Populated
+           from payload.buffer_survival in Historical / Monte Carlo; hidden in
+           single mode and in Deterministic (no down years to test the buffer). -->
+      <p id="buffer-survival-readout" class="allocation-caption bucket-caption" role="note" hidden></p>
+      <!-- Effective-equity glidepath readout (buckets-only): the allocation the
+           gap-based sizing silently imposes. At a high spend the safe buckets eat
+           most of the portfolio, so the effective equity share starts well below
+           the growth bucket's nominal weight and rises as guaranteed income lands.
+           Populated from payload.effective_equity (present in all three modes);
+           hidden in single sourcing. JS: updateEffectiveEquityReadout. -->
+      <p id="effective-equity-readout" class="allocation-caption bucket-caption" role="note" hidden></p>
+    </div>
+
+    <!-- ============ TAX-LOCATION BALANCE VIEW (tax-buckets design tb1) ============ -->
+    <!-- A DISTINCT chart from the cash/income/growth bucket chart above — different
+         title, labels, colours; it's about ACCOUNT TYPE / tax location, never
+         "buckets". Shown ONLY when a tax-location split is active (single sourcing +
+         balances supplied). Deterministic: three lines (taxable / tax-deferred /
+         Roth) over time off payload.tax_location. Historical / Monte Carlo: a
+         TAXABLE fan (p10 / median / p90) off payload.tax_location_risk — it shows
+         how often / how early the taxable account bottoms out before 59½. The bridge
+         readout beneath is the headline answer (mode-aware). JS
+         (updateTaxLocationView) draws/manages the chart + readout. The whole block
+         scopes to NON-comparison view in tb1 (the split is a per-scenario,
+         single-mode feature; it's hidden while comparing). -->
+    <div class="tax-location-view" id="tax-location-view" hidden>
+      <section class="chart-wrap tax-location-chart-wrap">
+        <h3 class="tax-location-chart-title" id="tax-location-chart-title">Account balances over time (real $)</h3>
+        <p class="tax-location-chart-note" id="tax-location-chart-note" role="note"></p>
+        <div class="tax-location-chart-canvas-box">
+          <canvas id="tax-location-chart"></canvas>
+        </div>
+      </section>
+
+      <!-- The BRIDGE READOUT — the headline answer (mode-aware). Populated by
+           updateTaxLocationView; the pre-tax caveat rides in #tax-location-caveat. -->
+      <p id="tax-location-bridge" class="tax-location-bridge" role="status"></p>
+      <p id="tax-location-caveat" class="tax-location-caveat" role="note"></p>
+
+      <!-- ============ FEDERAL-TAX READOUT (federal-tax overlay design ft1) ============ -->
+      <!-- A compact numeric readout joining the bridge readout above: median/avg
+           annual federal tax, federal tax as a % of SPENDING (NEVER "effective tax
+           rate" — the denominator is spending, not income; reviewer-mandated
+           wording), and the worst tax year. Deterministic reads the path scalars;
+           Historical/MC reads the median-of-paths aggregate — both off
+           payload.federal_tax (present iff the tax-location split is active, the
+           SAME gate as tax_location). Written by renderFederalTaxReadout, called
+           from updateTaxLocationView right alongside renderTaxLocationBridge — so
+           it rides the IDENTICAL show/hide gate as the whole #tax-location-view
+           block (off / gated / comparing -> hidden), the same compare-mode
+           treatment tb1 uses. Reuses .tax-location-bridge styling (prominent,
+           :empty auto-hides) since it's a headline-tier readout, not a footnote. -->
+      <p id="federal-tax-readout" class="tax-location-bridge" role="status"></p>
+
+      <!-- ============ ESTATE-COST-OF-TAXES READOUT (tax-drag design td1, DECISION
+           9) ============ -->
+      <!-- "Taxes cost your estate ~$X by <end age>" — pre-tax terminal minus
+           dragged terminal (deterministic: the single pair; Historical/MC: the
+           median of PER-PATH differences, never a difference of medians), PAIRED
+           with the success-rate delta sentence whenever it's nonzero (the
+           mutual-depletion guard: a $0 estate-cost number where both worlds
+           deplete must not read as "taxes are free"). Off payload.estate_cost_of_taxes
+           (present iff the tax-location split is active, the SAME gate as
+           tax_location/federal_tax). Written by renderEstateCostReadout, called
+           from updateTaxLocationView right alongside the other tax readouts — same
+           show/hide gate as the whole #tax-location-view block. Reuses
+           .tax-location-bridge styling (headline-tier, :empty auto-hides). -->
+      <p id="estate-cost-readout" class="tax-location-bridge" role="status"></p>
+
+      <!-- CHART EXPLAINER — TAX LOCATION (ctx1 idiom). Its OWN "How to read ▾"
+           (paragraph only; the key-parameters digest gains a tax-location line under
+           the MAIN chart). Rides with #tax-location-view's visibility (shown only
+           when a split is active), so no JS toggles it; renderChartExplainers keeps
+           #explainer-tax-location-text current. Collapsed by default. -->
+      <details class="chart-explainer" id="explainer-tax-location">
+        <summary class="explainer-summary">
+          <span class="summary-label">How to read this chart</span>
+          <span class="summary-hint">click to expand</span>
+        </summary>
+        <div class="explainer-body">
+          <p class="explainer-text" id="explainer-tax-location-text" role="note"></p>
+        </div>
+      </details>
+
+      <!-- CHART EXPLAINER — FEDERAL-TAX OVERLAY (federal-tax overlay design ft1,
+           ctx1 idiom). Its OWN "How to read ▾", separate from tax-location's above
+           (a distinct disclosure, not folded into it) — states plainly that the
+           portfolio fan + every trajectory stay PRE-TAX (display-only accounting
+           overlay) plus the documented simplifications. Rides with
+           #tax-location-view's visibility; renderChartExplainers keeps
+           #explainer-federal-tax-text current. Collapsed by default. -->
+      <details class="chart-explainer" id="explainer-federal-tax">
+        <summary class="explainer-summary">
+          <span class="summary-label">How to read the federal-tax overlay</span>
+          <span class="summary-hint">click to expand</span>
+        </summary>
+        <div class="explainer-body">
+          <p class="explainer-text" id="explainer-federal-tax-text" role="note"></p>
+        </div>
+      </details>
+    </div>
+
+    <!-- ============ HISTORICAL VIEW (Return Variability) ============ -->
+    <!-- Shown ONLY in Historical mode (JS toggles [hidden]). Builds 1–2 shipped
+         the single-scenario fan: a median trajectory line + a shaded 10th–90th
+         percentile band (inner 25–75 band too) + a descriptive readout (median
+         ending value, 10–90 ending range, M of N cohorts reaching zero before
+         end_age, earliest age). Build 3 makes Historical work through the
+         existing two-scenario comparison: when a field is unlinked it renders
+         TWO fans — overlay (two medians + two translucent 10–90 bands, A blue /
+         B magenta → purple overlap) by default, or side-by-side via the shared
+         view toggle. The deterministic output region below is hidden while this
+         is visible, and vice-versa. -->
+    <div class="historical-view" id="historical-view" hidden>
+      <!-- Comparison-window alignment note (option 3): shown only when an A/B
+           Historical comparison clamps BOTH scenarios to the common (latest)
+           testable window, so the depletion rates / medians / fans are measured
+           over the SAME cohorts. Text set + toggled by JS (renderHistoricalComparison). -->
+      <p class="allocation-caption comparison-window-note" id="comparison-window-note" role="note" hidden></p>
+      <!-- SINGLE fan (Builds 1–2): all fields linked → one scenario, one fan. -->
+      <div class="historical-single" id="historical-single">
+        <section class="summary">
+          <p id="historical-summary" class="summary-line">Loading&hellip;</p>
+        </section>
+        <section class="chart-wrap">
+          <canvas id="historical-chart"></canvas>
+        </section>
+        <!-- Spending fan (variable-spending design slice 1). Shown ONLY in
+             Guardrails spending mode, where spending varies across cohorts so a
+             per-age spend distribution exists. Reuses the same percentile-fan
+             renderer as the portfolio fan above. Hidden (and torn down) in
+             Constant/Lifecycle, where spending is identical across cohorts. -->
+        <section class="chart-wrap spending-fan-wrap" id="spending-fan-wrap" hidden>
+          <!-- UX REFRESH (ux4): the spending-fan title now carries an ⓘ that reveals
+               the purely explanatory "how the fan reads" prose. The prose element keeps
+               id #spending-fan-note (now the .info-popover body) so updateSpendingFan's
+               note.textContent assignment still lands in the popover — only the
+               disclosure moved, not the JS target. -->
+          <div class="spending-fan-head caption-info-row">
+            <h3 class="spending-fan-title" id="spending-fan-title">Spending across history (real $)</h3>
+            <details class="info">
+              <summary aria-label="How to read the spending fan" title="How to read the spending fan">&#9432;</summary>
+              <div id="spending-fan-note" class="spending-fan-note info-popover" role="note">
+                Under guardrails, spending bends with the market: a bad sequence
+                forces cuts toward the floor, a good one allows raises toward the
+                ceiling. The band shows the 10th&ndash;90th percentile of actual
+                spending at each age across every historical cohort.
+              </div>
+            </details>
+          </div>
+          <!-- The honest satiation-surplus limit (variable-spending design slice 3,
+               deliverable D). The upside guardrail drains surplus into the active
+               years but is bounded by the ceiling: in genuinely strong markets you
+               hit the satiation cap and STILL end with an unspendable surplus.
+               "Drive terminal value to zero" is achievable only up to satiation —
+               state it, don't hide it. Shown beside the fan + the ceiling knob.
+               UX REFRESH (ux4): honesty note that prevents MISREADING the upside
+               ("drive ending value to zero" is bounded, not unlimited). Keeps a concise
+               visible LEAD + the full do-not-soften text behind ⓘ. OUTER #satiation-note
+               keeps id/class/role (no JS toggles it; rides with #spending-fan-wrap). -->
+          <div id="satiation-note" class="satiation-note caption-info-row" role="note">
+            <span class="caption-info-lead">Honest limit: the upside only spends down surplus up to the ceiling &mdash; in strong markets you still finish with money you never spent.</span>
+            <details class="info">
+              <summary aria-label="Why the upside is bounded by the ceiling" title="Why the upside is bounded by the ceiling">&#9432;</summary>
+              <div class="info-popover" role="note">
+                Honest limit: the upside only spends down surplus <em>up to the
+                ceiling</em>. In genuinely strong markets you hit the satiation cap
+                and still finish with money you never spent &mdash; a year can only
+                absorb so much quality of life, so &ldquo;drive the ending value to
+                zero&rdquo; is bounded by the ceiling, not unlimited.
+              </div>
+            </details>
+          </div>
+          <div class="spending-fan-canvas-box">
+            <canvas id="spending-fan-chart"></canvas>
+          </div>
+          <!-- CHART EXPLAINER — GUARDRAILS SPENDING FAN (ctx1). Its OWN "How to read
+               ▾" (paragraph only, no params). Rides with #spending-fan-wrap's
+               visibility (shown only in guardrails spending mode), so no JS toggles
+               it; renderChartExplainers keeps #explainer-spending-text current.
+               Collapsed by default. -->
+          <details class="chart-explainer" id="explainer-spending">
+            <summary class="explainer-summary">
+              <span class="summary-label">How to read this chart</span>
+              <span class="summary-hint">click to expand</span>
+            </summary>
+            <div class="explainer-body">
+              <p class="explainer-text" id="explainer-spending-text" role="note"></p>
+            </div>
+          </details>
+        </section>
+
+        <!-- Adjustment events (variable-spending design slice 2): the COST of
+             flexibility, made legible. The readout panel reports how often a
+             cut/raise fires across cohorts, when the first cut lands, time at /
+             at the floor, the deepest cut, and the % of histories ever forced
+             down to your floor. The drill-down narrates the single most-squeezed
+             cohort year-by-year with $ triggers (GI-driven raises labelled
+             distinctly). Guardrails + Historical only; hidden + torn down
+             otherwise. -->
+        <section class="adjustment-panel" id="adjustment-panel" hidden>
+          <h3 class="adjustment-title">The cost of flexibility</h3>
+          <p class="adjustment-note" id="adjustment-note" role="note"
+             data-historical="Guardrails don't promise a fixed lifestyle — they promise a floor, and bend spending to defend it. This is the shape of that bending across every historical retirement: how often you'd cut or raise, when, and how deep the worst squeeze runs."
+             data-monte-carlo="Guardrails don't promise a fixed lifestyle — they promise a floor, and bend spending to defend it. This is the shape of that bending across 10,000 simulated retirements: how often you'd cut or raise, when, and how deep the worst squeeze runs.">
+            Guardrails don't promise a fixed lifestyle &mdash; they promise a
+            <em>floor</em>, and bend spending to defend it. This is the shape of
+            that bending across every historical retirement: how often you'd cut
+            or raise, when, and how deep the worst squeeze runs.
+          </p>
+          <div class="adjustment-stats" id="adjustment-stats"></div>
+
+          <!-- Drill into the single most-squeezed cohort. -->
+          <div class="worst-cohort" id="worst-cohort">
+            <h4 class="worst-cohort-title" id="worst-cohort-title"></h4>
+            <p class="worst-cohort-summary" id="worst-cohort-summary"></p>
+            <details class="worst-cohort-details">
+              <summary class="worst-cohort-summary-toggle">
+                Year-by-year spending path (cuts, raises, and what triggered them)
+              </summary>
+              <div class="worst-cohort-table-wrap">
+                <table class="trajectory-table worst-cohort-table" id="worst-cohort-table">
+                  <thead>
+                    <tr>
+                      <th>Age</th>
+                      <th>Adjustment</th>
+                      <th>Spending</th>
+                      <th>Portfolio</th>
+                      <th>Guaranteed income</th>
+                    </tr>
+                  </thead>
+                  <tbody id="worst-cohort-tbody"></tbody>
+                </table>
+              </div>
+            </details>
+          </div>
+        </section>
+      </div>
+
+      <!-- OVERLAY fans (Build 3, default while comparing): two medians + two
+           translucent 10–90 bands on ONE chart, shared Y axis. Per-scenario
+           readout line above. -->
+      <div class="historical-overlay" id="historical-overlay" hidden>
+        <section class="summary overlay-summaries">
+          <p id="historical-overlay-summary-a" class="summary-line summary-line-a">Loading&hellip;</p>
+          <p id="historical-overlay-summary-b" class="summary-line summary-line-b">Loading&hellip;</p>
+        </section>
+        <section class="chart-wrap">
+          <canvas id="historical-overlay-chart"></canvas>
+        </section>
+      </div>
+
+      <!-- SIDE-BY-SIDE fans (Build 3, via the view toggle): two separate fan
+           charts on a shared Y axis. Each keeps the fuller fan (median + 10–90
+           + inner 25–75) since the fans don't overlap here. -->
+      <div class="historical-sidebyside" id="historical-sidebyside" hidden>
+        <div class="historical-panels">
+          <section class="panel" aria-label="Scenario A">
+            <h2 class="panel-title summary-label-a">Scenario A</h2>
+            <section class="summary">
+              <p id="historical-side-summary-a" class="summary-line summary-line-a">Loading&hellip;</p>
+            </section>
+            <section class="chart-wrap">
+              <canvas id="historical-side-chart-a"></canvas>
+            </section>
+          </section>
+          <section class="panel" aria-label="Scenario B">
+            <h2 class="panel-title summary-label-b">Scenario B</h2>
+            <section class="summary">
+              <p id="historical-side-summary-b" class="summary-line summary-line-b">Loading&hellip;</p>
+            </section>
+            <section class="chart-wrap">
+              <canvas id="historical-side-chart-b"></canvas>
+            </section>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <!-- Deterministic output region (single / overlay / side-by-side). Hidden as
+         a whole in Historical mode via #deterministic-region[hidden]. -->
+    <div id="deterministic-region">
+    <!-- ============ OUTPUT REGION ============ -->
+    <!-- Slice 10b adds a THIRD output state. There are now three render modes,
+         each with its own DOM container, shown/hidden by JS (updateOutputMode):
+           1. SINGLE  (nothing unlinked)           -> .panels.is-single, panel A only.
+           2. OVERLAY (unlinked + viewMode overlay) -> .overlay-view (DEFAULT compare view).
+           3. SIDE-BY-SIDE (unlinked + sidebyside)  -> .panels, two columns.
+         The overlay view (NEW, default when comparing) is ONE chart with two
+         lines (Scenario A + Scenario B), plus both summary lines and both
+         year-by-year drill-downs stacked beneath it. The side-by-side .panels
+         block is retained intact.
+         The "Overlay | Side-by-side" view toggle (and the deterministic-model
+         caption) now live ABOVE this region, shared with Historical mode (Build
+         3). JS (updateViewToggle, called from afterLinkChange) binds the
+         toggle's visibility to isComparing() in either mode. -->
+
+    <!-- ---- Overlay view (one chart, two lines) ---- -->
+    <div class="overlay-view" hidden>
+      <section class="overlay-summaries">
+        <p id="overlay-summary-a" class="summary-line summary-line-a">Loading&hellip;</p>
+        <p id="overlay-summary-b" class="summary-line summary-line-b">Loading&hellip;</p>
+      </section>
+
+      <section class="chart-wrap">
+        <canvas id="overlay-chart"></canvas>
+      </section>
+
+      <section class="overlay-tables">
+        <!-- Scenario A drill-down -->
+        <details id="overlay-details-a" class="trajectory-details">
+          <summary class="table-summary">
+            <span class="summary-label summary-label-a">Scenario A &mdash; year-by-year</span>
+            <span class="summary-hint">click to expand</span>
+          </summary>
+          <div class="table-heading">
+            <details class="info">
+              <summary aria-label="Why don't the rows add up?" title="Why don't the rows add up?">&#9432;</summary>
+              <div class="info-popover" role="note">
+                Spending happens gradually through the year, not all on January 1.
+                So part of each year's spending earns some investment growth before being spent.
+                That's why these rows don't add up exactly &mdash; usually about $3,000 off per year.
+              </div>
+            </details>
+          </div>
+          <table id="overlay-table-a" class="trajectory-table">
+            <thead>
+              <tr>
+                <th>Age</th>
+                <th>Start portfolio</th>
+                <th>Growth</th>
+                <th>GI</th>
+                <th>Spending</th>
+                <th>End portfolio</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </details>
+
+        <!-- Scenario B drill-down -->
+        <details id="overlay-details-b" class="trajectory-details">
+          <summary class="table-summary">
+            <span class="summary-label summary-label-b">Scenario B &mdash; year-by-year</span>
+            <span class="summary-hint">click to expand</span>
+          </summary>
+          <div class="table-heading">
+            <details class="info">
+              <summary aria-label="Why don't the rows add up?" title="Why don't the rows add up?">&#9432;</summary>
+              <div class="info-popover" role="note">
+                Spending happens gradually through the year, not all on January 1.
+                So part of each year's spending earns some investment growth before being spent.
+                That's why these rows don't add up exactly &mdash; usually about $3,000 off per year.
+              </div>
+            </details>
+          </div>
+          <table id="overlay-table-b" class="trajectory-table">
+            <thead>
+              <tr>
+                <th>Age</th>
+                <th>Start portfolio</th>
+                <th>Growth</th>
+                <th>GI</th>
+                <th>Spending</th>
+                <th>End portfolio</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </details>
+      </section>
+    </div>
+
+    <!-- ---- Single + side-by-side panels (10a + existing) ---- -->
+    <!-- Slice 10a: when every field is linked there is no comparison axis, so
+         the two panels would be identical. In that "single" state JS adds
+         .is-single to .panels (collapsing it to one column), hides panel B, and
+         neutralises panel A's title to "Projection". When any field is unlinked
+         AND viewMode is sidebyside the comparison axis returns: .is-single is
+         removed, panel B reappears, and the titles revert to "Scenario A" /
+         "Scenario B". Title text is driven from JS (updatePanelChrome), keyed off
+         the data-* attributes below, so the source labels are just initial values. -->
+    <div class="panels">
+      <!-- Scenario A -->
+      <section class="panel" data-panel="a" data-title-single="Projection" data-title-compare="Scenario A" aria-label="Scenario A">
+        <h2 class="panel-title">Scenario A</h2>
+
+        <section id="summary-a" class="summary">
+          <p class="summary-line">Loading&hellip;</p>
+        </section>
+
+        <section class="chart-wrap">
+          <canvas id="trajectory-chart-a"></canvas>
+        </section>
+
+        <section class="table-wrap">
+          <details id="trajectory-details-a" class="trajectory-details">
+            <summary class="table-summary">
+              <span class="summary-label">Year-by-year breakdown</span>
+              <span class="summary-hint">click to expand</span>
+            </summary>
+            <div class="table-heading">
+              <details class="info">
+                <summary aria-label="Why don't the rows add up?" title="Why don't the rows add up?">&#9432;</summary>
+                <div class="info-popover" role="note">
+                  Spending happens gradually through the year, not all on January 1.
+                  So part of each year's spending earns some investment growth before being spent.
+                  That's why these rows don't add up exactly &mdash; usually about $3,000 off per year.
+                </div>
+              </details>
+            </div>
+            <table id="trajectory-table-a" class="trajectory-table">
+              <thead>
+                <tr>
+                  <th>Age</th>
+                  <th>Start portfolio</th>
+                  <th>Growth</th>
+                  <th>GI</th>
+                  <th>Spending</th>
+                  <th>End portfolio</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </details>
+        </section>
+      </section>
+
+      <!-- Scenario B -->
+      <section class="panel" data-panel="b" data-title-compare="Scenario B" aria-label="Scenario B">
+        <h2 class="panel-title">Scenario B</h2>
+
+        <section id="summary-b" class="summary">
+          <p class="summary-line">Loading&hellip;</p>
+        </section>
+
+        <section class="chart-wrap">
+          <canvas id="trajectory-chart-b"></canvas>
+        </section>
+
+        <section class="table-wrap">
+          <details id="trajectory-details-b" class="trajectory-details">
+            <summary class="table-summary">
+              <span class="summary-label">Year-by-year breakdown</span>
+              <span class="summary-hint">click to expand</span>
+            </summary>
+            <div class="table-heading">
+              <details class="info">
+                <summary aria-label="Why don't the rows add up?" title="Why don't the rows add up?">&#9432;</summary>
+                <div class="info-popover" role="note">
+                  Spending happens gradually through the year, not all on January 1.
+                  So part of each year's spending earns some investment growth before being spent.
+                  That's why these rows don't add up exactly &mdash; usually about $3,000 off per year.
+                </div>
+              </details>
+            </div>
+            <table id="trajectory-table-b" class="trajectory-table">
+              <thead>
+                <tr>
+                  <th>Age</th>
+                  <th>Start portfolio</th>
+                  <th>Growth</th>
+                  <th>GI</th>
+                  <th>Spending</th>
+                  <th>End portfolio</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </details>
+        </section>
+      </section>
+    </div>
+    </div><!-- /#deterministic-region -->
+
+    <!-- ============ CHART EXPLAINER — MAIN PROJECTION CHART (ctx1) ============ -->
+    <!-- "How to read this chart ▾" disclosure beneath the main projection chart
+         (line / fan / overlay / side-by-side). Collapsed by default (no `open`) so
+         it stays on-demand and doesn't re-clutter the UX-refresh declutter. Mirrors
+         the "Year-by-year breakdown" <details class="trajectory-details"> idiom for
+         markup/style/aria. Two stacked sections, both filled live by app.js
+         (renderChartExplainers): (1) #explainer-main-text — the how-to-read paragraph
+         selected by the current view (overlay/side wins over sim-mode); (2)
+         #explainer-main-params — the key-parameters digest (one list when single, two
+         Scenario A / Scenario B lists when comparing). -->
+    <details class="chart-explainer" id="explainer-main">
+      <summary class="explainer-summary">
+        <span class="summary-label">How to read this chart</span>
+        <span class="summary-hint">click to expand</span>
+      </summary>
+      <div class="explainer-body">
+        <p class="explainer-text" id="explainer-main-text" role="note"></p>
+        <div class="explainer-params" id="explainer-main-params"></div>
+      </div>
+    </details>
+
+    <!-- Deterministic guardrails spending LINE (dsc1). The deterministic analog of
+         the Historical/MC spending fan below: a single guardrails spending path on
+         the central return path, drawn off payload.trajectory.points[].spending.
+         Shown ONLY in Deterministic mode + Guardrails spending + not comparing (JS
+         updateDeterministicSpending toggles [hidden] + tears the chart down). Lives
+         in .content-region so its ⓘ popover inherits the container-scoped
+         positioning (.content-region .info-popover) — NO wrapper-scoped rule. -->
+    <section class="chart-wrap det-spending-wrap" id="det-spending-wrap" hidden>
+      <!-- The title carries an ⓘ revealing the explanatory prose, mirroring the
+           spending-fan head (.caption-info-row + <details class="info">). -->
+      <div class="det-spending-head caption-info-row">
+        <h3 class="det-spending-title" id="det-spending-title">Spending under guardrails (real $)</h3>
+        <details class="info">
+          <summary aria-label="How to read the deterministic spending chart" title="How to read the deterministic spending chart">&#9432;</summary>
+          <div class="info-popover" role="note">
+            Your guardrails spending on the single &lsquo;average returns every
+            year&rsquo; path &mdash; the one spending trajectory that pairs with the
+            portfolio line. You can see the prosperity raises and the late-life cuts
+            on the central case, plus your spending floor and the
+            absolute-survivable floor. But it&rsquo;s one smooth path with no down
+            years, so it shows no sequence-of-returns spread. For how spending varies
+            across market paths, switch to Historical or Monte Carlo for the spending
+            fan.
+          </div>
+        </details>
+      </div>
+      <div class="det-spending-canvas-box">
+        <canvas id="det-spending-chart"></canvas>
+      </div>
+      <!-- CHART EXPLAINER — DETERMINISTIC GUARDRAILS SPENDING (ctx1). Its OWN "How to
+           read ▾" (paragraph only). Rides with #det-spending-wrap's visibility, so no
+           JS toggles it; renderChartExplainers keeps #explainer-det-spending-text
+           current. Collapsed by default. -->
+      <details class="chart-explainer" id="explainer-det-spending">
+        <summary class="explainer-summary">
+          <span class="summary-label">How to read this chart</span>
+          <span class="summary-hint">click to expand</span>
+        </summary>
+        <div class="explainer-body">
+          <p class="explainer-text" id="explainer-det-spending-text" role="note"></p>
+        </div>
+      </details>
+    </section>
+    </div>
+    </div>
+  </main>
+
+
+  <script src="static/chart.min.js"></script>
+  <script src="static/chart_view.js?v=r1011"></script>
+  <script src="static/comparison_state.js?v=r1011"></script>
+  <script src="static/payload_assembler.js?v=r1011"></script>
+  <script src="static/scenario_store.js?v=r1011"></script>
+  <script src="static/ss_claim.js?v=r1011"></script>
+  <script src="static/app.js?v=r1011"></script>
+</body>
+</html>

@@ -1,0 +1,3437 @@
+:root {
+  --fg: #1c2733;
+  --muted: #4a5868;
+  --bg: #f7f5f1;
+  --panel: #fff;
+  --border: #d8d2c6;
+  --accent: #0d6e63;
+
+  /* --- color tokens ---
+     Behavior-neutral tokenization (dark-mode slice 1): every color literal in
+     this file is relocated here as a role-addressable token holding its CURRENT
+     value. Rules reference these via var(); no values change. The 6 tokens above
+     (--fg/--muted/--bg/--panel/--border/--accent) are reused wherever a literal is
+     conceptually one of them. The tokens below cover the remaining roles. */
+
+  /* surfaces & text-on-color */
+  --on-accent: #fff;            /* text/icon drawn on an --accent fill */
+  --surface-hover: #efece5;     /* generic hover tint for buttons/toggles */
+  --surface-subtle: #f1eee8;    /* zebra-stripe row tint */
+  --surface-disabled: #f0ede6;  /* disabled input background */
+  --input-bg: #fff;             /* text-entry control fill (light = white) */
+  --panel-muted: #f1eee8;       /* muted callout/panel background */
+  --muted-strong: #424f5d;         /* fallback value behind var(--muted, ...) */
+  --text-strong: #1c2733;       /* the var(--text, ...) fallback value (ink) */
+  --stat-card-bg: #fdfcfa;      /* faint warm-white stat-card surface */
+  --scenario-load-hover: #e3f0ee; /* hover tint on scenario load rows */
+
+  /* semantic status colors */
+  --success: #15803d;           /* allocation-total valid (✓) */
+  --success-calm: #2f855a;      /* calm-green balanced sum */
+  --error: #b91c1c;             /* invalid / form-error red */
+  --error-strong: #c53030;      /* imbalanced sum red */
+  --warn-amber: #a07418;        /* approximate-preset amber */
+  --note-icon: #a0aec0;         /* light-grey note/hint glyph */
+  --callout-accent-bar: #a07418; /* left-rule on the assumptions callout */
+
+  /* worst-cohort row tints */
+  --row-cut-bg: #fdf0ee;        /* spending-cut row */
+  --row-raise-bg: #e3f0ee;      /* market-raise row */
+  --row-raise-gi-bg: #eefaf2;   /* GI-driven raise row */
+
+  /* compare note */
+  --compare-note-bg: #fff8e1;
+  --compare-note-border: #f0d98c;
+
+  /* misc chrome */
+  --border-faint: #e7e2d8;      /* faint inner border on chart wrap */
+  --shadow-popover: rgba(0, 0, 0, 0.08); /* info-popover drop shadow */
+  --shadow-modal: rgba(0, 0, 0, 0.12);   /* modal/dialog drop shadow */
+
+  /* Scenario A / B accents (mirror the chart band colors). A is --accent (teal);
+     B is its own terracotta token. The rgb triplets back the translucent tints. */
+  --scenario-b: #c2543a;        /* Scenario B terracotta (matches chart band B base) */
+  --scenario-a-rgb: 13, 110, 99;  /* --accent (#0d6e63) as an rgb triplet */
+  --scenario-b-rgb: 194, 84, 58;  /* --scenario-b (#c2543a) as an rgb triplet */
+
+  /* --- chart color tokens ---
+     A <canvas> cannot be CSS-styled, so these tokens are the single source of
+     truth for every Chart.js color. chart_view.js / app.js READ them at render
+     time via cssVar(). rgb-triplet tokens (…-rgb) hold a bare "R, G, B" string
+     so JS can build rgba(triplet, alpha) with the alpha kept in JS. Values are
+     the current chart literals, byte-for-byte. */
+  --chart-band-a: #0d6e63;          /* COLOR_A — scenario A band-fill base (brand teal) */
+  --chart-band-b: #c2543a;          /* COLOR_B — scenario B band-fill base (terracotta) */
+  --chart-band-a-rgb: 13, 110, 99; /* RGB_A — A band rgba() triplet */
+  --chart-band-b-rgb: 194, 84, 58; /* RGB_B — B band rgba() triplet */
+  --chart-line-a: #0a574e;          /* LINE_A — A median/scenario stroke (deep teal) */
+  --chart-line-b: #9c3f2a;          /* LINE_B — B median/scenario stroke (deep terracotta) */
+  --chart-bucket-cash: #a07418;     /* bucket line — cash (gold) */
+  --chart-bucket-income: #6b5b95;   /* bucket line — income (plum) */
+  --chart-bucket-growth: #46698c;   /* bucket line — growth (steel) */
+  --chart-loc-taxable: #46698c;     /* tax-location line — taxable (steel) */
+  --chart-loc-tax-deferred: #6b5b95;/* tax-location line — tax-deferred (plum) */
+  --chart-loc-roth: #a07418;        /* tax-location line — roth (gold) */
+  --chart-loc-taxable-rgb: 70, 105, 140; /* taxable fan rgba() triplet (steel) */
+  --chart-total-fan-rgb: 100, 116, 139; /* total-investments fan triplet (slate-500) */
+  --chart-total-fan-line: #475569;  /* total-investments median line (slate-600) */
+  --chart-floor-operational: #c2740a; /* spending operational-floor ref line (amber) */
+  --chart-floor-absolute: #9aa5b1;  /* spending absolute-floor ref line (grey) */
+  --chart-ceiling: #0e7490;         /* amortization-frontier satiation-ceiling ref line (teal) */
+  --chart-spending-line: #e8833a;   /* deterministic flow-overlay: annual-spending line, SOLID (warm orange) */
+  --chart-gi-floor: #2ea3a3;        /* deterministic flow-overlay: guaranteed-income floor, DASHED (teal/green) */
+  --chart-tax-gross-line: #a3315c;  /* tax-drag td1: gross-outflow line (spending+tax), SOLID, ABOVE spending (muted crimson/rose — retired the ft2 net-of-tax line's color, now used for the gross line instead) */
+  --chart-hist-rgb: 10, 87, 78;     /* DEFAULT_HIST_COLOR base (built as rgba(…, 0.7)); brand teal-dark = LINE_A #0a574e */
+  --chart-refline-rgb: 60, 60, 60;  /* histogram vertical ref-line base (rgba(…, 0.85)) */
+
+  /* --- Chart.js CHROME tokens (dark-mode slice 2) ---
+     Axis grid/ticks/titles, legend text, and tooltip box. Chart.js's library
+     defaults are dark-on-light (invisible on a dark canvas), so these are now
+     explicit tokens applied at render time in the shared option builders. The
+     LIGHT values below reproduce Chart.js's current defaults byte-for-byte so
+     light mode does not visibly change; the dark block re-declares them. */
+  --chart-grid: rgba(0, 0, 0, 0.1);   /* scales.*.grid.color (Chart.js default) */
+  --chart-tick: #666;                  /* scales.*.ticks.color (Chart.js default) */
+  --chart-axis-title: #666;            /* scales.*.title.color (Chart.js default) */
+  --chart-legend-text: #666;           /* plugins.legend.labels.color (default) */
+  --chart-tooltip-bg: rgba(0, 0, 0, 0.8);   /* plugins.tooltip.backgroundColor */
+  --chart-tooltip-text: #fff;          /* tooltip title + body color (default) */
+  --chart-tooltip-border: rgba(0, 0, 0, 0); /* tooltip border (transparent = none) */
+
+  /* UX REFRESH (ux5): the rendered height of the sticky #lens tab row (one tab:
+     font-size 0.9rem x line-height 1.5 = 1.35rem, + 0.4rem padding top+bottom =
+     ~2.15rem). The #action-bar's sticky `top` is offset by this so the two stack
+     (lens on top, action bar directly beneath) instead of overlapping when both
+     pin to the top of the scrolling content column. Defined as a variable so the
+     offset lives in ONE place: if the lens chrome changes, only this value moves.
+     The lens stays a single horizontal row at >=1100px (the content column is
+     wide there; it only flex-wraps far below the sticky-stack threshold), so a
+     fixed value is stable. Deliberately set to the tab CONTENT height, a hair
+     UNDER the lens's content+border box (~2.21rem): the action bar's top edge
+     then lands a sub-pixel ABOVE the lens's bottom rule, so the lens (z-index 6)
+     covers that micro-overlap. Erring under (overlap, hidden by the lens) avoids
+     erring over (a page-coloured strip where scrolling charts could peek between
+     the two stuck bars). */
+  --lens-height: 2.15rem;
+
+  /* BRAND RESTYLE (br1): serif display stack for the page title + major
+     section headings, anchoring the modeler to the Financial Plan site's
+     design language (warm paper / deep teal / gold / serif display type).
+     Body, labels, buttons, tables, and stat values stay on the sans stack. */
+  --serif: Georgia, 'Times New Roman', serif;
+}
+
+/* ============================================================
+   DARK THEME (dark-mode slice 2)
+   Re-declares every COLOR token from :root with Slate-dark values. Light
+   :root values above are UNCHANGED. --lens-height is a layout measurement,
+   not a color, so it is intentionally not re-declared here (it inherits the
+   :root value in both themes). Activated by data-theme="dark" on <html>,
+   set pre-paint by the anti-flash script in index.html.
+   ============================================================ */
+[data-theme="dark"] {
+  /* base chrome */
+  --fg: #c9d1d9;
+  --muted: #8b949e;
+  --bg: #0d1117;
+  --panel: #161b22;
+  --border: #30363d;
+  --accent: #39a796;
+
+  /* surfaces & text-on-color */
+  --on-accent: #0b1220;         /* dark text on the teal accent (contrast ~6.4:1) */
+  --surface-hover: #1c2129;
+  --surface-subtle: #1c2129;
+  --surface-disabled: #161b22;
+  --input-bg: #0d1117;          /* page bg — inset "cut into the panel" look */
+  --panel-muted: #1c2129;
+  --muted-strong: #9aa6b2;
+  --text-strong: #f0f6fc;
+  --stat-card-bg: #1a2027;
+  --scenario-load-hover: #1d2e2a;   /* teal-tinted */
+
+  /* semantic status colors */
+  --success: #4ade80;
+  --success-calm: #34d399;
+  --error: #f87171;
+  --error-strong: #fca5a5;
+  --warn-amber: #c9a227;
+  --note-icon: #64748b;
+  --callout-accent-bar: #c9a227;
+
+  /* worst-cohort row tints */
+  --row-cut-bg: #3a1d22;
+  --row-raise-bg: #16302c;
+  --row-raise-gi-bg: #16302a;
+
+  /* compare note */
+  --compare-note-bg: #2e2a1a;
+  --compare-note-border: #5c5230;
+
+  /* misc chrome */
+  --border-faint: #21262d;
+  --shadow-popover: rgba(0, 0, 0, 0.5);
+  --shadow-modal: rgba(0, 0, 0, 0.6);
+
+  /* Scenario A / B accents */
+  --scenario-b: #e07a5f;
+  --scenario-a-rgb: 57, 167, 150;
+  --scenario-b-rgb: 224, 122, 95;
+
+  /* chart color tokens */
+  --chart-band-a: #39a796;
+  --chart-band-b: #e07a5f;
+  --chart-band-a-rgb: 57, 167, 150;
+  --chart-band-b-rgb: 224, 122, 95;
+  --chart-line-a: #6cc7b9;
+  --chart-line-b: #f0a08a;
+  --chart-bucket-cash: #c9a227;
+  --chart-bucket-income: #a795d4;
+  --chart-bucket-growth: #7da7c4;
+  --chart-loc-taxable: #7da7c4;
+  --chart-loc-tax-deferred: #a795d4;
+  --chart-loc-roth: #c9a227;
+  --chart-loc-taxable-rgb: 125, 167, 196;
+  --chart-total-fan-rgb: 148, 163, 184;
+  --chart-total-fan-line: #cbd5e1;
+  --chart-floor-operational: #fbbf24;
+  --chart-floor-absolute: #64748b;
+  --chart-ceiling: #22d3ee;
+  --chart-spending-line: #fb923c;   /* flow-overlay spending line — brighter orange for dark canvas */
+  --chart-gi-floor: #5eead4;        /* flow-overlay GI floor — brighter teal for dark canvas */
+  --chart-tax-gross-line: #e0699a;  /* gross-outflow line — brighter rose for dark canvas */
+  --chart-hist-rgb: 108, 199, 185;
+  --chart-refline-rgb: 203, 213, 225;
+
+  /* Chart.js chrome tokens (dark) — neutrals track the GitHub-dark chrome
+     (they were derived from the old Slate fg/muted; kept in lockstep) */
+  --chart-grid: rgba(139, 148, 158, 0.18);
+  --chart-tick: #8b949e;
+  --chart-axis-title: #8b949e;
+  --chart-legend-text: #c9d1d9;
+  --chart-tooltip-bg: rgba(1, 4, 9, 0.92);
+  --chart-tooltip-text: #c9d1d9;
+  --chart-tooltip-border: rgba(139, 148, 158, 0.25);
+}
+
+* { box-sizing: border-box; }
+
+/* Dark-mode slice 2: gentle color ease on the toggle. Applied to the surfaces
+   whose color tokens swap between themes. Charts are NOT transitioned (they
+   re-render and snap). This does not fire on initial load: the anti-flash
+   script sets data-theme before first paint and no class is toggled on load,
+   so there is no start-state to animate from. */
+body,
+.panel,
+.inputs-section,
+.content-region,
+.stat-card,
+button,
+input,
+select,
+.info-popover {
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+/* Dark-mode follow-up: a single base fill+text rule for every text-entry control.
+   Before this, generic text/number inputs had NO background rule and fell back to
+   the UA white, while some classed inputs explicitly set var(--panel) — fine in
+   light (both resolve white) but a visible mix in dark. Routing all text inputs +
+   select/textarea through --input-bg unifies them: white in light, page-bg (inset)
+   in dark, with --fg text in both. Checkboxes/radios/buttons are intentionally NOT
+   matched (no [type] beyond text-like, and select/textarea named explicitly), so
+   their native rendering and the segmented-control button fills are untouched. The
+   disabled/focus rules on specific input classes are more specific and still win. */
+input[type="text"], input[type="number"], input[type="search"],
+input:not([type]), select, textarea {
+  background: var(--input-bg);
+  color: var(--fg);
+}
+
+body {
+  margin: 0;
+  padding: 2rem 1rem;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+  line-height: 1.5;
+}
+
+main {
+  max-width: 1800px;
+  margin: 0 auto;
+}
+
+header {
+  position: relative;
+}
+
+header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.6rem;
+  font-family: var(--serif);
+}
+
+/* BRAND RESTYLE (br1): the major section display headings ("Inputs", the
+   "Projection" / "Scenario A/B" panel titles) share the serif display stack
+   with the h1. Form labels, buttons, table text, and stat values stay sans. */
+.inputs-title,
+.panel-title {
+  font-family: var(--serif);
+}
+
+/* Dark-mode slice 2: header theme toggle, top-right of the header,
+   styled as a round ghost button (tokenized, no
+   literals). The icon (moon/sun glyph) is set by JS. */
+.theme-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--fg);
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.subtitle {
+  margin: 0 0 1.5rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+/* ---------- Slice 11b-2: unlinkable A│B allocation matrix ---------- */
+
+/* Sits in the sidebar between the primary fields and Advanced. LINKED: one
+   weight column drives both scenarios. UNLINKED: two weight columns (A│B),
+   each scenario independent; returns stay shared. */
+.allocation-section {
+  margin: 0.75rem 0 0.25rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+/* Title + the section's own link/unlink toggle, mirroring .inputs-header. */
+.allocation-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.allocation-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+/* Slice 4b: preset picker — a labelled <select> above the matrix rows, plus a
+   muted note when a preset is applied (italic + amber when the preset is an
+   approximate reconstruction). */
+.allocation-preset {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.65rem;
+}
+
+.allocation-preset-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.allocation-preset-select {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--fg);
+  flex: 1 1 auto;
+  min-width: 8rem;
+}
+
+.allocation-preset-select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+
+.allocation-preset-note {
+  flex-basis: 100%;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.allocation-preset-note.is-approx {
+  font-style: italic;
+  color: var(--warn-amber); /* amber — flags an approximate (non-faithful) preset */
+}
+
+.allocation-preset-note[hidden] {
+  display: none;
+}
+
+.allocation-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* "since YYYY" data-start hint on a class row label (slice 4b) — muted, small,
+   so it reads as metadata next to the class name without competing with it. */
+.allocation-row-hint {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* LINKED row: label on the left, single weight cell on the right. */
+.allocation-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+/* UNLINKED row: a [label | A | B] matrix. Label takes flexible space; the two
+   weight cells line up in a fixed 2-column grid so A and B align across rows. */
+.allocation-row.is-unlinked {
+  justify-content: flex-start;
+}
+
+.allocation-label {
+  font-size: 0.9rem;
+  color: var(--fg);
+}
+
+.allocation-row.is-unlinked .allocation-label {
+  flex: 1 1 auto;
+}
+
+.allocation-weights.linked {
+  display: block;
+}
+
+.allocation-weights.unlinked {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+
+.allocation-weight-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+/* A/B tag inside a weight cell — reuse the field A/B tag styling (sized down to
+   match the inline cell), so the matrix columns read consistently with the
+   fields' A/B columns. */
+.allocation-weight-cell > .ab-tag {
+  flex: 0 0 auto;
+  min-width: 1.2rem;
+  height: 1.2rem;
+  font-size: 0.7rem;
+}
+
+.allocation-weight-input {
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--input-bg);
+  width: 5.5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* When unlinked the cells share a narrow grid track, so let the inputs shrink
+   to fit rather than holding their fixed linked width. */
+.allocation-weights.unlinked .allocation-weight-input {
+  width: 100%;
+  min-width: 0;
+}
+
+.allocation-weight-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+
+/* Accent the B-column input border so the differing allocation reads clearly,
+   matching the fields' unlinked B-input treatment. */
+.allocation-weight-cell .ab-tag-b ~ .allocation-weight-input {
+  border-color: rgba(var(--scenario-b-rgb), 0.4);
+}
+
+.allocation-pct {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* Per-column Total / Blended rows. These render as ROWS in the SAME column grid
+   as the weight rows above (a left label, then one value cell per scenario
+   column), so each value lines up directly under its column's weight inputs in
+   BOTH linked (one column) and unlinked (A│B) states. The Total's 100% validity
+   reads green (✓) / red (✗); the Blended cell shows the column's blended return.
+   .allocation-readout mirrors .allocation-row, and .allocation-readout-values
+   mirrors .allocation-weights, so the tracks match the weight rows exactly. */
+.allocation-totals {
+  margin-top: 0.65rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border);
+}
+
+/* Mirrors .allocation-row geometry. LINKED: label left, single value box right
+   (space-between, same as a weight row). UNLINKED: label flexes, values sit in
+   a 2-col grid identical to .allocation-weights.unlinked. */
+.allocation-readout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.allocation-readout.is-unlinked {
+  justify-content: flex-start;
+}
+
+.allocation-readout + .allocation-readout {
+  margin-top: 0.3rem;
+}
+
+.allocation-readout-label {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.allocation-readout.is-unlinked .allocation-readout-label {
+  flex: 1 1 auto;
+}
+
+/* LINKED: one value box matching a single weight cell's footprint (the weight
+   input is 5.5rem wide); left-align the value to the input's left edge. */
+.allocation-readout-values.linked {
+  display: block;
+}
+
+/* UNLINKED: same 2-col grid + gap as .allocation-weights.unlinked, so A and B
+   value cells sit exactly under their weight inputs. */
+.allocation-readout-values.unlinked {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+
+/* A value cell mirrors the weight cell's box so the number lands under the input
+   above it. The weight input is right-aligned, trailed by a 0.35rem gap + the
+   "%" span; we right-align the value and reserve that same trailing space
+   (padding-right) so digits sit directly under the input's digits. */
+.allocation-readout-cell {
+  display: block;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  /* trailing "%" (~1ch) + the cell's 0.35rem gap */
+  padding-right: calc(1ch + 0.35rem);
+}
+
+/* LINKED: the weight cell is [input 5.5rem][gap][%], right-anchored by the row's
+   space-between. Match its full footprint so the value box's right edge aligns
+   with the weight cell's, putting the value under the input. */
+.allocation-readout-values.linked .allocation-readout-cell {
+  width: calc(5.5rem + 0.35rem + 1ch);
+}
+
+/* UNLINKED: the value fills its grid track (same 1fr as the weight cell). The
+   weight input is inset on the left by the A/B tag (min 1.2rem + 0.35rem gap);
+   reserve that on the left so the value aligns with the input, not the tag. */
+.allocation-readout-values.unlinked .allocation-readout-cell {
+  width: 100%;
+  min-width: 0;
+  padding-left: calc(1.2rem + 0.35rem);
+}
+
+.allocation-total-value.is-valid::after {
+  content: " \2713"; /* ✓ */
+  color: var(--success);
+}
+
+.allocation-total-value.is-valid {
+  color: var(--success);
+}
+
+.allocation-total-value.is-invalid::after {
+  content: " \2717"; /* ✗ */
+  color: var(--error);
+}
+
+.allocation-total-value.is-invalid {
+  color: var(--error);
+}
+
+.allocation-total-msg {
+  margin: 0.2rem 0 0;
+  color: var(--error);
+  font-size: 0.8rem;
+}
+
+.allocation-blended {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.allocation-blended-value {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* Deterministic-model limitation caption — a persistent muted note shown above
+   both comparison views (overlay + side-by-side) while the allocation is
+   unlinked. Hidden via [hidden] when linked. */
+.allocation-caption {
+  margin: 0 0 1.25rem;
+  padding: 0.6rem 0.85rem;
+  background: rgba(var(--scenario-a-rgb), 0.05);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.allocation-caption[hidden] {
+  display: none;
+}
+
+/* Glidepath / bond-tent (glidepath design). The Constant | Glidepath toggle reuses
+   the .mode-toggle / .spending-toggle chrome; a little breathing room separates it
+   from the section title and the body it switches. */
+.allocation-mode-toggle {
+  margin: 0.25rem 0 0.85rem;
+}
+
+/* Hidden state for the glidepath bodies. (.glide-preset reuses .allocation-preset's
+   display:flex, which would override the bare [hidden] attribute, so pin it here.) */
+#constant-allocation-body[hidden],
+.glidepath-phases[hidden],
+.glidepath-caption[hidden],
+.glide-preset[hidden] {
+  display: none;
+}
+
+/* The stack of per-phase allocation matrices. One card per derived phase. */
+.glidepath-phases {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+/* One phase card: a bordered allocation matrix with an "age-range · event" header.
+   Reuses .allocation-rows / .allocation-row geometry inside. */
+.glidepath-phase {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 0.6rem 0.75rem 0.4rem;
+  background: rgba(var(--scenario-a-rgb), 0.03);
+}
+
+.glidepath-phase-head {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text, var(--text-strong));
+  letter-spacing: 0.01em;
+  margin-bottom: 0.45rem;
+}
+
+/* Tighten the row spacing inside a phase card (the matrices stack, so they read
+   as a compact group rather than the roomy single matrix). */
+.glidepath-phase-rows {
+  margin: 0;
+}
+
+.glidepath-caption {
+  margin-top: 0.25rem;
+}
+
+/* Buckets sourcing (bucket-strategy design slice 1b). The bucket-config block sits
+   under the Sourcing toggle (inside the inputs sidebar). The three bucket matrices
+   reuse the .glidepath-phase card chrome (className "glidepath-phase bucket-matrix")
+   so they look consistent with the glidepath per-phase matrices. */
+.bucket-config {
+  margin-top: 0.6rem;
+}
+
+.bucket-config[hidden] {
+  display: none;
+}
+
+/* The N1 / N2 forward-gap year inputs, side by side. */
+.bucket-years {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.4rem;
+}
+
+.bucket-year-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1 1 0;
+}
+
+.bucket-year-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text, var(--text-strong));
+}
+
+.bucket-year-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.bucket-years-hint {
+  margin: 0 0 0.7rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+/* The stack of three per-bucket allocation matrices (Cash / Income / Growth). */
+.bucket-matrices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-bottom: 0.85rem;
+}
+
+.bucket-caption {
+  margin: 0 0 0.25rem;
+}
+
+/* The bucket-balance chart view (shown above the mode-specific output regions in
+   Buckets sourcing). Reuses the .chart-wrap geometry the other charts use. */
+.bucket-chart-view[hidden] {
+  display: none;
+}
+
+/* Scoped under .bucket-chart-view so this beats .chart-wrap's `height: 360px`
+   regardless of source order. Both `.bucket-chart-wrap` and `.chart-wrap` are
+   single-class (equal specificity); since `.chart-wrap` is defined LATER in this
+   file it would otherwise win the cascade and pin this section to 360px. At 360px
+   the section can't contain its own content — title (~24px) + note + the 340px
+   .bucket-chart-canvas-box overflow the box, so the canvas (legend included, drawn
+   at its bottom) painted down to ~y636 while the next output region, laid out from
+   the section's clipped 360px flow-bottom, started at ~y585: a ~51px overlap where
+   the bottom legend collided with the Projection / Historical text. `height: auto`
+   makes the section reserve real vertical space for the full canvas-box, so the
+   following region begins strictly below the legend. NOT a clip — reserve-space. */
+.bucket-chart-view .bucket-chart-wrap {
+  height: auto;
+  /* Clearance below the section so the following output region's top sits a
+     comfortable gap under the reserved legend band, not flush against it. */
+  margin-bottom: 1rem;
+  /* Belt-and-suspenders: with height:auto the section already grows past its
+     content so nothing escapes; drop the inherited clip so a tooltip or the
+     legend's focus ring is never cut at the section edge. */
+  overflow: visible;
+}
+
+/* Bounded, position:relative parent so Chart.js (responsive +
+   maintainAspectRatio:false) has a fixed area to size into — mirrors the
+   spending-fan canvas box (without it the canvas grows unbounded on resize). */
+.bucket-chart-canvas-box {
+  position: relative;
+  height: 340px;
+}
+
+.bucket-chart-canvas-box canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.bucket-chart-title {
+  margin: 0 0 0.3rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text, var(--text-strong));
+}
+
+.bucket-chart-note {
+  margin: 0 0 0.6rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.bucket-matched-note[hidden] {
+  display: none;
+}
+
+/* UX REFRESH (ux3): wrapper for the two buckets-only result readouts
+   (#buffer-survival-readout + #effective-equity-readout), relocated from the
+   sidebar to the content column directly under #bucket-chart-view. The readouts
+   reuse the boxed .allocation-caption / .bucket-caption chrome (the same idiom as
+   #bucket-matched-note just above), so they read as result notes beside the chart
+   rather than the narrow muted sidebar line they used to be. The wrapper is a
+   plain stack with no show/hide of its own — each readout carries [hidden]
+   itself (handled by .allocation-caption[hidden]). When both are hidden the
+   wrapper has no visible content and the readout margins collapse, so it adds no
+   stray gap above the historical/deterministic regions. .bucket-caption's own
+   `margin: 0 0 0.25rem` keeps the two lines tight together. */
+.bucket-readouts {
+  display: flex;
+  flex-direction: column;
+}
+
+/* The last visible readout shouldn't pin extra bottom margin against the next
+   output region. .bucket-caption already trims to 0.25rem; nudge a touch of
+   breathing room below the group as a whole instead. */
+.bucket-readouts > .allocation-caption:last-child {
+  margin-bottom: 0.85rem;
+}
+
+/* ============ TAX LOCATION OF PORTFOLIO (tax-buckets design tb1) ============ */
+/* The optional tax-location split sub-section in the sidebar Plan block, relocated
+   (tb1c) to sit immediately under the Starting portfolio input — it's a decomposition
+   of the portfolio number, so it belongs with it. A light boxed group (mirrors
+   .gi-group chrome) so it reads as a self-contained optional decision when active. */
+.tax-location-inputs {
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem 0.75rem;
+}
+
+/* SUBTLE-WHEN-OFF (tb1c): when no split is present the section is just the one
+   muted checkbox line. Drop the box chrome + tighten the padding so it reads as a
+   quiet optional toggle rather than a heavy input group; the active state (the
+   .tax-location-quiet class is removed by updateTaxLocationReveal) restores the box
+   above. The checkbox label is the affordance; the ⓘ explains the concept. */
+.tax-location-inputs.tax-location-quiet {
+  border-color: transparent;
+  padding: 0 0.1rem;
+  margin-bottom: 0.85rem;
+}
+
+.tax-location-head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.55rem;
+}
+
+/* In the quiet (OFF) state there are no fields below the head, so don't reserve the
+   gap under it. */
+.tax-location-inputs.tax-location-quiet .tax-location-head {
+  margin-bottom: 0;
+}
+
+/* The "Model accounts by tax location" enable checkbox (tb1b). It IS the affordance
+   now (tb1c) — checking it pre-fills the three inputs from the starting portfolio at
+   the default split AND reveals the fields; unchecking clears + collapses them.
+   Disabled (greyed) under buckets sourcing, alongside the inputs. Quiet/secondary
+   styling when OFF; takes the remaining row width so the ⓘ sits at its end. */
+.tax-location-enable {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1 1 auto;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+/* Muted/secondary + slightly smaller while OFF, consistent with the UX-refresh
+   declutter aesthetic. */
+.tax-location-inputs.tax-location-quiet .tax-location-enable {
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--muted, var(--muted-strong));
+}
+
+.tax-location-enable input:disabled {
+  cursor: not-allowed;
+}
+
+.tax-location-inputs.is-gated .tax-location-enable {
+  color: var(--note-icon);
+  cursor: not-allowed;
+}
+
+/* The revealable group (tb1c): the three balance fields + the sum helper. Hidden via
+   the `hidden` attribute (updateTaxLocationReveal) when OFF; when shown it carries a
+   little top margin to separate from the checkbox line above. */
+.tax-location-reveal[hidden] {
+  display: none;
+}
+
+.tax-location-reveal {
+  margin-top: 0.6rem;
+}
+
+.tax-location-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.tax-location-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+/* The taxable-gains-fraction knob (federal-tax overlay design ft1, DECISION 4) — a
+   separate axis from the three $ balances above it (a percent knob, not part of the
+   running sum), so it gets a hairline rule + a touch of top space rather than just
+   joining .tax-location-fields' gap. Same field/label/input chrome otherwise. */
+.tax-gains-field {
+  margin-top: 0.6rem;
+  padding-top: 0.55rem;
+  border-top: 1px dashed var(--border);
+}
+
+/* The bracket-fill lever (tax-drag design td1, DECISION 5) — same treatment as
+   .tax-gains-field: its own separate axis (a dollar target, empty = off), not
+   part of the running sum, so it gets the same hairline-rule separation. */
+.bracket-fill-field {
+  margin-top: 0.6rem;
+  padding-top: 0.55rem;
+  border-top: 1px dashed var(--border);
+}
+
+.tax-location-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.tax-location-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.tax-location-input:disabled {
+  background: var(--surface-disabled);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+/* The running-sum helper line ("$1.8M of $1.8M — balanced"). Muted green-ish when
+   balanced; red (.is-imbalanced) when the three don't add up to the portfolio. */
+.tax-location-sum {
+  margin: 0.5rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--success-calm); /* balanced — calm green */
+}
+
+.tax-location-sum.is-imbalanced {
+  color: var(--error-strong); /* over / under — red */
+}
+
+.tax-location-sum[hidden] {
+  display: none;
+}
+
+/* The buckets-mode gate note (shown + inputs disabled under buckets sourcing). */
+.tax-location-gate-note {
+  margin: 0.5rem 0 0;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.tax-location-gate-note[hidden] {
+  display: none;
+}
+
+/* Dim the whole section while gated (buckets sourcing) so it reads as inactive. The
+   uppercase title is gone (tb1c); the enable label carries the dimmed-gated state via
+   its own .is-gated rule above, so here we only dim the field labels. */
+.tax-location-inputs.is-gated .tax-location-label {
+  color: var(--note-icon);
+}
+
+/* ---- The tax-location balance chart view (content column) ---- */
+.tax-location-view[hidden] {
+  display: none;
+}
+
+/* Reserve real vertical space for the full canvas (same reasoning as
+   .bucket-chart-view .bucket-chart-wrap — beat .chart-wrap's 360px height so the
+   legend at the canvas bottom doesn't collide with the next region). */
+.tax-location-view .tax-location-chart-wrap {
+  height: auto;
+  margin-bottom: 1rem;
+  overflow: visible;
+}
+
+.tax-location-chart-canvas-box {
+  position: relative;
+  height: 340px;
+}
+
+.tax-location-chart-canvas-box canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.tax-location-chart-title {
+  margin: 0 0 0.3rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.tax-location-chart-note {
+  margin: 0 0 0.6rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+/* The headline bridge readout — prominent, since it's the deliverable. */
+.tax-location-bridge {
+  margin: 0 0 0.3rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--fg);
+}
+
+.tax-location-bridge:empty {
+  display: none;
+}
+
+/* The pre-tax caveat — quiet, muted, beneath the headline. */
+.tax-location-caveat {
+  margin: 0 0 0.85rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.tax-location-caveat[hidden] {
+  display: none;
+}
+
+/* Shared asset-class real-return inputs (Advanced). Mirrors .gi-group chrome. */
+.returns-group {
+  margin-top: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.9rem 0.9rem;
+}
+
+.returns-group > legend {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--fg);
+  padding: 0 0.4rem;
+}
+
+.returns-group > .field-rows {
+  margin-top: 0.25rem;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.85rem 1.25rem;
+}
+
+@media (min-width: 700px) {
+  .returns-group > .field-rows {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1100px) {
+  .inputs-section .returns-group > .field-rows {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Editable guardrail knobs (variable-spending design slice 3). Mirrors the
+   .returns-group / .gi-group chrome; shown only in Guardrails spending mode
+   (#guardrail-group[hidden] otherwise). The four rows reuse .field-row chrome. */
+.guardrail-group {
+  margin-top: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.9rem 0.9rem;
+}
+
+.guardrail-group > legend {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--fg);
+  padding: 0 0.4rem;
+}
+
+.guardrail-group > .field-rows {
+  margin-top: 0.25rem;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.85rem 1.25rem;
+}
+
+@media (min-width: 700px) {
+  .guardrail-group > .field-rows {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1100px) {
+  .inputs-section .guardrail-group > .field-rows {
+    grid-template-columns: 1fr;
+  }
+}
+
+.guardrail-row .input-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* The honest satiation-surplus note (variable-spending design slice 3, D). Sits
+   beside the spending fan; a muted callout so it reads as a caveat, not a chart
+   element. Slightly stronger than .spending-fan-note (left rule) since it states
+   a real limit the user should not miss. */
+.satiation-note {
+  margin: 0 0 0.85rem;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted, var(--muted-strong));
+  background: var(--panel-muted, var(--panel-muted));
+  border-left: 3px solid var(--callout-accent-bar);
+  border-radius: 4px;
+}
+
+/* Build 2: per-class CMA rows (return + Monte-Carlo volatility). Each class is
+   a label row over a [return | volatility] grid; the volatility cell hides
+   outside Monte Carlo mode (.cma-vol-cell[hidden]). */
+.cma-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.cma-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+/* When the volatility cell is hidden (Det/Hist) the return cell spans the row
+   so it doesn't sit in a lonely half-width track. */
+.cma-inputs:has(.cma-vol-cell[hidden]) {
+  grid-template-columns: 1fr;
+}
+
+.cma-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.cma-vol-cell[hidden] {
+  display: none;
+}
+
+.cma-sublabel {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.cma-cell .input-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.cma-cell input[type="number"] {
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--input-bg);
+  width: 100%;
+  min-width: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.cma-cell input[type="number"]:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+
+.cma-suffix {
+  color: var(--muted);
+  font-size: 0.9rem;
+  flex: 0 0 auto;
+}
+
+/* The single equity–bond correlation field (Monte Carlo only), beneath the
+   per-class CMA rows in the returns fieldset. Hidden via [hidden] outside MC. */
+.correlation-field {
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.correlation-field[hidden] {
+  display: none;
+}
+
+.correlation-row .field-inputs {
+  margin-top: 0.25rem;
+}
+
+.correlation-row input[type="number"] {
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--input-bg);
+  width: 6rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.correlation-row input[type="number"]:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+
+.cma-hint {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+/* ---------- Slice 9: two-region layout (sidebar + content) ---------- */
+
+/* Narrow default: a single column. The inputs section stacks on top, the two
+   panels stack below it (the .panels grid is itself single-column until 1100px).
+   At >=1100px this becomes a fixed-width sticky sidebar + a fluid content
+   region holding the two side-by-side panels. */
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+/* App-shell layout (>=1100px): fill the viewport so the PAGE doesn't scroll.
+   <main> becomes a flex column — the <header> stays its natural height pinned at
+   the top, and .layout fills the remaining viewport height. Each of the two
+   columns then scrolls its OWN overflow independently INSIDE that fixed region
+   (min-height:0 lets a flex/grid child actually shrink below its content so the
+   overflow lands on the column, not the page). When the chart column's content
+   fits, it does NOT scroll and leaves no empty track below it — the core fix for
+   the phantom scroll, where the tall sidebar used to set the grid row height and
+   leave dead space under the short chart column. Below 1100px none of this
+   applies: .layout is a normal stacked single-column grid and the page scrolls
+   normally. */
+@media (min-width: 1100px) {
+  main {
+    display: flex;
+    flex-direction: column;
+    /* Fill the viewport minus the body's vertical padding (2rem top + 2rem
+       bottom = 4rem) so the app shell occupies exactly the visible area and the
+       page itself doesn't scroll. */
+    height: calc(100vh - 4rem);
+  }
+
+  .layout {
+    /* Fixed-width sidebar | rest. minmax(0, ...) lets the content track shrink
+       so the panels' inner grid can lay out without overflow. */
+    grid-template-columns: 300px minmax(0, 1fr);
+    gap: 2rem;
+    /* Fill the flex remainder (everything below the header). min-height:0 is
+       essential: without it the flex item refuses to shrink below its content
+       height and the overflow escapes to the page again. */
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+}
+
+/* Wraps all output containers (toggle, overlay, panels) into the layout grid's
+   second column so they stack in normal flow instead of being auto-placed
+   across both grid columns. min-width:0 lets the inner .panels grid shrink
+   within the fluid track instead of overflowing. */
+.content-region {
+  min-width: 0;
+}
+
+/* >=1100px the chart column scrolls its OWN overflow inside the fixed app-shell
+   region, ONLY when its content is taller than the available height. When the
+   chart fits there's no scrollbar and no empty track. min-height:0 lets it
+   shrink within the grid row so the overflow lands here, not on the page. */
+@media (min-width: 1100px) {
+  .content-region {
+    overflow-y: auto;
+    min-height: 0;
+  }
+}
+
+/* ---------- Two-panel layout ---------- */
+
+.panels {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+@media (min-width: 1100px) {
+  .panels {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* ---------- Slice 10a: single-scenario collapse ---------- */
+
+/* When every field is linked there is no comparison axis: A and B are
+   identical, so showing two panels is redundant. JS adds .is-single to .panels
+   in that state — it hides panel B entirely and forces the grid back to a
+   single column at every width (the 1100px two-column rule is overridden here
+   because this rule is later in the cascade and at least as specific). The
+   class is toggled live on every link/unlink change, so the layout reacts
+   immediately, not only on Recompute. */
+.panels.is-single {
+  grid-template-columns: 1fr;
+}
+
+.panels.is-single .panel[data-panel="b"] {
+  display: none;
+}
+
+/* ---------- Build 3: Historical comparison (two fans) ---------- */
+
+/* Side-by-side historical fans: two fan panels on a shared Y axis. Mirrors the
+   deterministic .panels grid (single column until 1100px, then two columns) so
+   the two modes' side-by-side layout reads identically. Each panel keeps the
+   fuller fan (median + 10–90 + inner 25–75) since the fans don't overlap here. */
+.historical-panels {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+@media (min-width: 1100px) {
+  .historical-panels {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* The historical overlay's two per-scenario readout lines stack like the
+   deterministic overlay summaries (colour-coded via .summary-line-a/-b). */
+.historical-overlay .overlay-summaries {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+/* ---------- Slice 10b: overlay comparison view ---------- */
+
+/* One chart, two lines — the default view when comparing. Sits in the right
+   region (inside .layout) like .panels; only one of .overlay-view / .panels is
+   visible at a time (JS toggles [hidden]). */
+/* Both output containers carry a layout `display` (grid/flex) that would
+   otherwise win over the UA [hidden] { display:none } rule (class beats
+   attribute selector). Force them hidden when JS sets [hidden] so exactly one
+   output container is ever visible. */
+.overlay-view[hidden],
+.panels[hidden] {
+  display: none;
+}
+
+/* ---------- Slice 10c: view toggle (Overlay | Side-by-side) ---------- */
+
+/* Segmented control shown only when comparing (JS toggles [hidden] off when at
+   least one field is unlinked). Two buttons in a pill; the selected one is
+   filled with the accent colour. Sits above whichever output container is
+   active, right-aligned so it doesn't crowd the summaries. */
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 1.25rem;
+}
+
+.view-toggle[hidden] {
+  display: none;
+}
+
+.view-toggle-btn {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.4rem 0.9rem;
+  border: none;
+  background: var(--panel);
+  color: var(--fg);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.view-toggle-btn + .view-toggle-btn {
+  border-left: 1px solid var(--border);
+}
+
+.view-toggle-btn:hover:not(.is-selected) {
+  background: var(--surface-hover);
+}
+
+.view-toggle-btn.is-selected {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.view-toggle-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* ---------- Return Variability (Build 1): mode toggle + historical view ---------- */
+
+/* Shared segmented-control base, reused by the sidebar input toggles
+   (#spending-toggle, #sourcing-toggle, #allocation-mode-toggle) — a filled-pill
+   look matching .view-toggle, full-width across the sidebar. NOTE (ux2):
+   #mode-toggle still carries the .mode-toggle class (the JS keys off
+   .mode-toggle-btn) but is now the relocated engine-mode LENS in the content
+   column; the .lens-toggle / .lens-tab overrides below restyle it as a flat tab
+   bar so it no longer inherits this filled-segment treatment. */
+.mode-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 1.25rem;
+}
+
+.mode-toggle-btn {
+  /* Equal-width segments that share the row, so a two-button toggle splits the
+     row evenly. Comfortable horizontal padding and a single-line label. The
+     three-button sidebar toggle #spending-toggle (Constant-real | Lifecycle |
+     Guardrails) stacks vertically (scoped override below) instead of cramming
+     three labels into one sidebar-width row. #mode-toggle (also three buttons)
+     no longer needs that hack: it moved to the wider content column as the lens
+     and lays out as a horizontal tab row (.lens-toggle overrides). */
+  flex: 1 1 0;
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.45rem 0.9rem;
+  border: none;
+  background: var(--panel);
+  color: var(--fg);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mode-toggle-btn + .mode-toggle-btn {
+  border-left: 1px solid var(--border);
+}
+
+.mode-toggle-btn:hover:not(.is-selected) {
+  background: var(--surface-hover);
+}
+
+.mode-toggle-btn.is-selected {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.mode-toggle-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* ---------- Engine-mode LENS (UX REFRESH ux2) ---------- */
+
+/* The engine-mode switch (#mode-toggle), relocated out of the sidebar to the
+   top of the content column, is restyled as a "lens" — "how am I viewing this
+   plan?" — and deliberately reads DIFFERENTLY from the sidebar's filled blue
+   segmented input toggles (spending / sourcing / allocation). It is an
+   underlined tab bar with a short leading "View" label, not a filled pill row.
+   #mode-toggle keeps its base .mode-toggle structure (the JS keys off the id +
+   .mode-toggle-btn), but the .lens-toggle / .lens-tab classes override the
+   segmented look so it can't be confused with an input knob. The earlier
+   sidebar-only rules that stacked #mode-toggle vertically were removed when the
+   node moved; the lens is a single horizontal row at every width. */
+
+/* Row: leading label + the tab bar, baseline-aligned, with a bottom rule the
+   tabs sit on. Wraps gracefully if the column gets very narrow. */
+.lens {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+  /* UX REFRESH (ux5): the view-switcher stays reachable on scroll. The lens
+     pins to the top of the scrolling content column (>=1100px) / the viewport
+     (narrow) above the sticky #action-bar. An OPAQUE page-coloured background
+     keeps the charts/summaries scrolling cleanly beneath it (the row is light:
+     flat tabs on a hairline rule, no heavy band). z-index 6 sits ABOVE the
+     action bar's z-index 5 so the lens wins the overlap if both pin. */
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  background: var(--bg);
+}
+
+.lens-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted, var(--muted-strong));
+  /* Drop the label onto the shared baseline rule with the tabs. */
+  padding-bottom: 0.5rem;
+  white-space: nowrap;
+}
+
+/* Stress Test sub-selector (stress-test design slice 1): sits on the lens baseline
+   to the right of the tabs, shown only when the Stress Test lens is active (JS
+   toggles [hidden]). A compact label + native <select>; no segmented-control
+   chrome. */
+.lens-stress {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding-bottom: 0.4rem;
+}
+.lens-stress[hidden] {
+  display: none;
+}
+.lens-stress-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted, var(--muted-strong));
+  white-space: nowrap;
+}
+.lens-stress select {
+  font-size: 0.85rem;
+  padding: 0.2rem 0.4rem;
+}
+
+/* The tab bar itself. Strip the segmented-control chrome inherited from
+   .mode-toggle (the box border, rounded corners, filled background, bottom
+   margin) so it reads as flat tabs sitting on the .lens underline rather than a
+   pill group. */
+.mode-toggle.lens-toggle {
+  display: flex;
+  flex-direction: row;
+  gap: 0.25rem;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+  margin-bottom: 0;
+}
+
+/* Each tab: a flat, transparent label with a 2px underline that fills in on the
+   active tab — distinct from the sidebar toggles' solid blue fill. Width is
+   content-sized (not the equal-flex segments of the input toggles). The
+   bottom border overlaps the .lens rule so the selected tab's accent underline
+   reads as "this tab is lifting off the rule". */
+.mode-toggle-btn.lens-tab {
+  flex: 0 0 auto;
+  width: auto;
+  text-align: center;
+  background: transparent;
+  color: var(--muted, var(--muted-strong));
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 0.4rem 0.7rem;
+  margin-bottom: -1px; /* sit the underline on top of the .lens border */
+  font-size: 0.9rem;
+}
+
+/* Neutralise the shared adjacent-sibling seam (the vertical left border between
+   segments) — lens tabs are separated by gap, not dividers. */
+.mode-toggle-btn.lens-tab + .mode-toggle-btn.lens-tab {
+  border-left: none;
+}
+
+.mode-toggle-btn.lens-tab:hover:not(.is-selected) {
+  background: transparent;
+  color: var(--fg);
+  border-bottom-color: var(--border);
+}
+
+/* Active tab: accent text + accent underline, NOT the filled-blue treatment the
+   sidebar input toggles use for .is-selected. The shared
+   `.mode-toggle-btn.is-selected { background: var(--accent); color:#fff }` rule
+   is overridden here because this selector is more specific (class + class). */
+.mode-toggle-btn.lens-tab.is-selected {
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+.mode-toggle-btn.lens-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- Social Security: claim-age sliders surfaced into the Plan block ----------
+   Mirrors .spending-shape / .spending-shape-label so the "Social Security" heading
+   matches the visual weight + caps of the "Spending" label above it. */
+.ss-claim-section {
+  margin-bottom: 1.25rem;
+}
+
+.ss-claim-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted, var(--muted-strong));
+  margin-bottom: 0.4rem;
+}
+
+/* ---------- Lifecycle spending: spending-shape toggle + phase breakdown ---------- */
+
+/* Wrapper for the global spending-shape control, sitting just under the sim-mode
+   toggle. A small label, the segmented Constant-real | Lifecycle toggle (reusing
+   the .mode-toggle look), and the read-only phase breakdown beneath it. */
+.spending-shape {
+  margin-bottom: 1.25rem;
+}
+
+.spending-shape-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted, var(--muted-strong));
+  margin-bottom: 0.4rem;
+}
+
+/* The spending toggle reuses .mode-toggle; drop its bottom margin since the
+   .spending-shape wrapper (and the breakdown below) own the spacing now. */
+.spending-toggle {
+  margin-bottom: 0;
+}
+
+/* #spending-toggle is now a THREE-button switch (Constant-real | Lifecycle |
+   Guardrails). Like #mode-toggle, three labels don't fit one row in the ~300px
+   sidebar — the third button overflowed and overlapped the main content pane.
+   Mirror the sim-mode toggle's fix: stack the segments VERTICALLY (full-width,
+   one per row, single-line labels), and turn the seam from a vertical left
+   border into a horizontal top divider. Scoped by id so nothing else changes. */
+#spending-toggle {
+  flex-direction: column;
+}
+
+#spending-toggle .mode-toggle-btn {
+  flex: 0 0 auto;
+  width: 100%;
+  text-align: left;
+}
+
+#spending-toggle .mode-toggle-btn + .mode-toggle-btn {
+  border-left: none;
+  border-top: 1px solid var(--border);
+}
+
+/* Read-only phase breakdown, e.g. "Go-go (50–74) $110k · Slow-go (75–84) $93.5k
+   · No-go (85+) $82.5k". Shown only in lifecycle mode (JS toggles [hidden]). */
+.spending-phase-breakdown {
+  margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--muted, var(--muted-strong));
+}
+
+.spending-phase-breakdown[hidden] {
+  display: none;
+}
+
+/* ---------- Pinned action bar (run-controls atop the chart column) ---------- */
+
+/* The action bar holds the relocated run-controls at the top of the chart
+   column: [Recompute][confidence dial][Solve][error] in .action-bar-controls,
+   with #solve-readout + #solve-caption
+   directly beneath. The WHOLE bar is sticky to the top of the scrolling chart
+   column (>=1100px) so the run-controls never scroll off (the bar IS the sticky
+   element — making only the inner row sticky fails because its containing block,
+   .action-bar, is no taller than the row itself and gives it no travel). A
+   page-coloured background + bottom border keep the charts from bleeding through
+   as they scroll underneath. Below 1100px the bar is a normal block at the top
+   of the stacked content (no sticky). */
+.action-bar {
+  margin-bottom: 1.25rem;
+  background: var(--bg);
+}
+
+/* >=1100px the chart column scrolls inside the app-shell; pin the bar to the top
+   of that scroll container (.content-region) so the run-controls stay reachable.
+   z-index keeps it above the charts/summaries that scroll beneath it; the bottom
+   border + padding visually separate it from the scrolling content. */
+@media (min-width: 1100px) {
+  .action-bar {
+    position: sticky;
+    /* UX REFRESH (ux5): offset the pin by the sticky lens's height so the two
+       stack (lens on top, action bar directly beneath) instead of overlapping
+       when both pin to the top of the scrolling content column. */
+    top: var(--lens-height);
+    z-index: 5;
+    padding-bottom: 0.85rem;
+    margin-bottom: 0.85rem;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+/* The controls row: [Recompute][confidence dial][Solve][error]. Wraps on narrow
+   widths. */
+.action-bar-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* The control sub-group: [confidence dial] [Solve max spend]. Treated as ONE
+   grouped unit — a subtle tinted background + hairline border with rounded
+   corners wrap the dial and Solve together, with tight internal spacing so the
+   dial sits snug against Solve (it reads as a single "set confidence → solve"
+   segmented control, distinct from the standalone Recompute button to its left).
+   The extra left margin opens a clear gap from Recompute so that primary action
+   reads as separate. */
+.solve-control {
+  display: flex;
+  align-items: center;
+  /* No gap between the dial and Solve: the dial-button pill butts flush against
+     the Solve button (their shared seam is handled by squaring the adjacent
+     corners below). The label-to-stops spacing lives inside .solve-dial. */
+  gap: 0;
+  flex-wrap: wrap;
+  margin-left: 1.1rem;
+  padding: 0.3rem 0.4rem;
+  background: rgba(var(--scenario-a-rgb), 0.05);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.solve-control[hidden] {
+  display: none;
+}
+
+/* While comparing the solve cluster (dial + Solve) is DISABLED, not hidden:
+   grey it back and block pointer events so it reads as unavailable. The actual
+   controls are also set `disabled` in JS (updateSolveControl) for real inertness
+   + keyboard semantics; this just carries the visual treatment across the whole
+   cluster (label, dial stops, Solve button). The Solve button keeps pointer
+   events so its `title` tooltip ("Focus a scenario to solve it") is still
+   discoverable on hover. */
+.solve-control.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+  /* Mute the group chrome too so the whole cluster (tint + border + contents)
+     fades together rather than leaving a stray solid wrapper around greyed
+     controls. */
+  background: rgba(var(--scenario-a-rgb), 0.025);
+  border-color: var(--border-faint);
+}
+
+.solve-control.is-disabled #solve-btn {
+  pointer-events: auto;
+  cursor: not-allowed;
+}
+
+/* The confidence dial: a small label + four segmented stops (80|90|95|100).
+   Historical-only — JS hides it in Deterministic. Reuses the .view-toggle pill
+   look for the stops. Sits directly against the Solve button inside the grouped
+   .solve-control (tight gap there), so the stops + Solve read as a continuous
+   "dial → solve" segmented set. */
+.solve-dial {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.solve-dial[hidden] {
+  display: none;
+}
+
+.solve-dial-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted, var(--muted-strong));
+}
+
+.solve-dial-buttons {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  /* Square the right edge and drop the right border so the stops butt directly
+     up against the Solve button — the two share a continuous seam, reading as
+     one segmented "dial → solve" control. */
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: none;
+  overflow: hidden;
+}
+
+.solve-dial-btn {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.3rem 0.6rem;
+  border: none;
+  background: var(--panel);
+  color: var(--fg);
+  cursor: pointer;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.solve-dial-btn + .solve-dial-btn {
+  border-left: 1px solid var(--border);
+}
+
+.solve-dial-btn:hover:not(.is-selected) {
+  background: var(--surface-hover);
+}
+
+.solve-dial-btn.is-selected {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.solve-dial-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Solve abuts the dial-button pill: square its LEFT corners so the shared seam
+   between the stops and Solve is a single continuous edge (the dial flows into
+   Solve). Its own (border) padding keeps the label readable. */
+.solve-btn {
+  font-size: 0.85rem;
+  white-space: nowrap;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+/* The one-line achieved-% readout written after a solve. Slightly emphasised
+   over body text so the result reads as the answer; the error state reuses the
+   form-error red via .is-error. */
+.solve-readout {
+  margin: 0.7rem 0 0;
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--fg);
+  line-height: 1.4;
+}
+
+.solve-readout[hidden] {
+  display: none;
+}
+
+.solve-readout.is-error {
+  color: var(--error);
+  font-weight: 400;
+}
+
+/* The caption reuses .allocation-caption chrome; just tighten its top margin so
+   it hugs the readout above it. */
+.solve-caption {
+  margin-top: 0.6rem;
+}
+
+.solve-caption[hidden] {
+  display: none;
+}
+
+/* Historical output region: single median line + descriptive readout. Like the
+   deterministic containers, force-hidden when JS sets [hidden] so exactly one
+   output region (deterministic vs historical) is ever visible. */
+.historical-view[hidden],
+#deterministic-region[hidden] {
+  display: none;
+}
+
+/* Both scenario summary lines, stacked, colour-coded to match the two lines. */
+.overlay-summaries {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.summary-line-a {
+  color: var(--accent);   /* blue — matches Scenario A line */
+}
+
+.summary-line-b {
+  color: var(--scenario-b);         /* magenta — matches Scenario B line (blends with A's blue → purple) */
+}
+
+/* The two year-by-year drill-downs, stacked. */
+.overlay-tables {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.overlay-tables > .trajectory-details {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+}
+
+.overlay-tables .summary-label-a,
+.historical-panels .panel-title.summary-label-a {
+  color: var(--accent);
+}
+
+.overlay-tables .summary-label-b,
+.historical-panels .panel-title.summary-label-b {
+  color: var(--scenario-b);         /* magenta — Scenario B (tool-wide) */
+}
+
+/* Panels are now pure output (summary → chart → year-by-year) with no form.
+   Slice 7 moved all controls into one inputs section above both panels, so the
+   slice-4 per-panel reorder hack (chart-up, form-down) is no longer needed:
+   natural DOM order already puts the chart high in each panel. */
+.panel {
+  min-width: 0;  /* allow children to shrink inside grid track */
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-title {
+  margin: 0 0 1rem;
+  font-size: 1.15rem;
+  color: var(--muted);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* ---------- Summary / chart / inputs (per-panel) ---------- */
+
+.summary {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.summary-line {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 500;
+}
+
+.chart-wrap {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  height: 360px;
+  /* Bound the chart to the wrap so a bare <canvas> (the deterministic / historical
+     / MC / overlay / side / trajectory fans) can NEVER spill its legend past the
+     wrap into the caption/text rendered below it. A <canvas> defaults to
+     display:inline, which adds a baseline descender gap and lets Chart.js' canvas
+     surface (legend included, drawn INSIDE the canvas) push a few px below the
+     360px box — the overlap. position:relative + box-sizing pins the inner canvas
+     to the padded content area; .chart-wrap > canvas (below) makes the canvas a
+     block that fills exactly that area, so the legend is reserved INSIDE the box. */
+  position: relative;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* The bare-canvas charts that sit DIRECTLY in a fixed-height .chart-wrap (i.e. not
+   the .bucket-chart-canvas-box / .spending-fan-canvas-box charts, which already
+   have their own bounded relative box). Block (kills the inline descender gap) +
+   absolute fill of the padded content box so Chart.js sizes into a precisely
+   bounded area and renders its legend within the wrap, never over the following
+   caption. The 1rem inset matches .chart-wrap's padding. */
+.chart-wrap > canvas {
+  display: block;
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  bottom: 1rem;
+  left: 1rem;
+  width: auto;
+  height: auto;
+}
+
+/* Spending fan (variable-spending design slice 1): the chart sits below a title +
+   a one-line explainer, so the wrap is auto-height (overrides the fixed 360px
+   .chart-wrap height) and the canvas gets its own fixed area. Guardrails-only;
+   hidden in Constant/Lifecycle via the [hidden] attribute. */
+.spending-fan-wrap {
+  height: auto;
+}
+
+.spending-fan-wrap[hidden] {
+  display: none;
+}
+
+.spending-fan-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.0rem;
+}
+
+.spending-fan-note {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--muted, var(--muted-strong));
+}
+
+/* Fixed-height, position:relative wrapper so Chart.js (responsive +
+   maintainAspectRatio:false) has a bounded parent to size into — mirroring how
+   .chart-wrap's fixed 360px height keeps the portfolio fan correct. Without a
+   bounded parent the canvas grows unbounded on each resize. */
+.spending-fan-canvas-box {
+  position: relative;
+  height: 320px;
+}
+
+.spending-fan-canvas-box canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Deterministic guardrails spending LINE (dsc1): the deterministic analog of the
+   spending fan. Same auto-height wrap + bounded canvas-box geometry, so the single
+   line reads as a sibling of the fan. Shown only in Deterministic + guardrails;
+   hidden via [hidden] otherwise. The ⓘ popover in .det-spending-head is positioned
+   by the container-scoped .content-region .info-popover rule — deliberately NO
+   wrapper-scoped positioning rule here. */
+.det-spending-wrap {
+  height: auto;
+}
+
+.det-spending-wrap[hidden] {
+  display: none;
+}
+
+.det-spending-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.0rem;
+}
+
+.det-spending-canvas-box {
+  position: relative;
+  height: 320px;
+}
+
+.det-spending-canvas-box canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.det-spending-head {
+  margin: 0 0 0.35rem;
+}
+.det-spending-head .det-spending-title {
+  margin: 0;
+  flex: 1 1 auto;
+}
+
+/* Adjustment events (variable-spending design slice 2): the cost-of-flexibility
+   readout + worst-cohort drill-down. Sits below the spending fan in the single
+   Historical view; guardrails-only, hidden via [hidden] otherwise. Same panel
+   chrome (border / radius / padding) as .chart-wrap so it reads as a sibling. */
+.adjustment-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.adjustment-panel[hidden] {
+  display: none;
+}
+
+.adjustment-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.0rem;
+}
+
+.adjustment-note {
+  margin: 0 0 1rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.adjustment-note em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+/* Stat cards: a responsive grid of scannable value/label tiles. */
+.adjustment-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.stat-card {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 5px;
+  padding: 0.6rem 0.75rem;
+  background: var(--stat-card-bg);
+}
+
+.stat-value {
+  font-size: 1.35rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  line-height: 1.1;
+}
+
+.stat-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 0.25rem;
+  line-height: 1.3;
+}
+
+.stat-sub {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 0.3rem;
+  font-style: italic;
+}
+
+/* Worst-cohort drill-down. */
+.worst-cohort-title {
+  margin: 0 0 0.3rem;
+  font-size: 0.95rem;
+}
+
+.worst-cohort-summary {
+  margin: 0 0 0.6rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--fg);
+}
+
+.worst-cohort-details {
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
+}
+
+.worst-cohort-summary-toggle {
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.85rem;
+  color: var(--accent);
+  padding: 0.2rem 0;
+}
+
+.worst-cohort-table-wrap {
+  margin-top: 0.75rem;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+/* The drill-down table reuses .trajectory-table; the action column reads left
+   (it's a phrase, not a number) and each adjustment year is tinted by type so the
+   cuts, market raises, and GI-driven raises read distinctly. */
+.worst-cohort-table .worst-cohort-action {
+  text-align: left;
+}
+
+.worst-cohort-table tbody tr.row-cut {
+  background: var(--row-cut-bg);
+}
+
+.worst-cohort-table tbody tr.row-raise {
+  background: var(--row-raise-bg);
+}
+
+.worst-cohort-table tbody tr.row-raise-gi {
+  background: var(--row-raise-gi-bg);
+}
+
+.worst-cohort-table tbody tr.row-hold {
+  color: var(--muted);
+}
+
+/* The zebra striping on .trajectory-table would fight the action tints; the
+   action tints win for the drill-down table. */
+.worst-cohort-table tbody tr:nth-child(even) {
+  background: inherit;
+}
+
+.worst-cohort-table tbody tr.row-cut:nth-child(even) {
+  background: var(--row-cut-bg);
+}
+
+.worst-cohort-table tbody tr.row-raise:nth-child(even) {
+  background: var(--row-raise-bg);
+}
+
+.worst-cohort-table tbody tr.row-raise-gi:nth-child(even) {
+  background: var(--row-raise-gi-bg);
+}
+
+.table-wrap {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.table-wrap h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+}
+
+.trajectory-details > .table-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.25rem 0;
+  user-select: none;
+}
+
+.trajectory-details > .table-summary::-webkit-details-marker { display: none; }
+
+.trajectory-details > .table-summary::before {
+  content: "\25B8"; /* right-pointing triangle */
+  color: var(--accent);
+  font-size: 0.9rem;
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+
+.trajectory-details[open] > .table-summary::before {
+  transform: rotate(90deg);
+}
+
+.trajectory-details .summary-label {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.trajectory-details .summary-hint {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.trajectory-details[open] .summary-hint {
+  display: none;
+}
+
+.trajectory-details > .table-summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.trajectory-details[open] .table-heading {
+  margin-top: 0.75rem;
+}
+
+/* ---------- Chart explainers (ctx1) ----------
+   The "How to read this chart ▾" disclosures beneath the main / bucket / spending
+   charts. Mirrors the .trajectory-details "Year-by-year breakdown" idiom (a bare
+   <details> with a rotating triangle marker, a bold .summary-label + muted
+   .summary-hint), so the two on-demand expanders read as siblings. Collapsed by
+   default (the markup carries no `open`); the body holds a how-to-read paragraph and,
+   under the MAIN chart only, the key-parameters digest. */
+.chart-explainer {
+  margin-top: 1rem;
+}
+
+.chart-explainer > .explainer-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.25rem 0;
+  user-select: none;
+}
+
+.chart-explainer > .explainer-summary::-webkit-details-marker { display: none; }
+
+.chart-explainer > .explainer-summary::before {
+  content: "\25B8"; /* right-pointing triangle */
+  color: var(--accent);
+  font-size: 0.9rem;
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+
+.chart-explainer[open] > .explainer-summary::before {
+  transform: rotate(90deg);
+}
+
+.chart-explainer .summary-label {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.chart-explainer .summary-hint {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.chart-explainer[open] .summary-hint {
+  display: none;
+}
+
+.chart-explainer > .explainer-summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.chart-explainer .explainer-body {
+  margin-top: 0.6rem;
+  max-width: 46rem;
+}
+
+.chart-explainer .explainer-text {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* The key-parameters digest (MAIN chart only). When comparing, two stacked blocks
+   (Scenario A / Scenario B) each carry their own heading + complete list. */
+.chart-explainer .explainer-params {
+  margin-top: 0.85rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem 2rem;
+}
+
+.explainer-params-block {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+
+.explainer-params-heading {
+  margin: 0 0 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.explainer-params-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--fg);
+}
+
+.explainer-params-list li {
+  margin: 0.1rem 0;
+}
+
+.explainer-param-label {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.trajectory-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.trajectory-table th,
+.trajectory-table td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.trajectory-table th:first-child,
+.trajectory-table td:first-child {
+  text-align: left;
+}
+
+.trajectory-table th {
+  color: var(--muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+}
+
+.trajectory-table tbody tr:nth-child(even) {
+  background: var(--surface-subtle);
+}
+
+.trajectory-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.table-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.75rem;
+}
+
+.table-heading h2 {
+  margin: 0;
+}
+
+.info {
+  position: relative;
+  display: inline-block;
+  font-size: 0.9rem;
+  font-weight: 400;
+}
+
+.info > summary {
+  list-style: none;
+  cursor: pointer;
+  color: var(--muted);
+  user-select: none;
+  line-height: 1;
+  padding: 0 0.15rem;
+  border-radius: 50%;
+}
+
+.info > summary::-webkit-details-marker { display: none; }
+
+.info > summary:hover,
+.info[open] > summary {
+  color: var(--accent);
+}
+
+.info > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.info-popover {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  z-index: 10;
+  width: max-content;
+  max-width: 22rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.4;
+  box-shadow: 0 4px 12px var(--shadow-popover);
+}
+
+/* Hover-to-reveal (in addition to click-to-toggle via <details>) */
+.info:hover .info-popover {
+  display: block;
+}
+.info:not([open]):not(:hover) .info-popover {
+  display: none;
+}
+
+/* ---------- UX REFRESH (ux4): caption → ⓘ popover layout helpers ----------
+   Heavy explanatory captions collapse into the existing .info / .info-popover
+   idiom. A caption that needs a visible orientation keeps a concise one-line
+   lead/label and tucks the full prose behind the ⓘ; purely explanatory captions
+   show just a label + ⓘ. .caption-info-row lays the lead/label and the ⓘ on one
+   line (the ⓘ is the inline-block .info, the popover is absolutely positioned so
+   it floats over content without reflowing the row). */
+.caption-info-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+/* Content-column ⓘ open LEFTWARD (ux6 fix; broadened tb1c). The caveat/explanatory
+   captions in .content-region (solve, allocation, bucket-matched, satiation,
+   spending-fan) are right-aligned within a wide column, so their ⓘ trigger
+   sits at the far right of the viewport. The default left:0 popover opens
+   down-and-right and runs ~300px off the right screen edge. Anchoring the
+   popover's right edge to the trigger (left:auto; right:0) makes it open
+   leftward and stay on-screen.
+
+   POSITIONING IS CONTAINER-DRIVEN AND WRAPPER-AGNOSTIC ON PURPOSE (tb1c): the
+   selector keys off WHERE the popover lives (.content-region), NOT which wrapper
+   class (.caption-info-row) it happens to sit in. The old wrapper-scoped rule
+   silently missed any popover that wasn't a caption-info-row, which let new ⓘ
+   (e.g. table-heading ⓘ) open rightward and spill off-screen. Broadening to
+   `.content-region .info-popover` means EVERY popover in the content region gets
+   the correct on-screen behaviour regardless of its wrapper — no per-popover
+   opt-in. .table-heading ⓘ in the content region are now covered too. */
+.content-region .info-popover {
+  left: auto;
+  right: 0;
+}
+
+/* Narrow exception to the leftward content-region default (tb1c). The captions the
+   leftward rule was written for are RIGHT-aligned in the wide column, so their ⓘ is
+   near the right edge and must open leftward. The .table-heading ⓘ (the "why don't
+   the rows add up?" note above each drill-down table) is the opposite case: it's the
+   first child of a left-aligned flex row, so its trigger sits at the LEFT edge of the
+   column — opening leftward there would run the popover off the LEFT of the viewport.
+   It has plenty of room to its right, so restore the natural rightward open for this
+   one container. Still container-driven (keyed off .table-heading's position), not a
+   per-element opt-in. */
+.content-region .table-heading .info-popover {
+  left: 0;
+  right: auto;
+}
+
+/* Sidebar ⓘ stay INSIDE the sidebar box (sv1b fix; broadened tb1c). At >=1100px the
+   .inputs-section is a 300px grid column with `overflow-y:auto`, which makes it
+   a scroll container that clips on BOTH axes. The default popover opens rightward
+   (left:0) from the ⓘ near the right edge of the column with max-width:22rem
+   (~352px > 300px), so its body spills past the column's right edge into the
+   content column — where the sidebar's overflow CLIPS it and it reads as falling
+   "under" the main page (e.g. the glidepath ⓘ). Fix: anchor the popover's right
+   edge to the trigger (left:auto; right:0) so it opens leftward, and give it a
+   FIXED width that fits inside the sidebar's inner content box so the whole
+   popover stays inside the sidebar and is never clipped by that overflow. The
+   width must be a real length, NOT a percentage: the popover's positioned
+   ancestor is the tiny .info/<details> box (~the width of the ⓘ glyph), so a
+   `100%`/`min(...,100%)` would collapse the popover to a ~26px vertical sliver
+   (sv1b regression). The 300px column minus its 1.25rem (20px) side padding
+   leaves a ~260px inner box; 15rem (240px) sits inside it with a ~20px margin
+   and still reads as a normal multi-line popover. The z-index bump (>lens z6 /
+   action-bar z5) keeps it painting above the sticky content-column chrome on the
+   shared root stacking context for good measure.
+
+   POSITIONING IS CONTAINER-DRIVEN AND WRAPPER-AGNOSTIC ON PURPOSE (tb1c): the
+   selector keys off WHERE the popover lives (.inputs-section), NOT which wrapper
+   class (.caption-info-row) it happens to sit in. This is the durable fix for the
+   recurring "pops under the main pane" bug: the old wrapper-scoped rule clipped any
+   sidebar ⓘ that wasn't a caption-info-row — exactly what bit the tax-location ⓘ in
+   .tax-location-head (it opened rightward at 22rem and spilled past the 300px
+   column). Broadening to `.inputs-section .info-popover` means EVERY popover in the
+   sidebar is positioned + sized to stay on-screen regardless of its wrapper — no
+   per-popover opt-in, so future ⓘ are covered automatically. Affects every sidebar
+   ⓘ: glidepath-caption, bucket-years-hint, bucket-caption, guardrail-satiation-hint,
+   the tax-location ⓘ, and any added later. Below 1100px the sidebar reflows inline
+   (no overflow clip) and this rule is harmless. */
+.inputs-section .info-popover {
+  left: auto;
+  right: 0;
+  width: 15rem;
+  max-width: none;
+  z-index: 11;
+}
+
+/* The concise visible lead on caveat/honesty captions (allocation, bucket-matched,
+   satiation): carries the can't-be-missed warning; takes the remaining width so
+   the ⓘ sits at its end. Inherits the caption's muted box chrome. */
+.caption-info-lead {
+  flex: 1 1 auto;
+}
+
+/* The small section label on purely-explanatory captions (glidepath, gap-years,
+   ceiling/floor, solve, spending-fan): a muted, slightly emphasized lead-in to
+   the ⓘ so the user knows what the popover explains. */
+.caption-info-label {
+  flex: 1 1 auto;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* The spending-fan heading row: the existing <h3> title plus its ⓘ on one line.
+   The title keeps its own bottom margin reset so the row stays tight. */
+.spending-fan-head {
+  margin: 0 0 0.35rem;
+}
+.spending-fan-head .spending-fan-title {
+  margin: 0;
+  flex: 1 1 auto;
+}
+
+/* ---------- Slice 7: single link-aware inputs section ---------- */
+
+.inputs-section {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem 1.25rem 1.25rem;
+  margin-bottom: 1.75rem;
+}
+
+/* Wide screens: the inputs section is the left sidebar COLUMN of the app-shell.
+   It's a fixed-height grid track (the .layout fills the viewport below the
+   pinned header) and scrolls its OWN overflow independently of the chart column
+   — so a long inputs list (all fields unlinked, Advanced open) scrolls inside
+   the sidebar while the chart column stays put, and a short inputs list leaves
+   no empty space. min-height:0 lets the column shrink within the grid row so the
+   overflow lands here, not on the page; the previous sticky/max-height approach
+   is replaced by the app-shell flex column on <main>. The stacked-layout
+   margin-bottom is dropped here. */
+@media (min-width: 1100px) {
+  .inputs-section {
+    margin-bottom: 0;
+    overflow-y: auto;
+    min-height: 0;
+  }
+}
+
+.inputs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.inputs-title {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+/* Relocated link controls: the "Unlink all" master button / "Focus A│B"
+   segmented control, moved DOWN out of .inputs-header to sit just above the
+   field rows. Only one child is visible at a time (JS toggles [hidden]); this
+   wrapper just reserves the row and the gap below it before the legend/fields. */
+.inputs-link-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+/* "Unlink all" master button. It's a standard .btn, so align its box exactly
+   with the other .btn buttons (Recompute, Solve): same padding, line-height and
+   box-sizing — previously a smaller padding override + the body's 1.5
+   line-height left it a different height. Only font-size is dialled down to read
+   as a secondary control. */
+.link-master {
+  font-size: 0.85rem;
+  padding: 0.45rem 0.9rem;
+  line-height: 1.5;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+
+.link-master[hidden] {
+  display: none;
+}
+
+/* The master collapse control while comparing: a "Focus A | Focus B" segmented
+   control replacing the single "Unlink all" button. Same pill look as
+   .view-toggle, sized to sit where the master button does in the inputs header.
+   Each button stops the comparison and keeps that scenario (JS: onFocus). */
+.focus-control {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.focus-control[hidden] {
+  display: none;
+}
+
+.focus-btn {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.3rem 0.7rem;
+  border: none;
+  background: var(--panel);
+  color: var(--fg);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.focus-btn + .focus-btn {
+  border-left: 1px solid var(--border);
+}
+
+.focus-btn:hover {
+  background: var(--surface-hover);
+}
+
+.focus-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Tint the A/B letters to match the scenario chips/lines (A blue, B magenta). */
+.focus-ab {
+  font-weight: 700;
+}
+
+.focus-ab-a {
+  color: var(--accent);   /* blue — Scenario A */
+}
+
+.focus-ab-b {
+  color: var(--scenario-b);         /* magenta — Scenario B (tool-wide) */
+}
+
+/* A/B column legend, shown only when at least one field is unlinked. */
+.ab-legend {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-bottom: 0.5rem;
+}
+
+/* UX REFRESH (ux5): the legend carries `display: flex`, which otherwise wins
+   over the UA [hidden] { display:none } rule (class beats attribute selector) —
+   the same trap fixed for .overlay-view / .panels / .view-toggle above. Without
+   this the legend renders on the default all-linked page even though updateLegend()
+   correctly sets legend.hidden = masterAllLinked() (= !isComparing()). Force it
+   hidden when the JS sets [hidden] so it tracks the EXISTING comparing state:
+   hidden when all fields + allocation are linked, shown the moment anything is
+   unlinked. No JS change — the toggle was already correct; only the CSS leaked. */
+.ab-legend[hidden] {
+  display: none;
+}
+
+.ab-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding: 0 0.4rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.ab-tag-a {
+  background: rgba(var(--scenario-a-rgb), 0.12);
+  color: var(--accent);
+}
+
+.ab-tag-b {
+  background: rgba(var(--scenario-b-rgb), 0.12);
+  color: var(--scenario-b);
+}
+
+/* Primary fields go three-across on wide enough containers; the inputs section
+   is full-width now (not a narrow per-panel form), so we can afford columns. */
+/* tb1d: #primary-fields was split into #primary-fields-portfolio and
+   #primary-fields-spending so the tax-location section can sit between the two
+   primary fields. Both carry the shared .primary-fields class, which inherits
+   the original grid styling here so visual spacing is unchanged. */
+#primary-fields,
+.primary-fields {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.85rem 1.25rem;
+}
+
+#horizon-fields {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.85rem 1.25rem;
+}
+
+@media (min-width: 700px) {
+  #primary-fields,
+  .primary-fields {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  #horizon-fields {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .gi-group > .field-rows {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* In the wide-screen sidebar the inputs section is only ~300px, so the
+   multi-column field grids (which kick in at 700px viewport) would overflow.
+   Force every field grid back to a single column once the section is a sidebar.
+   This wins over the 700px rules above because it's later in the cascade and
+   equally specific, scoped under the 1100px sidebar layout. */
+@media (min-width: 1100px) {
+  .inputs-section #primary-fields,
+  .inputs-section .primary-fields,
+  .inputs-section #horizon-fields,
+  .inputs-section .gi-group > .field-rows {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- One field row (link-aware) ---------- */
+
+.field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.field-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.field-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.field-inputs {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.field-inputs.linked {
+  grid-template-columns: 1fr;
+}
+
+/* Unlinked: two inputs side by side (A | B). */
+.field-inputs.unlinked {
+  grid-template-columns: 1fr 1fr;
+}
+
+/* Amortization-frontier gate on the Annual spending ($) row: the frontier derives
+   the spend, so the field is greyed + locked in that mode (updateAnnualSpendingGate).
+   Mirrors the tax-location gate idiom — dim the label + show a muted inline note;
+   the disabled input picks up the shared :disabled rule below. */
+.field-row.is-gated .field-label {
+  color: var(--note-icon);
+}
+
+.field-row.is-gated input:disabled {
+  background: var(--surface-disabled);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.annual-spending-gate-note {
+  margin: 0.2rem 0 0;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.input-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.input-cell > .ab-tag {
+  flex: 0 0 auto;
+  min-width: 1.2rem;
+  height: 1.2rem;
+  font-size: 0.7rem;
+}
+
+.field-row input[type="number"] {
+  font: inherit;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--input-bg);
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- SS claim-age slider (slice 2) ---------- */
+/* The claim-age field renders a range slider + a live readout below it (selected
+   age · derived annual benefit · % of FRA) instead of a number box. The cell
+   stacks the slider over its readout; the slider spans the column. */
+.input-cell-slider {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25rem;
+}
+
+.field-row input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.field-row input[type="range"]:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ss-readout {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Amortization Frontier real-return slider (amortization-frontier design) ---------- */
+/* The frontier's one knob: a range slider + an inline "X.X% real" readout. The
+   slider takes the remaining width; the readout sits to its right, tabular so it
+   doesn't jitter while dragging. The slider inherits the .field-row range styling. */
+.amortization-slider-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.amortization-slider {
+  flex: 1 1 auto;
+}
+
+.amortization-readout {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.field-row input[type="number"]:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+
+/* Subtle accent border on the unlinked B input so the differing field reads
+   clearly when scanning. */
+.field-inputs.unlinked .input-cell:last-child input[type="number"] {
+  border-color: rgba(var(--scenario-b-rgb), 0.4);
+}
+
+/* ---------- Link toggle (per field) ---------- */
+
+.link-toggle {
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0.1rem 0.25rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  /* Greyscale the chain glyph when linked so it reads as "synced/inactive";
+     full colour when unlinked to draw the eye to a field that now differs. */
+  filter: grayscale(1) opacity(0.55);
+}
+
+.link-toggle:not(.is-linked) {
+  filter: none;
+}
+
+.link-toggle:hover {
+  background: var(--surface-hover);
+  filter: none;
+}
+
+.link-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---------- Advanced (horizon + GI) ---------- */
+
+.advanced {
+  margin-top: 1.1rem;
+}
+
+.advanced > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.25rem 0;
+  user-select: none;
+}
+
+.advanced > summary::-webkit-details-marker { display: none; }
+
+.advanced > summary::before {
+  content: "\25B8";
+  color: var(--accent);
+  font-size: 0.9rem;
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+
+.advanced[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.advanced .summary-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.advanced .summary-hint {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.advanced[open] .summary-hint {
+  display: none;
+}
+
+.advanced > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ---------- UX REFRESH (ux1): Plan + Strategy IA shell ---------- */
+
+/* The always-visible Plan group: portfolio + spending + spending-shape. It needs
+   no chrome of its own — the controls inside carry their own spacing — but a
+   bottom rule separates it from the Strategy disclosure below. */
+.plan-group {
+  padding-bottom: 1rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+/* UX REFRESH (ux5): even the vertical rhythm inside the Plan block. Two gaps
+   were off: the Spending block butted directly against #primary-fields above it
+   (0 gap), and below it the Spending block's own 1.25rem margin-bottom stacked
+   on top of .plan-group's 1rem padding-bottom (~2.25rem before the divider — a
+   doubled, oversized gap). Scoped to the Plan block's Spending block only (the
+   Sourcing block reuses .spending-shape inside Strategy, where its own spacing
+   rules apply): give it a 1rem top gap to match the block rhythm, and zero its
+   bottom margin so only .plan-group's padding-bottom governs the gap to the
+   divider. */
+.plan-group > .spending-shape {
+  margin-top: 1rem;
+  margin-bottom: 0;
+}
+
+/* The Social Security section is the last block in the Plan group (after Spending),
+   so it follows the same rhythm: a 1rem top gap, and zero bottom margin so only
+   .plan-group's padding-bottom governs the gap down to the Strategy divider. */
+.plan-group > .ss-claim-section {
+  margin-top: 1rem;
+  margin-bottom: 0;
+}
+
+/* The single "Strategy & tuning" disclosure. Reuses the .advanced disclosure
+   idiom (rotating triangle marker, label + click-to-expand hint) so the two
+   folds read consistently. Scoped rules mirror .advanced rather than sharing the
+   class, so the nested Assumptions (#advanced) fold inside can style independently
+   (slightly smaller, indented) without inheriting the parent's weight. */
+.strategy-group {
+  margin-top: 0.25rem;
+}
+
+.strategy-group > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.25rem 0;
+  user-select: none;
+}
+
+.strategy-group > summary::-webkit-details-marker { display: none; }
+
+.strategy-group > summary::before {
+  content: "\25B8";
+  color: var(--accent);
+  font-size: 0.9rem;
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+
+.strategy-group[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.strategy-group > summary .summary-label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.strategy-group > summary .summary-hint {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.strategy-group[open] > summary .summary-hint {
+  display: none;
+}
+
+.strategy-group > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Give the disclosed contents (Allocation, Sourcing, Assumptions) breathing room
+   below the summary. */
+.strategy-group[open] > .allocation-section,
+.strategy-group[open] > .spending-shape {
+  margin-top: 1rem;
+}
+
+/* The nested Assumptions sub-fold (#advanced) now lives one level deep inside
+   Strategy. A subtle left rule + indent signals the nesting without a heavy box. */
+.strategy-group .advanced {
+  margin-top: 1.1rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--border);
+}
+
+#horizon-fields {
+  margin-top: 0.85rem;
+}
+
+/* Per-person guaranteed-income subgroups (Person A / Person B). */
+.gi-group {
+  margin-top: 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.9rem 0.9rem;
+}
+
+.gi-group > legend {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--fg);
+  padding: 0 0.4rem;
+}
+
+.gi-group > .field-rows {
+  margin-top: 0.25rem;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.85rem 1.25rem;
+}
+
+/* ---------- Buttons ---------- */
+
+.btn {
+  font: inherit;
+  padding: 0.45rem 0.9rem;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: var(--accent);
+}
+
+.btn-primary:hover {
+  filter: brightness(0.95);
+}
+
+.btn-secondary {
+  background: var(--panel);
+  color: var(--fg);
+  border-color: var(--border);
+}
+
+.btn-secondary:hover {
+  background: var(--surface-hover);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.form-error {
+  color: var(--error);
+  font-size: 0.9rem;
+}
+
+/* ---------- Saved Scenarios (sv1): the "Scenarios" popover ---------- */
+
+/* The control wraps the button + popover so the popover can anchor to it and
+   so an outside-click handler can detect clicks within the control. */
+.scenarios-control {
+  position: relative;
+  display: inline-flex;
+}
+
+/* A plain DOM popover (NOT a modal) anchored below the button. */
+.scenarios-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  min-width: 18rem;
+  max-width: 24rem;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 0.75rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px var(--shadow-modal);
+}
+
+.scenarios-popover[hidden] {
+  display: none;
+}
+
+.scenarios-popover-heading {
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 0.4rem;
+}
+
+.scenarios-popover-note {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.scenarios-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.6rem;
+}
+
+.scenarios-empty {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.scenarios-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.scenarios-load-btn {
+  flex: 1 1 auto;
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--fg);
+}
+
+.scenarios-load-btn:hover {
+  background: var(--scenario-load-hover);
+  border-color: var(--accent);
+}
+
+.scenarios-delete-btn {
+  flex: 0 0 auto;
+  width: 1.8rem;
+  height: 1.8rem;
+  line-height: 1;
+  font-size: 1.1rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.scenarios-delete-btn:hover {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+/* sv2 "Compare with…" per-row button (⇄). Sits between the load + delete
+   buttons, mirroring the delete button's square icon-button styling. */
+.scenarios-compare-btn {
+  flex: 0 0 auto;
+  width: 1.8rem;
+  height: 1.8rem;
+  line-height: 1;
+  font-size: 1rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.scenarios-compare-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.scenarios-save-row {
+  display: flex;
+  gap: 0.4rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.6rem;
+}
+
+/* Empty-name guard: the Save button is disabled until the name has content. */
+#scenario-save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.scenarios-name-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.scenarios-status {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  min-height: 1rem;
+}
+
+/* sv2 chart-adjacent compare note: the per-side limitation explainer surfaced
+   near the chart when a "Compare with…" load can't express something per-side
+   (mode mismatch, glidepath/buckets shared shape). Hidden when empty. */
+.compare-note {
+  margin: 0.25rem 0 0.5rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  color: var(--fg);
+  background: var(--compare-note-bg);
+  border: 1px solid var(--compare-note-border);
+  border-radius: 6px;
+}
+
+.compare-note[hidden] {
+  display: none;
+}
+
+/* Working indicator (tax-drag design td1, timing acceptance): the live
+   elapsed-seconds counter + expected-duration copy shown while a run (Recompute
+   / Solve) is in flight past ~2s. Reuses the compare-note callout chrome (same
+   "in-progress notice" register) so it doesn't introduce a new visual language.
+   Hidden by default; JS (startRunProgress/stopRunProgress) toggles [hidden] and
+   writes the two spans. */
+.run-progress {
+  margin: 0.25rem 0 0.5rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  color: var(--fg);
+  background: var(--compare-note-bg);
+  border: 1px solid var(--compare-note-border);
+  border-radius: 6px;
+}
+
+.run-progress[hidden] {
+  display: none;
+}
+
+.run-progress-elapsed {
+  font-weight: 600;
+  margin-right: 0.4rem;
+}
+
+/* Narrow-breakpoint popover placement (<1100px, before the 3-column desktop
+   layout engages). The action bar wraps and the Scenarios control can sit near
+   the right edge; right-anchor the popover and cap its width to the viewport so
+   it never overflows off-screen. */
+@media (max-width: 1099px) {
+  .scenarios-popover {
+    left: auto;
+    right: 0;
+    max-width: min(24rem, calc(100vw - 2rem));
+  }
+}
+
+/* ---------- Model assumptions panel (review 2026-10-11) ---------- */
+.model-assumptions-group .field-rows {
+  display: grid;
+  gap: 0.6rem;
+}
+.model-assumptions-group .field-row[hidden] {
+  display: none;
+}
+.model-assumptions-group select {
+  font: inherit;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--fg);
+  width: 100%;
+}
+.model-assumptions-group .ma-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+}

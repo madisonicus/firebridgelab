@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Downloaded / built data (fetch with firebridgelab-fetch-data; never commit —
+# several sources may not be redistributed)
+data/cache/
+
+# Local saved scenarios and secrets
+scenarios/
+.env
+*.env
+
+# Node / browser checks
+node_modules/
+package-lock.json

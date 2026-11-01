@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "firebridgelab"
+version = "0.1.0"
+description = "Retirement-planning model for early retirees: deterministic, historical-cohort and Monte Carlo projections with dynamic spending strategies, pensions, Social Security and US federal tax."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+keywords = ["retirement", "FIRE", "safe withdrawal rate", "Monte Carlo", "financial planning"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Office/Business :: Financial",
+]
+# The library itself needs only these. The FastAPI app and the web UI stay in
+# the repository (install the "web" extra to run them from a checkout).
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "xlrd>=2.0.1",
+]
+
+[project.optional-dependencies]
+web = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
+dev = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "pytest>=8",
+    "httpx2>=2.13",
+]
+notebooks = [
+    "jupyter",
+    "nbconvert",
+    "ipykernel",
+    "matplotlib",
+    "owlplanner",
+]
+
+[project.scripts]
+firebridgelab-fetch-data = "firebridgelab.fetch:main"
+
+[project.urls]
+Homepage = "https://github.com/madisonicus/firebridgelab"
+Source = "https://github.com/madisonicus/firebridgelab"
+Issues = "https://github.com/madisonicus/firebridgelab/issues"
+
+[tool.setuptools.packages.find]
+include = ["firebridgelab", "firebridgelab.*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "requires_optional_classes: needs the non-redistributable asset-class series (Nareit, testfol.io); skipped when they are not installed",
+]
