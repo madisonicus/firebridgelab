@@ -67,6 +67,9 @@ from firebridgelab.income.household import (
     with_household,
 )
 from firebridgelab.returns.series import SERIES_FOR_CLASS
+from firebridgelab.tax.roth import BRACKET_TARGETS
+from firebridgelab.tax.ss_taxation import SS_TAXATION_MODES, SS_TAXATION_PROVISIONAL
+from firebridgelab.tax.state import STATE_CHOICES, STATE_CUSTOM
 
 __all__ = [
     "Plan",
@@ -152,6 +155,21 @@ SCENARIO_FIELD_KEYS = {
     "seed": "simulation.seed",
     "start_age": "people.a.start_age",
     "end_age": "people.a.end_age",
+    "ss_taxation": "tax.ss_taxation",
+    "payroll_tax": "tax.payroll",
+    "irmaa": "tax.irmaa",
+    "irmaa_prior_magi": "tax.irmaa_prior_magi",
+    "roth_conversion_target": "tax.roth_conversion.target",
+    "roth_conversion_start_age": "tax.roth_conversion.start_age",
+    "roth_conversion_end_age": "tax.roth_conversion.end_age",
+    "roth_heir_tax_rate": "tax.roth_conversion.heir_tax_rate",
+    "state": "tax.state.code",
+    "state_move_age": "tax.state.move_age",
+    "state_after_move": "tax.state.move_to",
+    "state_custom_rate": "tax.state.rate",
+    "state_custom_exempt_ss": "tax.state.exempt_social_security",
+    "state_custom_exempt_pensions": "tax.state.exempt_pensions",
+    "state_custom_exempt_ira": "tax.state.exempt_ira",
 }
 
 
@@ -435,6 +453,7 @@ def _from_document(doc, source, log, spending_rules, stress_ids) -> Plan:
                 survivor_fraction=st.num("survivor_fraction", None, lo=0, hi=1),
                 tax_treatment=st.str("tax_treatment", None, choices=STREAM_TAX_TREATMENTS),
                 label=st.str("label", ""),
+                self_employed=st.bool("self_employed", False),
             )
         )
         st.done()
@@ -572,6 +591,47 @@ def _from_document(doc, source, log, spending_rules, stress_ids) -> Plan:
     pension_drift = asm.num("pension_real_drift", 0.0)
     asm.done()
 
+    tx = top.table("tax")
+    tax_options = dict(
+        ss_taxation=tx.str("ss_taxation", SS_TAXATION_PROVISIONAL, choices=SS_TAXATION_MODES),
+        payroll_tax=tx.bool("payroll", False),
+        irmaa=tx.bool("irmaa", False),
+        irmaa_prior_magi=tx.num("irmaa_prior_magi", None, lo=0),
+    )
+    rc = tx.table("roth_conversion")
+    target = rc._raw("target", None)
+    if target is not None and (
+        isinstance(target, bool) or not isinstance(target, (str, int, float))
+    ):
+        raise PlanError(
+            f"'tax.roth_conversion.target' must be a bracket such as \"22%\" or a dollar "
+            f"amount (got {_type_name(target)}: {target!r})"
+        )
+    if isinstance(target, str) and target not in BRACKET_TARGETS:
+        raise PlanError(
+            f"'tax.roth_conversion.target' must be one of {', '.join(BRACKET_TARGETS)} "
+            f"or a dollar amount (got {target!r}){_suggest(target, BRACKET_TARGETS)}"
+        )
+    tax_options.update(
+        roth_conversion_target=float(target) if isinstance(target, int) else target,
+        roth_conversion_start_age=rc.int("start_age", None),
+        roth_conversion_end_age=rc.int("end_age", None),
+        roth_heir_tax_rate=rc.num("heir_tax_rate", 0.22, lo=0, hi=1),
+    )
+    rc.done()
+    st_tab = tx.table("state")
+    tax_options.update(
+        state=st_tab.str("code", None, choices=STATE_CHOICES),
+        state_move_age=st_tab.int("move_age", None),
+        state_after_move=st_tab.str("move_to", None, choices=STATE_CHOICES),
+        state_custom_rate=st_tab.num("rate", 0.0, lo=0, hi=0.2),
+        state_custom_exempt_ss=st_tab.bool("exempt_social_security", False),
+        state_custom_exempt_pensions=st_tab.bool("exempt_pensions", False),
+        state_custom_exempt_ira=st_tab.bool("exempt_ira", False),
+    )
+    st_tab.done()
+    tx.done()
+
     sv = top.table("survivor")
     survivor = {}
     if sv.data:
@@ -637,6 +697,7 @@ def _from_document(doc, source, log, spending_rules, stress_ids) -> Plan:
         pension_real_drift=pension_drift,
         **spending,
         **survivor,
+        **tax_options,
     )
     scenario = with_household(
         scenario,
@@ -822,6 +883,7 @@ def dump(obj: Union[Scenario, Plan]) -> str:
             ("nominal_until_start", st.nominal_until_start or None),
             ("survivor_fraction", st.survivor_fraction),
             ("tax_treatment", st.tax_treatment), ("label", st.label or None),
+            ("self_employed", st.self_employed or None),
         ])
     for ev in s.cash_events:
         _section(lines, "[[cash_events]]", [
@@ -891,6 +953,27 @@ def dump(obj: Union[Scenario, Plan]) -> str:
     _section(lines, "[assumptions]", [
         ("inflation", s.assumed_inflation), ("pension_real_drift", s.pension_real_drift),
     ])
+    _section(lines, "[tax]", [
+        ("ss_taxation", s.ss_taxation), ("payroll", s.payroll_tax), ("irmaa", s.irmaa),
+        ("irmaa_prior_magi", s.irmaa_prior_magi),
+    ])
+    if s.roth_conversion_target is not None:
+        _section(lines, "[tax.roth_conversion]", [
+            ("target", s.roth_conversion_target),
+            ("start_age", s.roth_conversion_start_age),
+            ("end_age", s.roth_conversion_end_age),
+            ("heir_tax_rate", s.roth_heir_tax_rate),
+        ])
+    if s.state is not None or s.state_after_move is not None:
+        custom = STATE_CUSTOM in (s.state, s.state_after_move)
+        _section(lines, "[tax.state]", [
+            ("code", s.state), ("move_age", s.state_move_age),
+            ("move_to", s.state_after_move),
+            ("rate", s.state_custom_rate if custom else None),
+            ("exempt_social_security", s.state_custom_exempt_ss if custom else None),
+            ("exempt_pensions", s.state_custom_exempt_pensions if custom else None),
+            ("exempt_ira", s.state_custom_exempt_ira if custom else None),
+        ])
     if s.survivor_age is not None:
         _section(lines, "[survivor]", [
             ("decedent", s.survivor_decedent), ("age", s.survivor_age),

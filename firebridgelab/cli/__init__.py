@@ -196,6 +196,9 @@ def cmd_run(args) -> int:
             traj, path = oc.deterministic_trajectory(plan.scenario)
             headers, rows = oc.year_rows(plan.scenario, traj, path)
             obj["years"] = [dict(zip(headers, r)) for r in rows]
+        roth = _roth_comparison(plan)
+        if roth is not None:
+            obj["roth_conversion"] = roth.to_dict()
         sys.stdout.write(_json(obj))
         return EXIT_OK
     if args.format == "csv":
@@ -220,11 +223,38 @@ def cmd_run(args) -> int:
               f"({len(starts)} phases; the plan lists {len(plan.scenario.phase_allocations)})")
     print()
     print(_headline_table(outcomes))
+    roth = _roth_comparison(plan)
+    if roth is not None:
+        print()
+        print(_roth_text(roth))
     if oc.DETERMINISTIC in modes:
         print()
         print("Deterministic, year by year:")
         sys.stdout.write(_years_table(plan, "table"))
     return EXIT_OK
+
+
+def _roth_comparison(plan: Plan):
+    """The deterministic with/without Roth conversion comparison, or None."""
+    s = plan.scenario
+    if s.roth_conversion_target is None or not oc.tax_split_active(s):
+        return None
+    from firebridgelab.tax.roth import compare_roth_conversion
+
+    return compare_roth_conversion(s)
+
+
+def _roth_text(c) -> str:
+    money = lambda v: f"${v:,.0f}"  # noqa: E731
+    return "\n".join([
+        "Roth conversions (deterministic):",
+        f"  converted in total      {money(c.total_converted)}",
+        f"  lifetime tax            {money(c.lifetime_tax_with)} with, "
+        f"{money(c.lifetime_tax_without)} without ({money(c.tax_change)})",
+        f"  terminal after-tax      {money(c.terminal_after_tax_with)} with, "
+        f"{money(c.terminal_after_tax_without)} without ({money(c.terminal_change)}; "
+        f"tax-deferred valued at {1 - c.heir_tax_rate:.0%})",
+    ])
 
 
 def cmd_compare(args) -> int:
@@ -543,7 +573,7 @@ def build_parser() -> argparse.ArgumentParser:
                                    "numbers: success and depletion, the earliest depletion age, "
                                    "how often spending is forced to the floor (dynamic rules), "
                                    "spending percentiles at key ages, ending-portfolio "
-                                   "percentiles and lifetime federal tax (with a tax split). "
+                                   "percentiles and lifetime tax (with a tax split). "
                                    "Deterministic runs also print a year-by-year table.",
                        epilog="Examples: firebridgelab run plan.toml; "
                               "firebridgelab run plan.toml --mode historical --format json; "

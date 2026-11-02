@@ -358,7 +358,7 @@ def build_report(plan: Plan, name: str, source: str) -> str:
                          oc.fmt(o.effective_tax_rate, "pct")])
         sections += [
             "<h2>Federal tax</h2>",
-            _table(["", "lifetime federal tax", "effective rate"], rows),
+            _table(["", "lifetime tax", "effective rate"], rows),
             f'<div class="chart">{tax_chart(plan, det)}</div>',
         ]
     headers, yrows = oc.year_rows(s, det.result, det.tax_path)

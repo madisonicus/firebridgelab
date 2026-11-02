@@ -3,7 +3,8 @@
 ``run_outcome(plan, mode)`` runs one mode and reduces it to an ``Outcome``:
 success and depletion counts, the earliest depletion age, the share of paths
 ever forced to the spending floor, spending percentiles at key ages, terminal
-percentiles and, with a tax-location split, lifetime federal tax. Ages are
+percentiles and, with a tax-location split, lifetime tax (federal, plus state and
+payroll tax when those options are on). Ages are
 person A's (the engine's age axis); dollars are real.
 """
 
@@ -226,7 +227,7 @@ def metric_rows(o: Outcome, *, with_tax: bool, with_floor: bool) -> list[tuple[s
         rows.append((f"spending_at_{age}", f"spending at {age} (p10/p50/p90)", trip, "money3"))
     rows.append(("terminal", "ending portfolio (p10/p50/p90)", o.terminal, "money3"))
     if with_tax:
-        rows.append(("lifetime_tax", "lifetime federal tax (median)", o.lifetime_tax, "money"))
+        rows.append(("lifetime_tax", "lifetime tax (median)", o.lifetime_tax, "money"))
         rows.append(("effective_tax_rate", "effective tax rate (median)",
                      o.effective_tax_rate, "pct"))
     return rows
@@ -335,8 +336,15 @@ def year_rows(scenario: Scenario, traj, tax_path=None) -> tuple[list[str], list[
         headers.append("required_spending")
     if show_events:
         headers.append("cash_event")
+    extras: list[tuple[str, list]] = []
     if tax_path is not None:
         headers.append("federal_tax")
+        # M4 columns, shown only when the option produced something.
+        for name in ("state_tax", "payroll_tax", "irmaa", "roth_conversion"):
+            series = getattr(tax_path, name, None) or []
+            if any(series):
+                extras.append((name, series))
+                headers.append(name)
     headers.append("end_portfolio")
     rows = []
     for i, (p, y) in enumerate(zip(traj.points, years)):
@@ -347,7 +355,13 @@ def year_rows(scenario: Scenario, traj, tax_path=None) -> tuple[list[str], list[
         if show_events:
             row.append(y.cash_event)
         if tax_path is not None:
-            row.append(tax_path.tax[i])
+            # ``tax`` is everything the accounts pay; the federal column is
+            # what is left after the state and payroll shares.
+            state = tax_path.state_tax[i] if tax_path.state_tax else 0.0
+            payroll = tax_path.payroll_tax[i] if tax_path.payroll_tax else 0.0
+            row.append(tax_path.tax[i] - state - payroll)
+            for _, series in extras:
+                row.append(series[i])
         row.append(p.end_portfolio)
         rows.append(row)
     return headers, rows

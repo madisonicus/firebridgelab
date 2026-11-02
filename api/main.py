@@ -11,7 +11,7 @@ import functools
 import logging
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from fastapi import Body, FastAPI, HTTPException, Query
 from pydantic import BaseModel
@@ -326,6 +326,7 @@ class IncomeStreamBody(BaseModel):
     survivor_fraction: Optional[float] = None
     tax_treatment: Optional[str] = None
     label: str = ""
+    self_employed: bool = False
 
 
 class CashEventBody(BaseModel):
@@ -473,6 +474,34 @@ class ScenarioBody(BaseModel):
     income_streams: Optional[List[IncomeStreamBody]] = None
     cash_events: Optional[List[CashEventBody]] = None
     spending_adjustments: Optional[List[SpendingAdjustmentBody]] = None
+    # Tax accuracy (milestone M4; the ``Scenario`` fields of the same names,
+    # docs/methodology.md). All optional; omitted -> the scenario defaults
+    # (provisional Social Security taxation, every other option off). The
+    # opt-ins need a tax-location split; without one validate_scenario 422s.
+    ss_taxation: Optional[str] = None
+    payroll_tax: Optional[bool] = None
+    irmaa: Optional[bool] = None
+    irmaa_prior_magi: Optional[float] = None
+    roth_conversion_target: Optional[Union[str, float]] = None
+    roth_conversion_start_age: Optional[int] = None
+    roth_conversion_end_age: Optional[int] = None
+    roth_heir_tax_rate: Optional[float] = None
+    state: Optional[str] = None
+    state_move_age: Optional[int] = None
+    state_after_move: Optional[str] = None
+    state_custom_rate: Optional[float] = None
+    state_custom_exempt_ss: Optional[bool] = None
+    state_custom_exempt_pensions: Optional[bool] = None
+    state_custom_exempt_ira: Optional[bool] = None
+
+
+_TAX_OPTION_FIELDS = (
+    "ss_taxation", "payroll_tax", "irmaa", "irmaa_prior_magi",
+    "roth_conversion_target", "roth_conversion_start_age", "roth_conversion_end_age",
+    "roth_heir_tax_rate", "state", "state_move_age", "state_after_move",
+    "state_custom_rate", "state_custom_exempt_ss", "state_custom_exempt_pensions",
+    "state_custom_exempt_ira",
+)
 
 
 # ---------- Saved Scenarios (sv1) ----------
@@ -1557,7 +1586,29 @@ def _federal_tax_payload(scenario, *, path=None) -> Optional[dict]:
         "worst_tax_age": overlay.worst_tax_age,
         "total_forced_tax": overlay.total_forced_tax,
         "total_voluntary_tax": overlay.total_voluntary_tax,
+        # M4: the per-age shares of ``tax`` from state and payroll tax, the
+        # taxable Social Security inside ordinary_income, the Roth conversion
+        # transfer, the IRMAA surcharge (required spending, inside
+        # realized_spend) and the year's MAGI.
+        "state_tax": path.state_tax,
+        "payroll_tax": path.payroll_tax,
+        "taxable_ss": path.taxable_ss,
+        "roth_conversion": path.roth_conversion,
+        "irmaa": path.irmaa,
+        "magi": path.magi,
+        "roth_conversion_comparison": _roth_comparison_payload(scenario),
     }
+
+
+def _roth_comparison_payload(scenario) -> Optional[dict]:
+    """Lifetime tax and terminal after-tax value with and without the Roth
+    conversion policy (``tax.roth.compare_roth_conversion``), or None when no
+    conversion target is set."""
+    if scenario.roth_conversion_target is None:
+        return None
+    from firebridgelab.tax.roth import compare_roth_conversion
+
+    return compare_roth_conversion(scenario).to_dict()
 
 
 def _federal_tax_aggregate_payload(result) -> Optional[dict]:
@@ -2702,6 +2753,7 @@ def _build_scenario_from_body(body: ScenarioBody):
             "survivor_pension_fraction": body.survivor_pension_fraction,
             "survivor_spending_fraction": body.survivor_spending_fraction,
             "guard_clamp_base": body.guard_clamp_base,
+            **{name: getattr(body, name) for name in _TAX_OPTION_FIELDS},
         }.items()
         if v is not None
     }

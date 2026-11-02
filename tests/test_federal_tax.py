@@ -434,7 +434,16 @@ def test_api_deterministic_federal_tax_block_shape():
         "worst_tax_age",
         "total_forced_tax",
         "total_voluntary_tax",
+        # M4 (docs/methodology.md).
+        "state_tax",
+        "payroll_tax",
+        "taxable_ss",
+        "roth_conversion",
+        "irmaa",
+        "magi",
+        "roth_conversion_comparison",
     }
+    assert ft["roth_conversion_comparison"] is None  # no conversion policy
     n = len(ft["ages"])
     for key in (
         "tax",

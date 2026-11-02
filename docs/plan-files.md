@@ -76,8 +76,9 @@ One table per stream of guaranteed income. Zero or more.
 | `cola_rate` | number | `0` | The nominal yearly COLA for `cola = "fixed"`. |
 | `nominal_until_start` | boolean | `false` | `amount` is the nominal check at `start_age`, eroded by inflation from plan start (a deferred FERS annuity, a frozen pension). |
 | `survivor_fraction` | number 0–1 | by kind | Share that continues after the owner dies (survivor case). Default 0 for a person's pension, annuity, work and other income, 1 for rental and household-owned streams. Social Security follows the survivor rule instead. |
-| `tax_treatment` | string | by kind | `ordinary` (default), `tax_free`, or `social_security` (85% taxable; Social Security only, and its default). |
+| `tax_treatment` | string | by kind | `ordinary` (default), `tax_free`, or `social_security` (Social Security only, and its default; how much is taxable is set by `tax.ss_taxation`). |
 | `label` | string | `""` | A display name for reports. |
+| `self_employed` | boolean | `false` | `work` streams only: the income is self-employment income, so `tax.payroll` charges self-employment tax instead of employee FICA. |
 
 ## `[[cash_events]]`
 
@@ -190,6 +191,50 @@ Bucket sourcing has no tax model and cannot be solved.
 | --- | --- | --- | --- |
 | `inflation` | number 0–0.10 | `0.025` | Assumed inflation, used only to erode nominal streams (`cola = "none"`, `fixed`, `fers_diet`, `nominal_until_start`). |
 | `pension_real_drift` | number | `0` | Extra real erosion of every pension a year (a COLA-freeze scenario). |
+
+## `[tax]`
+
+Tax options. They change results only with a tax split (`portfolio.taxable`,
+`tax_deferred`, `roth`): without one the model computes no tax, and the
+opt-in options below are an error. Every rule, its source and what is left
+out are in [methodology.md](methodology.md).
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `ss_taxation` | string | `"provisional"` | How much Social Security is taxable. `provisional`: the IRS provisional-income formula (0%, up to 50%, up to 85%; IRC 86, Pub. 915), with base amounts that are not inflation-indexed and so shrink in real terms. `flat85`: 85% of every benefit, the behaviour before this option existed. |
+| `payroll` | boolean | `false` | Charge payroll tax on `work` streams: employee Social Security (6.2% up to the wage base) and Medicare (1.45%, plus 0.9% over $200,000 single / $250,000 joint), or self-employment tax for streams with `self_employed`, with half of it deducted from income. |
+| `irmaa` | boolean | `false` | Add the Medicare Part B and D income-related surcharges (IRMAA) as required spending for each person aged 65 or more, set by the plan's own MAGI two years earlier. |
+| `irmaa_prior_magi` | number | none | The MAGI IRMAA uses in the first two plan years, before the plan has its own income. Omitted: no surcharge in those years. |
+| `roth_conversion` | table | none | A Roth conversion policy; see `[tax.roth_conversion]`. |
+| `state` | table | none | The state income tax; see `[tax.state]`. |
+
+## `[tax.roth_conversion]`
+
+Each year in the window, move money from tax-deferred to Roth until ordinary
+taxable income reaches the target. The conversion is taxed that year and the
+tax is paid from the accounts. `run` reports lifetime tax and the terminal
+after-tax value with and without the policy.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `target` | string or number | required to turn it on | The top of a bracket, `"10%"`, `"12%"`, `"22%"`, `"24%"`, `"32%"` or `"35%"` (for the year's filing status), or a dollar amount of ordinary taxable income. |
+| `start_age` | integer | plan start | Person `a`'s age in the first conversion year. |
+| `end_age` | integer | plan end | Person `a`'s age at which conversions stop (exclusive). |
+| `heir_tax_rate` | number 0–1 | `0.22` | In the with/without report only: the rate at which a tax-deferred balance left at the end is valued (heirs pay income tax on it). An assumption, not a sourced value. |
+
+## `[tax.state]`
+
+State income tax, paid from the accounts with the federal bill.
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `code` | string | none | The state of residence: `AK`, `FL`, `NV`, `NH`, `SD`, `TN`, `TX`, `WY` (no income tax), `GA`, `IL`, `IN`, `IA`, `LA`, `MS`, `NC`, `PA` (flat-rate), or `custom`. Other states are not modelled. |
+| `move_age` | integer | none | Person `a`'s age in the first year in the new state. |
+| `move_to` | string | none | The state from `move_age` on (same codes). |
+| `rate` | number 0–0.2 | `0` | `custom` only: the flat rate on federal AGI. |
+| `exempt_social_security` | boolean | `false` | `custom` only: do not tax Social Security. |
+| `exempt_pensions` | boolean | `false` | `custom` only: do not tax pension and annuity streams. |
+| `exempt_ira` | boolean | `false` | `custom` only: do not tax tax-deferred account withdrawals, RMDs and conversions. |
 
 ## `[survivor]`
 

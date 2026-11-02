@@ -403,7 +403,7 @@ def test_docs_mention_every_key():
     for text in (MAXIMAL, GLIDE, BUCKETS):
         P.from_document(P._parse_toml(text, "x"), key_log=keys)
     doc = (ROOT / "docs" / "plan-files.md").read_text()
-    sections = {m.group(1): m.end() for m in re.finditer(r"^## `\[{1,2}(\w+)\]{1,2}`", doc, re.M)}
+    sections = {m.group(1): m.end() for m in re.finditer(r"^## `\[{1,2}([\w.]+)\]{1,2}`", doc, re.M)}
     missing = []
     for key in sorted(keys):
         section, _, leaf = key.rpartition(".")
