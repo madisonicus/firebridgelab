@@ -67,6 +67,27 @@ _EARLY_FIRST_TIER_MONTHS = 36                  # boundary between the two early 
 # (20 CFR 404.338(c)).
 WIDOW_LIMIT_FRACTION = 0.825
 
+# A widow(er)'s benefit based on age is payable from 60 (20 CFR 404.335) and,
+# if it starts before full retirement age, reduced by
+#     PIA * 0.285 * (months before FRA) / (months from 60 to the month before FRA)
+# (20 CFR 404.410(c)(1)): 28.5% of the PIA at 60, nothing at FRA. With FRA 67
+# the period is 84 months, so each month early costs 0.285/84 of the PIA.
+WIDOW_MIN_AGE = 60
+WIDOW_MAX_REDUCTION = 0.285
+
+
+def widow_age_reduction(start_age: int, fra_age: int = DEFAULT_FRA_AGE) -> float:
+    """The fraction of the decedent's PIA by which a widow(er)'s benefit that
+    starts at the survivor's age ``start_age`` is reduced (20 CFR
+    404.410(c)(1)): ``0.285 * months_early / months(60 -> FRA)``. 0 at or past
+    full retirement age; 0.285 at 60. Raises ``ValueError`` below 60, where an
+    age-based widow(er)'s benefit is not payable (404.335)."""
+    if start_age < WIDOW_MIN_AGE:
+        raise ValueError(f"no widow(er)'s benefit based on age before {WIDOW_MIN_AGE}")
+    months_early = 12 * max(0, fra_age - start_age)
+    period = 12 * (fra_age - WIDOW_MIN_AGE)
+    return WIDOW_MAX_REDUCTION * months_early / period
+
 
 def ss_factor(claim_age: int, fra_age: int = DEFAULT_FRA_AGE) -> float:
     """Actuarial factor: effective benefit = FRA benefit * ss_factor(claim_age).

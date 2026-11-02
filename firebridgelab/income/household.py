@@ -66,9 +66,12 @@ their own age ``survivor_age`` (for the legacy same-age couple this is the old
 
   - the survivor gets the larger of their own Social Security benefit and the
     widow(er)'s benefit on the decedent's record (``Household._widow_benefit``:
-    the decedent's benefit with delayed credits, at least 82.5% of the PIA if
-    they claimed early, or the PIA plus credits to the death if they had not
-    claimed), unreduced for the survivor's own age;
+    the decedent's benefit with delayed credits, or the PIA plus credits to the
+    death if they had not claimed; reduced for the survivor's age if it starts
+    before full retirement age, 20 CFR 404.410(c)(1); and, if the decedent
+    claimed early, no more than the larger of their reduced benefit and 82.5%
+    of the PIA, 404.338(c)). The widow(er)'s benefit starts in the death year,
+    or the year the survivor turns 60 if they are younger (404.335);
   - each of the decedent's other streams continues at its ``survivor_fraction``
     (pension 0, annuity 0, work 0, other 0, rental 1.0 by default; the legacy
     pensions use ``Scenario.survivor_pension_fraction``); household-owned
@@ -115,6 +118,8 @@ from firebridgelab.income.social_security import (
     DEFAULT_FRA_AGE,
     MAX_CLAIM_AGE,
     WIDOW_LIMIT_FRACTION,
+    WIDOW_MIN_AGE,
+    widow_age_reduction,
     effective_ss_amount,
     ss_factor,
 )
@@ -469,17 +474,37 @@ class Household:
         """Whether a flow owned by ``owner`` is affected by the death."""
         return owner == self.decedent or owner == OWNER_HOUSEHOLD
 
+    def widow_start(self) -> tuple[int, int]:
+        """When the widow(er)'s benefit starts: ``(A-age, survivor's own age)``.
+
+        The death year, or the year the survivor turns 60 if they are younger
+        then: a widow(er)'s benefit based on age is not payable before 60
+        (20 CFR 404.335). The model takes it as soon as it is payable."""
+        survivor_id = "a" if self.decedent == "b" else "b"
+        off = self.offsets[survivor_id]
+        start = max(self.death_age, WIDOW_MIN_AGE - off)
+        return start, start + off
+
     def _widow_benefit(self, st: _Stream) -> float:
         """The widow(er)'s benefit on the decedent's Social Security stream
-        ``st``, unreduced for the survivor's age (20 CFR 404.338).
+        ``st``, as paid from ``widow_start`` (20 CFR 404.338, 404.410(c)).
+
+        The rate before the survivor's age reduction:
 
         - The decedent had claimed by the death year: their benefit in
-          payment, including delayed credits (404.338(b)); if they claimed
-          early, the larger of that reduced benefit and 82.5% of their PIA
-          (404.338(c)).
+          payment, including delayed credits (404.338(b)).
         - The decedent died before claiming: the PIA (404.338(a)), plus the
           delayed credits earned up to the death if they died after full
           retirement age (404.313(e)(1)), at whole-year resolution.
+
+        If the benefit starts before the survivor's full retirement age it is
+        reduced by ``widow_age_reduction(start) * PIA`` (404.410(c)(1): the
+        reduction is a fraction of the unreduced benefit, the PIA, so delayed
+        credits are not reduced). The reduction is permanent: the rate is set
+        once, at the start age. If the decedent claimed early, the result is
+        then limited to the larger of the decedent's reduced benefit and 82.5%
+        of the PIA (404.338(c); SSA POMS RS 00615.320 applies this limit after
+        the reduction for age).
         """
         if st.amount == 0.0:
             return 0.0
@@ -493,12 +518,13 @@ class Household:
             # nonzero benefit): the amount in payment, as before.
             return st.amount if claim_age <= death_age else 0.0
         pia = st.amount / factor
+        reduction = widow_age_reduction(self.widow_start()[1]) * pia
         if claim_age <= death_age:
             if factor < 1.0:
-                return max(st.amount, WIDOW_LIMIT_FRACTION * pia)
-            return st.amount
+                return min(pia - reduction, max(st.amount, WIDOW_LIMIT_FRACTION * pia))
+            return st.amount - reduction
         credited_age = min(max(death_age, DEFAULT_FRA_AGE), MAX_CLAIM_AGE)
-        return pia * ss_factor(credited_age)
+        return pia * ss_factor(credited_age) - reduction
 
     def year(self, age: int) -> HouseholdYear:
         hy = self._years.get(age)
@@ -526,8 +552,10 @@ class Household:
         for st in self.streams:
             if survivor and st.kind == KIND_SOCIAL_SECURITY and st.owner == self.decedent:
                 # The decedent's benefit becomes a widow(er)'s benefit from the
-                # death year, whether or not the decedent had claimed.
-                widow += self._widow_benefit(st)
+                # death year (or the survivor's 60), whether or not the
+                # decedent had claimed.
+                if age >= self.widow_start()[0]:
+                    widow += self._widow_benefit(st)
                 continue
             if age < st.start or (st.end is not None and age >= st.end):
                 continue
@@ -570,10 +598,10 @@ class Household:
 
         # Social Security: after the death the survivor gets the larger of
         # their own benefit in payment and the widow(er)'s benefit on the
-        # decedent's record (20 CFR 404.407, 404.338; ``_widow_benefit``). The
-        # widow(er)'s benefit is not reduced for the survivor's own age (20
-        # CFR 404.410(c) would reduce it before full retirement age), and it
-        # is paid at any survivor age (the regulation starts it at 60).
+        # decedent's record (20 CFR 404.407, 404.338; ``_widow_benefit``),
+        # reduced for the survivor's age if it starts before full retirement
+        # age (404.410(c)(1)) and paid from the survivor's 60 at the earliest
+        # (404.335).
         if survivor:
             ss = max(max(ss_by_person.values(), default=0.0), widow)
         else:
