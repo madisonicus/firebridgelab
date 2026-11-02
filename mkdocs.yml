@@ -73,3 +73,5 @@ nav:
           - adr/0006-spending-strategies-stateful-once-per-run.md
           - adr/0007-spending-mode-registry.md
           - adr/0008-ss-claim-age-ui-derivation.md
+  - Release notes:
+      - "0.2.0": release-notes-0.2.0.md

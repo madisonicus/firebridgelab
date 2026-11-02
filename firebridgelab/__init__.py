@@ -22,7 +22,7 @@ subpackages (``returns``, ``income``, ``spending``, ``tax``, ``engine``,
 quickstart and the package layout.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from firebridgelab.analysis.solver import SolverResult, solve_max_spend
 from firebridgelab.analysis.stress import (

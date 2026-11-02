@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "firebridgelab"
-version = "0.1.0"
+version = "0.2.0"
 description = "Retirement-planning model for early retirees: deterministic, historical-cohort and Monte Carlo projections with dynamic spending strategies, pensions, Social Security and US federal tax."
 readme = "README.md"
 license = "MIT"

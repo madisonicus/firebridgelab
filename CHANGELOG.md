@@ -1,6 +1,31 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-11-02
+
+What you can do now that you could not in 0.1.0:
+
+- **Describe your own household.** One or two people with their own ages,
+  any number of income streams (pensions, Social Security, annuities,
+  part-time work, rental, other) each with its own start and end age, COLA
+  and survivor share; one-off cash events such as a home sale; and required
+  spending such as health insurance before Medicare (M2).
+- **Keep a plan in a text file and run it from the command line.** A plan is
+  a small TOML file; `firebridgelab` runs, compares, sweeps, solves and
+  reports plans (M3).
+- **Trust the tax bill more.** Social Security is taxed by the
+  provisional-income formula, unindexed thresholds shrink with inflation, and
+  there are optional payroll tax, Medicare IRMAA, Roth conversions and state
+  income tax for the no-tax and flat-rate states, every rule cited to its
+  source (M4).
+- **Start without installing anything.** The notebooks run on Binder, the
+  web app edits households and loads and saves plan files, and a
+  documentation site has an examples gallery, a FAQ and a glossary (M5).
+- **See how the model compares with published references.**
+  docs/validation.md compares it with the Trinity and Bengen studies, the
+  Social Security regulations, IRS worked examples, the FERS COLA statute,
+  closed-form annuity math and Owl, each comparison a test that CI runs (M6).
+- The package is organised into subpackages; the old module paths still
+  import for one more release (M1).
 
 ### M1: package layout
 
@@ -88,3 +113,31 @@ computes no tax.
   non-programmers and a glossary; CI builds it with `--strict`.
 - The examples are real package data in `firebridgelab/examples/` (they were
   a symlink, which Windows checkouts break).
+
+### M6: validation against published references
+
+- New docs/validation.md and `tests/validation/`: each comparison cites its
+  source, states its tolerance and gives the reason for any gap, and lists
+  the comparisons that could not be made. CI runs the suite as its own step;
+  `pytest -m validation` runs it alone.
+- **Fixed: survivor Social Security** now follows 20 CFR 404.338. If the
+  decedent claimed early, the survivor gets at least 82.5% of the decedent's
+  PIA (before, the decedent's reduced benefit: 70% for a claim at 62). If the
+  decedent died before claiming, the survivor gets the PIA plus the delayed
+  credits earned up to the death, from the death year (before, nothing on the
+  decedent's record until the decedent's planned claim age, then the full
+  credits to that age).
+- **Fixed: capital-gain tax** is capped at the regular tax on all taxable
+  income, as on line 25 of the IRS Qualified Dividends and Capital Gain Tax
+  Worksheet. Before, it was up to $57 too high (joint; $28.50 single) when
+  taxable income fell between the top of the 0% gains band and the top of the
+  12% bracket.
+- Neither fix moves the deterministic canary, any existing test, or the
+  deterministic result of any bundled example.
+- Found and documented, not changed: the `amortization` rule plans with
+  start-of-year payments while the engine withdraws at mid-year, so on a flat
+  return its spend drifts up slightly instead of staying level
+  (docs/validation.md, "Closed form").
+- The README's validation numbers moved to docs/validation.md, and notebook
+  01 no longer quotes them.
+- The web API reports the package version instead of a copy of it.

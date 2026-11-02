@@ -62,6 +62,7 @@ from firebridgelab.income.household import (
     with_household,
 )
 from firebridgelab.income.social_security import effective_ss_amount, ss_factor
+import firebridgelab
 from api import plan_io, scenario_store
 from api.plan_io import PLAN_EXTRA_FIELDS, TAX_OPTION_FIELDS
 from api.error_translation import engine_error_to_detail
@@ -73,7 +74,7 @@ from api.spending_modes import (
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
-app = FastAPI(title="FIRE Bridge Lab", version="0.1.0")
+app = FastAPI(title="FIRE Bridge Lab", version=firebridgelab.__version__)
 
 
 # Validation bounds. These are sanity bounds (catch typos / clearly broken
