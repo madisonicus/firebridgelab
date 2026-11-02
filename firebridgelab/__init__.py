@@ -93,6 +93,9 @@ from firebridgelab.tax.location_risk import (
     TaxLocationRisk,
     aggregate_tax_location_risk,
 )
+from firebridgelab.tax.roth import RothConversionComparison, compare_roth_conversion
+from firebridgelab.tax.ss_taxation import taxable_social_security
+from firebridgelab.tax.state import STATE_CODES
 from firebridgelab.tax.overlay import (
     FederalTaxOverlayAggregate,
     FederalTaxPath,
@@ -102,6 +105,10 @@ from firebridgelab.tax.overlay import (
 
 __all__ = [
     "__version__",
+    "RothConversionComparison",
+    "STATE_CODES",
+    "compare_roth_conversion",
+    "taxable_social_security",
     "data_dir",
     "Trajectory",
     "YearPoint",

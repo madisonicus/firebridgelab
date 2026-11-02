@@ -47,7 +47,11 @@ THE OPERAND ORDER, per year (read this before touching the loop):
      10% walled-year penalty) of NEW tax next round. The map
      ``T -> tax(income(T))`` is therefore a contraction with Lipschitz constant
      <= 0.47 < 1, so ``|T_(k+1) - T_k| <= 0.47^k * |T_1 - T_0|`` shrinks
-     geometrically — a cap hit means the contraction bound was violated, i.e. a
+     geometrically. The M4 extensions keep the map a contraction: under the
+     provisional Social Security rule a marginal dollar can make 85 more cents
+     of benefits taxable, but only while income is in the low brackets (at
+     most 1.85 x 24%), and a flat state rate adds at most its own rate times
+     1.85, so the constant stays well under 1 (~0.7 at worst). A cap hit means the contraction bound was violated, i.e. a
      BUG (a broken bracket table, a sourcing regression), not a legitimate
      slow-converging case. Deterministic inputs ⇒ a deterministic iterate count
      ⇒ reproducible outputs.
@@ -146,6 +150,8 @@ from firebridgelab.tax.core import (
     standard_deduction,
 )
 from firebridgelab.tax.rmd import RMD_START_AGE, rmd_factor
+from firebridgelab.tax.ss_taxation import fill_amount, taxable_social_security
+from firebridgelab.tax.state import state_tax as _state_tax
 
 
 # The penalty-free access boundary on the INTEGER age axis. 59½ is the IRS rule;
@@ -380,6 +386,14 @@ class DraggedYearStep:
     forced_tax: float
     penalty: float
     iterations: int
+    # M4 tax extensions (all 0.0 when off). ``roth_conversion`` is the gross
+    # tax-deferred -> Roth transfer; ``taxable_ss`` the taxable part of Social
+    # Security in ``ordinary_income``; ``state_tax`` and ``payroll_tax`` are
+    # the shares of ``tax`` they make up.
+    roth_conversion: float = 0.0
+    taxable_ss: float = 0.0
+    state_tax: float = 0.0
+    payroll_tax: float = 0.0
 
 
 def step_buckets_dragged(
@@ -399,6 +413,12 @@ def step_buckets_dragged(
     bracket_fill_target: float | None,
     prior_tax_deferred: float,
     extra_ltcg: float = 0.0,
+    ss_benefits: float = 0.0,
+    ss_flat_taxable: float = 0.0,
+    threshold_scale: float = 1.0,
+    fixed_tax: float = 0.0,
+    state=None,
+    conversion_target: float | None = None,
 ) -> DraggedYearStep:
     """One year of the DRAGGED access-aware decomposition.
 
@@ -428,6 +448,16 @@ def step_buckets_dragged(
     ``pension_ss_ordinary`` also carries any other non-account ordinary income
     (a cash event taxed as ordinary), and ``extra_ltcg`` is long-term gain that
     did not come from a taxable-account draw (a cash event's capital gain).
+
+    The M4 keywords all default to the original behaviour:
+    ``ss_benefits`` > 0 taxes those benefits by the provisional-income rule
+    (``pension_ss_ordinary`` must then exclude them); ``ss_flat_taxable`` is
+    the 85% share already inside ``pension_ss_ordinary`` under the flat rule
+    (reported, and subtracted by states that exempt it);
+    ``threshold_scale`` is the real value of the unindexed thresholds
+    (``tax.thresholds``); ``fixed_tax`` is the payroll tax; ``state`` a
+    ``tax.state.StateYear``; ``conversion_target`` the Roth conversion target
+    in dollars of ordinary taxable income (``tax.roth``).
     """
     # 1. Grow each account (step_year's exact operand order: b + b*r).
     taxable = taxable + taxable * r
@@ -474,12 +504,51 @@ def step_buckets_dragged(
     _tax_total = federal_tax_total
     _tol = FIXED_POINT_TOLERANCE
     lever_on = lever_window and bracket_fill_target is not None
+    conversion_on = conversion_target is not None
+    # The M4 extensions. With all of them off the bill is exactly the
+    # original ``federal_tax_total(ordinary, ltcg, n_65_plus, single)``.
+    provisional = ss_benefits > 0.0
+    extended = provisional or state is not None or threshold_scale != 1.0
+
+    def _bill(other_ordinary: float, ltcg: float, ira: float) -> tuple[float, float, float]:
+        """``(federal + state, taxable_ss, state)`` for one income vector.
+        ``other_ordinary`` excludes the Social Security under the provisional
+        rule (it already includes the flat 85% otherwise); ``ira`` is the
+        year's tax-deferred distributions (for the state's retirement rules)."""
+        if provisional:
+            tss = taxable_social_security(
+                ss_benefits, other_ordinary + ltcg, single, threshold_scale
+            )
+            ordinary = other_ordinary + tss
+        else:
+            tss = ss_flat_taxable
+            ordinary = other_ordinary
+        fed = _tax_total(ordinary, ltcg, n_65_plus, single, threshold_scale)
+        st = 0.0
+        if state is not None:
+            agi = ordinary + ltcg
+            fed_taxable = agi - deduction
+            if fed_taxable < 0.0:
+                fed_taxable = 0.0
+            st = _state_tax(state, agi, fed_taxable, tss, ira, ltcg)
+        return fed + st, tss, st
+
+    def _fill(other_ordinary: float, ltcg: float, target_taxable: float) -> float:
+        """Extra ordinary income that brings ordinary TAXABLE income (after
+        the standard deduction) up to ``target_taxable``."""
+        target = target_taxable + deduction
+        if provisional:
+            return fill_amount(
+                other_ordinary, ltcg, ss_benefits, target, single, threshold_scale
+            )
+        fill = target - other_ordinary
+        return fill if fill > 0.0 else 0.0
 
     T = 0.0
     converged = False
     tf_forced = False
     tf_taxable_draw = tf_tax_deferred_draw = tf_roth_draw = 0.0
-    lever_extra = rmd_excess = 0.0
+    lever_extra = rmd_excess = conversion = 0.0
     ordinary_income = ltcg_income = penalty = 0.0
     iterations = 0
     for iterations in range(1, FIXED_POINT_MAX_ITERATIONS + 1):
@@ -504,16 +573,11 @@ def step_buckets_dragged(
         # taken its share — the pool the lever/RMD transfer can claim
         # (the scarce-TD priority: the bill is satisfied FIRST).
         residual_tax_deferred = tax_deferred_after_spend - tf_tax_deferred_draw
+        cap = residual_tax_deferred if residual_tax_deferred > 0.0 else 0.0
 
-        lever_extra = 0.0
-        if lever_on:
-            target = bracket_fill_target + deduction - (
-                pension_ss_ordinary + total_td_draw
-            )
-            if target < 0.0:
-                target = 0.0
-            cap = residual_tax_deferred if residual_tax_deferred > 0.0 else 0.0
-            lever_extra = target if target < cap else cap
+        ltcg_income = total_taxable_draw * gains_fraction
+        if extra_ltcg:
+            ltcg_income += extra_ltcg
 
         rmd_excess = 0.0
         if rmd_window:
@@ -524,16 +588,48 @@ def step_buckets_dragged(
             # Defensive cap (never transfer more than exists) — not expected
             # to bind in practice since growth generally keeps the current
             # balance >= the RMD, but guards a pathological crash-year fixture.
-            cap = residual_tax_deferred if residual_tax_deferred > 0.0 else 0.0
             rmd_excess = excess if excess < cap else cap
+            cap -= rmd_excess
 
-        ordinary_income = pension_ss_ordinary + total_td_draw + lever_extra + rmd_excess
-        ltcg_income = total_taxable_draw * gains_fraction
-        if extra_ltcg:
-            ltcg_income += extra_ltcg
+        # Roth conversion (an RMD cannot be converted, so it comes first).
+        conversion = 0.0
+        if conversion_on:
+            conversion = _fill(
+                pension_ss_ordinary + total_td_draw + rmd_excess,
+                ltcg_income,
+                conversion_target,
+            )
+            if conversion > cap:
+                conversion = cap
+            cap -= conversion
+
+        lever_extra = 0.0
+        if lever_on:
+            if extended or conversion_on:
+                lever_extra = _fill(
+                    pension_ss_ordinary + total_td_draw + conversion,
+                    ltcg_income,
+                    bracket_fill_target,
+                )
+            else:
+                lever_extra = bracket_fill_target + deduction - (
+                    pension_ss_ordinary + total_td_draw
+                )
+                if lever_extra < 0.0:
+                    lever_extra = 0.0
+            if lever_extra > cap:
+                lever_extra = cap
+
+        other_ordinary = (
+            pension_ss_ordinary + total_td_draw + lever_extra + rmd_excess + conversion
+        )
         penalty = EARLY_WITHDRAWAL_PENALTY_RATE * total_td_draw if not penalty_free else 0.0
 
-        T_next = _tax_total(ordinary_income, ltcg_income, n_65_plus, single) + penalty
+        if extended:
+            bill = _bill(other_ordinary, ltcg_income, other_ordinary - pension_ss_ordinary)[0]
+        else:
+            bill = _tax_total(other_ordinary, ltcg_income, n_65_plus, single)
+        T_next = bill + penalty + fixed_tax
 
         delta = T_next - T
         if -_tol < delta < _tol:
@@ -547,7 +643,7 @@ def step_buckets_dragged(
             f"tax-drag fixed point failed to converge in "
             f"{FIXED_POINT_MAX_ITERATIONS} iterations at age {age} (last bill "
             f"${T:,.2f}) — the map is a monotone contraction with Lipschitz "
-            f"constant <= ~0.47 and should converge in well under 40 "
+            f"constant well under 1 and should converge in well under 40 "
             f"iterations, so a cap hit here is a BUG (a broken bracket table "
             f"or a sourcing regression), never a legitimate slow case. See "
             f"the module docstring's convergence argument."
@@ -558,42 +654,71 @@ def step_buckets_dragged(
     # dropped (that would resolve DIFFERENT tax-funding draws and the exact
     # `==` identity below would fail by cents).
     #
+    # The voluntary share covers the bracket-fill lever AND the Roth
+    # conversion (both elective); the forced share is the RMD excess. The
+    # payroll tax (``fixed_tax``) does not depend on the account draws and is
+    # spending-attributed, like the penalty.
+    #
     # perf: ``compute_federal_tax(x + 0.0, ...)`` is EXACTLY
     # ``compute_federal_tax(x, ...)`` — adding a literal 0.0 changes no float
-    # bit — so when ``lever_extra`` (or ``rmd_excess``) is exactly 0.0, calling
-    # again with it added is a wasted call. Skipping it is not an
-    # approximation: the lever and RMD windows never co-occur, so at most one
-    # of the two guards below is ever "false" in the SAME year, and every skip
-    # reuses the PRECISE already-computed value rather than recomputing it.
-    base_ordinary = ordinary_income - lever_extra - rmd_excess
-    tax_base = _tax_total(base_ordinary, ltcg_income, n_65_plus, single)
-    if lever_extra != 0.0:
-        tax_base_lever = _tax_total(
-            base_ordinary + lever_extra, ltcg_income, n_65_plus, single
-        )
+    # bit — so when the elective fill (or ``rmd_excess``) is exactly 0.0,
+    # calling again with it added is a wasted call; every skip reuses the
+    # PRECISE already-computed value rather than recomputing it.
+    elective = lever_extra + conversion
+    base_ordinary = other_ordinary - elective - rmd_excess
+    if extended:
+        base_ira = base_ordinary - pension_ss_ordinary
+        tax_base, tss_final, state_final = _bill(base_ordinary, ltcg_income, base_ira)
+        if elective != 0.0:
+            tax_base_lever, tss_final, state_final = _bill(
+                base_ordinary + elective, ltcg_income, base_ira + elective
+            )
+        else:
+            tax_base_lever = tax_base
+        if rmd_excess != 0.0:
+            tax_base_lever_rmd, tss_final, state_final = _bill(
+                base_ordinary + elective + rmd_excess,
+                ltcg_income,
+                base_ira + elective + rmd_excess,
+            )
+        else:
+            tax_base_lever_rmd = tax_base_lever
     else:
-        tax_base_lever = tax_base
-    if rmd_excess != 0.0:
-        tax_base_lever_rmd = _tax_total(
-            base_ordinary + lever_extra + rmd_excess, ltcg_income, n_65_plus, single
-        )
-    else:
-        tax_base_lever_rmd = tax_base_lever
-    spending_tax = tax_base + penalty
+        tss_final = ss_flat_taxable
+        state_final = 0.0
+        tax_base = _tax_total(base_ordinary, ltcg_income, n_65_plus, single)
+        if elective != 0.0:
+            tax_base_lever = _tax_total(
+                base_ordinary + elective, ltcg_income, n_65_plus, single
+            )
+        else:
+            tax_base_lever = tax_base
+        if rmd_excess != 0.0:
+            tax_base_lever_rmd = _tax_total(
+                base_ordinary + elective + rmd_excess, ltcg_income, n_65_plus, single
+            )
+        else:
+            tax_base_lever_rmd = tax_base_lever
+    spending_tax = tax_base + penalty + fixed_tax
     voluntary_tax = tax_base_lever - tax_base
     forced_tax = tax_base_lever_rmd - tax_base_lever
     tax_total = spending_tax + voluntary_tax + forced_tax
+    # The year's ordinary income as reported (federal AGI less the gains):
+    # under the provisional rule the taxable Social Security is added here.
+    ordinary_income = other_ordinary + (tss_final if provisional else 0.0)
 
     # Apply the tax-funding draws, THEN settle the transfers (load-bearing
     # order — module docstring "TRANSFER SETTLEMENT ORDER"): the lever/RMD
-    # transfer moves gross, tax_deferred -> taxable, AFTER tax-funding has
-    # already sourced from the PRE-transfer taxable balance.
+    # transfer moves gross, tax_deferred -> taxable, and the conversion
+    # tax_deferred -> roth, AFTER tax-funding has already sourced from the
+    # PRE-transfer balances.
     taxable = taxable_after_spend - tf_taxable_draw
     tax_deferred = tax_deferred_after_spend - tf_tax_deferred_draw
     roth = roth_after_spend - tf_roth_draw
     transfer = lever_extra + rmd_excess
-    tax_deferred -= transfer
+    tax_deferred -= transfer + conversion
     taxable += transfer
+    roth += conversion
 
     # Defensive float-noise floor.
     if taxable < 0:
@@ -624,4 +749,8 @@ def step_buckets_dragged(
         forced_tax=forced_tax,
         penalty=penalty,
         iterations=iterations,
+        roth_conversion=conversion,
+        taxable_ss=tss_final,
+        state_tax=state_final,
+        payroll_tax=fixed_tax,
     )

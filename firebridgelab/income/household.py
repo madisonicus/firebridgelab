@@ -172,6 +172,9 @@ class IncomeStream:
     survivor_fraction: Optional[float] = None
     tax_treatment: Optional[str] = None
     label: str = ""
+    # ``work`` streams only: the income is self-employment income (Schedule SE)
+    # rather than wages. Read by the payroll tax (``Scenario.payroll_tax``).
+    self_employed: bool = False
 
 
 @dataclass(frozen=True)
@@ -350,6 +353,7 @@ class _Stream:
     nominal_until_start: bool
     survivor_fraction: float
     tax: str
+    self_employed: bool = False
 
 
 @dataclass(frozen=True)
@@ -375,6 +379,13 @@ class HouseholdYear:
     survivor: bool
     n_65_plus: int
     single_filer: bool
+    # Splits of ``ordinary`` the tax extensions read: pension and annuity
+    # income (state retirement rules), and each person's wages and
+    # self-employment income from ``work`` streams (payroll tax), as
+    # ``(person_id, amount)`` pairs. Household-owned work counts as person A's.
+    retirement: float = 0.0
+    wages: tuple = ()
+    self_employment: tuple = ()
 
 
 class Household:
@@ -422,6 +433,12 @@ class Household:
         ages += [s.end for s in self.streams if s.end is not None]
         return ages
 
+    def living(self, age: int) -> tuple[Person, ...]:
+        """The people alive in the plan year whose A-age is ``age``."""
+        if self.is_survivor_year(age):
+            return tuple(p for p in self.people if p.id != self.decedent)
+        return self.people
+
     def is_survivor_year(self, age: int) -> bool:
         return self.death_age is not None and age >= self.death_age
 
@@ -448,6 +465,9 @@ class Household:
         ordinary = 0.0
         ss_by_person: dict[str, float] = {}
         ss_total = 0.0
+        retirement = 0.0
+        wages: dict[str, float] = {}
+        self_emp: dict[str, float] = {}
         for st in self.streams:
             if age < st.start or (st.end is not None and age >= st.end):
                 continue
@@ -476,6 +496,12 @@ class Household:
                 pension += value
             if st.tax == TAX_ORDINARY:
                 ordinary += value
+                if st.kind in (KIND_PENSION, KIND_ANNUITY):
+                    retirement += value
+                elif st.kind == KIND_WORK:
+                    who = "a" if st.owner == OWNER_HOUSEHOLD else st.owner
+                    bucket = self_emp if st.self_employed else wages
+                    bucket[who] = bucket.get(who, 0.0) + value
 
         # Social Security: after the death the survivor keeps the larger of the
         # two people's benefits in payment (SSA survivor rule; a simplification
@@ -532,6 +558,9 @@ class Household:
             survivor=survivor,
             n_65_plus=n65,
             single_filer=single,
+            retirement=retirement,
+            wages=tuple(sorted(wages.items())),
+            self_employment=tuple(sorted(self_emp.items())),
         )
 
 
@@ -552,6 +581,7 @@ def _resolve_stream(stream: IncomeStream, offsets: dict[str, int]) -> _Stream:
         nominal_until_start=stream.nominal_until_start,
         survivor_fraction=stream_survivor_fraction(stream),
         tax=stream_tax_treatment(stream),
+        self_employed=stream.self_employed,
     )
 
 

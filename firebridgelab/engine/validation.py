@@ -251,6 +251,7 @@ def validate_scenario(scenario: Scenario) -> None:
             "bracket_fill_target must be between 0 and 5,000,000 (got "
             f"{scenario.bracket_fill_target})"
         )
+    _validate_tax_options(scenario, has_tax_split(scenario))
     # --- Fee, MC distribution, pension inflation, survivor ------------------
     if not (0.0 <= scenario.annual_fee <= 0.03):
         raise ScenarioValidationError(
@@ -290,6 +291,77 @@ def validate_scenario(scenario: Scenario) -> None:
         value = getattr(scenario, name)
         if not (0.0 <= value <= 1.0):
             raise ScenarioValidationError(f"{name} must be between 0 and 1 (got {value})")
+
+
+def _validate_tax_options(scenario: Scenario, split: bool) -> None:
+    """The M4 tax options (``Scenario`` field comments; docs/methodology.md)."""
+    from firebridgelab.tax.roth import BRACKET_TARGETS
+    from firebridgelab.tax.ss_taxation import SS_TAXATION_MODES
+    from firebridgelab.tax.state import STATE_CHOICES
+
+    if scenario.ss_taxation not in SS_TAXATION_MODES:
+        raise ScenarioValidationError(
+            f"ss_taxation must be one of {SS_TAXATION_MODES} (got {scenario.ss_taxation!r})"
+        )
+    target = scenario.roth_conversion_target
+    if target is not None:
+        if isinstance(target, str):
+            if target not in BRACKET_TARGETS:
+                raise ScenarioValidationError(
+                    f"roth_conversion_target must be one of {', '.join(BRACKET_TARGETS)} "
+                    f"or a dollar amount (got {target!r})"
+                )
+        elif isinstance(target, bool) or not isinstance(target, (int, float)) or not (
+            0.0 <= target <= 5_000_000.0
+        ):
+            raise ScenarioValidationError(
+                f"roth_conversion_target must be a bracket name or between 0 and "
+                f"5,000,000 dollars (got {target!r})"
+            )
+    first, stop = scenario.roth_conversion_start_age, scenario.roth_conversion_end_age
+    if first is not None and stop is not None and stop <= first:
+        raise ScenarioValidationError(
+            f"roth_conversion_end_age ({stop}) must be after roth_conversion_start_age ({first})"
+        )
+    if not (0.0 <= scenario.roth_heir_tax_rate <= 1.0):
+        raise ScenarioValidationError(
+            f"roth_heir_tax_rate must be between 0 and 1 (got {scenario.roth_heir_tax_rate})"
+        )
+    for name in ("state", "state_after_move"):
+        value = getattr(scenario, name)
+        if value is not None and value not in STATE_CHOICES:
+            raise ScenarioValidationError(
+                f"{name} must be one of {', '.join(STATE_CHOICES)} (got {value!r}); "
+                f"states not listed are not modelled (docs/methodology.md)"
+            )
+    if (scenario.state_move_age is None) != (scenario.state_after_move is None):
+        raise ScenarioValidationError(
+            "state_move_age and state_after_move must be given together"
+        )
+    if not (0.0 <= scenario.state_custom_rate <= 0.20):
+        raise ScenarioValidationError(
+            f"state_custom_rate must be between 0 and 0.20 (got {scenario.state_custom_rate})"
+        )
+    if scenario.irmaa_prior_magi is not None and scenario.irmaa_prior_magi < 0:
+        raise ScenarioValidationError(
+            f"irmaa_prior_magi must be >= 0 (got {scenario.irmaa_prior_magi})"
+        )
+    if not split:
+        used = [
+            name
+            for name, on in (
+                ("payroll_tax", scenario.payroll_tax),
+                ("irmaa", scenario.irmaa),
+                ("roth_conversion_target", target is not None),
+                ("state", scenario.state is not None or scenario.state_after_move is not None),
+            )
+            if on
+        ]
+        if used:
+            raise ScenarioValidationError(
+                f"{', '.join(used)} needs a tax-location split (taxable_balance / "
+                f"tax_deferred_balance / roth_balance): without one the engine computes no tax"
+            )
 
 
 def _check_age(name: str, value) -> None:
@@ -400,6 +472,10 @@ def _validate_household(scenario: Scenario) -> None:
                 raise ScenarioValidationError(
                     f"{where}: the social_security tax treatment applies to, and only "
                     f"to, kind social_security"
+                )
+            if st.self_employed and st.kind != "work":
+                raise ScenarioValidationError(
+                    f"{where}: self_employed applies only to kind 'work' (got {st.kind!r})"
                 )
             if st.kind == KIND_SOCIAL_SECURITY:
                 if st.owner == OWNER_HOUSEHOLD:

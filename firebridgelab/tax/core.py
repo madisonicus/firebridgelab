@@ -18,9 +18,10 @@ Public entry points:
 
 The brackets, standard deduction and LTCG breakpoints are CPI-indexed in law, but
 this engine runs entirely in real (today's) dollars, so they are held fixed in
-real terms (docs/adr/0004). Two values are fixed-nominal in law and held
-fixed-real here too, a documented simplification: the NIIT MAGI threshold and
-the 85% Social Security inclusion.
+real terms (docs/adr/0004). Values fixed in nominal dollars by law (the NIIT
+threshold, the Social Security base amounts, the additional Medicare tax
+threshold) shrink in real terms: callers pass ``niit_scale``, the real value of
+a 2026 dollar in that plan year (``tax.thresholds.nominal_scale``).
 
 The 0% LTCG bracket is load-bearing (the most-likely-wrong spot in the PURE
 tax layer): LTCG tax is STACKED on top of ordinary taxable income through the
@@ -162,7 +163,11 @@ class FederalTaxYear:
 
 
 def compute_federal_tax(
-    ordinary_income: float, ltcg_income: float, n_65_plus: int = 0, single: bool = False
+    ordinary_income: float,
+    ltcg_income: float,
+    n_65_plus: int = 0,
+    single: bool = False,
+    niit_scale: float = 1.0,
 ) -> FederalTaxYear:
     """Federal tax (2026 constants; MFJ, or single when ``single``) on one year's
     ordinary + LTCG income.
@@ -186,7 +191,7 @@ def compute_federal_tax(
       approximation).
     """
     ordinary_tax, ltcg_tax, niit, total = _tax_components(
-        ordinary_income, ltcg_income, n_65_plus, single
+        ordinary_income, ltcg_income, n_65_plus, single, niit_scale
     )
     return FederalTaxYear(
         ordinary_tax=ordinary_tax, ltcg_tax=ltcg_tax, niit=niit, total=total
@@ -194,7 +199,11 @@ def compute_federal_tax(
 
 
 def federal_tax_total(
-    ordinary_income: float, ltcg_income: float, n_65_plus: int = 0, single: bool = False
+    ordinary_income: float,
+    ltcg_income: float,
+    n_65_plus: int = 0,
+    single: bool = False,
+    niit_scale: float = 1.0,
 ) -> float:
     """``compute_federal_tax(...).total`` without the ``FederalTaxYear``
     allocation — the hot-path variant for the ``tax.location`` per-year
@@ -207,11 +216,15 @@ def federal_tax_total(
     single source; the two cannot drift), pinned by a test in
     ``tests/test_federal_tax.py``.
     """
-    return _tax_components(ordinary_income, ltcg_income, n_65_plus, single)[3]
+    return _tax_components(ordinary_income, ltcg_income, n_65_plus, single, niit_scale)[3]
 
 
 def _tax_components(
-    ordinary_income: float, ltcg_income: float, n_65_plus: int, single: bool = False
+    ordinary_income: float,
+    ltcg_income: float,
+    n_65_plus: int,
+    single: bool = False,
+    niit_scale: float = 1.0,
 ) -> tuple[float, float, float, float]:
     """The shared arithmetic behind ``compute_federal_tax`` /
     ``federal_tax_total``: ``(ordinary_tax, ltcg_tax, niit, total)``.
@@ -229,6 +242,10 @@ def _tax_components(
         brackets = _ORDINARY_BRACKETS_MFJ
         ltcg_breaks = _LTCG_BREAKPOINTS_MFJ
         niit_threshold = NIIT_THRESHOLD_MFJ
+    if niit_scale != 1.0:
+        # The NIIT threshold is fixed in nominal dollars (IRC 1411(b)); the
+        # caller passes its real value this year (``tax.thresholds``).
+        niit_threshold = niit_threshold * niit_scale
     deduction = standard_deduction(n_65_plus, single)
     taxable_ordinary = ordinary_income - deduction
     if taxable_ordinary < 0.0:

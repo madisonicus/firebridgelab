@@ -323,11 +323,16 @@ def test_home_sale_capital_gain_is_taxed_in_the_sale_year():
     # Gain = 400,000 x (1 - 0.5) = 200,000. Single filer aged 70: deduction
     # 16,100 + 2,050 = 18,150, all of it against the gain (no ordinary income).
     # Taxable gain 181,850; 0% to 49,450 then 15%: 0.15 x 132,400 = 19,860.
-    # NIIT: MAGI 200,000 is not above the 200,000 single threshold.
-    assert tax[70] == pytest.approx(19_860.0, abs=0.01)
+    # NIIT: the $200,000 single threshold is fixed in nominal dollars (IRC
+    # 1411(b)), so five years in at 2.5% inflation it is worth
+    # 200,000 / 1.025**5 = 200,000 / 1.13141 = 176,770.86 in plan-start dollars.
+    # MAGI 200,000 exceeds it by 23,229.14: NIIT = 0.038 x 23,229.14 = 882.71.
+    niit = 0.038 * (200_000.0 - 200_000.0 / 1.025**5)
+    assert niit == pytest.approx(882.71, abs=0.01)
+    assert tax[70] == pytest.approx(19_860.0 + 882.71, abs=0.01)
     assert tax[69] == 0.0 and tax[71] == 0.0
-    # The inflow lands in taxable: 1,000,000 + 400,000 - 19,860 by year end.
-    assert path.taxable[path.ages.index(70)] == pytest.approx(1_380_140.0, abs=0.01)
+    # The inflow lands in taxable: 1,000,000 + 400,000 - 20,742.71 by year end.
+    assert path.taxable[path.ages.index(70)] == pytest.approx(1_379_257.29, abs=0.01)
 
 
 def test_outflow_event_and_ordinary_event():

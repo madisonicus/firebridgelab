@@ -10,7 +10,7 @@ so a field left at its default has no effect on the result.
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union
 
 from firebridgelab.engine.allocation import (
     ALLOCATION_MODE_CONSTANT,
@@ -431,6 +431,43 @@ class Scenario:
     income_streams: Optional[tuple[IncomeStream, ...]] = None
     cash_events: tuple[CashEvent, ...] = ()
     spending_adjustments: tuple[SpendingAdjustment, ...] = ()
+
+    # Tax accuracy (milestone M4; docs/methodology.md). Every field below is
+    # read only by the after-tax engine, i.e. with a tax-location split in
+    # single sourcing; without a split the engine computes no tax at all.
+    #   ss_taxation — how much Social Security is taxable: "provisional" (the
+    #     IRC 86 provisional-income formula, tax.ss_taxation; the default) or
+    #     "flat85" (85% of every benefit, the behaviour before M4).
+    #   payroll_tax — charge employee FICA, or self-employment tax for
+    #     streams marked ``self_employed``, on ``work`` streams (tax.payroll).
+    #   irmaa — add the Medicare Part B/D income-related surcharges as
+    #     required spending from 65 (tax.irmaa); ``irmaa_prior_magi`` is the
+    #     MAGI used for the first two plan years (None: no surcharge then).
+    #   roth_conversion_target — convert tax-deferred to Roth each year in
+    #     ``[roth_conversion_start_age, roth_conversion_end_age)`` (A's ages;
+    #     None = the plan's ends) up to the top of a bracket ("12%", "22%",
+    #     ...) or a dollar amount of ordinary taxable income (tax.roth).
+    #     ``roth_heir_tax_rate`` values a terminal tax-deferred balance in the
+    #     with/without report only.
+    #   state — state of residence (a code from tax.state.STATE_CODES, or
+    #     "custom"); ``state_move_age`` / ``state_after_move`` change it from
+    #     that A-age on. "custom" taxes federal AGI at ``state_custom_rate``,
+    #     less the incomes its three toggles exempt (tax.state).
+    ss_taxation: str = "provisional"
+    payroll_tax: bool = False
+    irmaa: bool = False
+    irmaa_prior_magi: Optional[float] = None
+    roth_conversion_target: Optional[Union[str, float]] = None
+    roth_conversion_start_age: Optional[int] = None
+    roth_conversion_end_age: Optional[int] = None
+    roth_heir_tax_rate: float = 0.22
+    state: Optional[str] = None
+    state_move_age: Optional[int] = None
+    state_after_move: Optional[str] = None
+    state_custom_rate: float = 0.0
+    state_custom_exempt_ss: bool = False
+    state_custom_exempt_pensions: bool = False
+    state_custom_exempt_ira: bool = False
 
 
 def default_scenario() -> Scenario:
