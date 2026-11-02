@@ -1,0 +1,79 @@
+# Rental income and one pension (fictional).
+#
+# Pat (58) retires with a pension that has a 50% survivor benefit and a 2%
+# fixed COLA; Lee (60) has none. A rental duplex nets $18,000 a year until it
+# is sold at Pat's 75, with 60% of the price a taxable gain. The survivor case
+# has Pat dying at 80, so Lee keeps half the pension and the larger Social
+# Security benefit.
+#
+# Try: firebridgelab run rental-and-pension.toml --mode stress
+
+name = "Rental and pension"
+description = "A pension with 50% survivor benefit, a rental sold at 75."
+
+[[people]]
+name = "Pat"
+start_age = 58
+end_age = 95
+
+[[people]]
+name = "Lee"
+start_age = 60
+end_age = 95
+
+[[income_streams]]
+id = "pat_pension"
+kind = "pension"
+owner = "a"
+amount = 36_000
+start_age = 58
+cola = "fixed"
+cola_rate = 0.02           # 2% a year, nominal
+survivor_fraction = 0.5
+
+[[income_streams]]
+id = "duplex"
+kind = "rental"
+owner = "household"
+amount = 18_000
+start_age = 58
+end_age = 75
+
+[[income_streams]]
+id = "pat_ss"
+kind = "social_security"
+owner = "a"
+amount = 25_000
+start_age = 67
+
+[[income_streams]]
+id = "lee_ss"
+kind = "social_security"
+owner = "b"
+amount = 19_000
+start_age = 66
+
+[[cash_events]]
+id = "sell_duplex"
+owner = "a"
+age = 75
+amount = 420_000
+tax_treatment = "capital_gain"
+basis_fraction = 0.4
+
+[portfolio]
+balance = 850_000
+
+[allocation]
+weights = { us_total_market = 0.55, us_agg_bonds = 0.35, st_treasury = 0.10 }
+
+[spending]
+annual = 92_000
+rule = "fr_guardrail"
+
+[survivor]
+decedent = "a"
+age = 80
+
+[simulation]
+stress = ["stagflation_1970s", "gfc_2008", "ss_haircut_23"]

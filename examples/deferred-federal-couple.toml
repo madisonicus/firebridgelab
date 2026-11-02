@@ -1,0 +1,90 @@
+# Deferred federal couple (fictional).
+#
+# Dana and Robin both left federal service at 50 with enough years for a
+# deferred annuity but before their minimum retirement age. A deferred FERS
+# annuity is frozen in nominal dollars from separation until it starts at 62,
+# then receives the FERS "diet" COLA. The TSP, a traditional IRA, a taxable
+# account and a small Roth carry the twelve bridge years.
+#
+# Try: firebridgelab sweep deferred-federal-couple.toml \
+#        --set income_streams.dana_ss.start_age=62,67,70
+
+name = "Deferred federal couple"
+description = "Both left federal service at 50; pensions frozen until 62, then FERS COLA."
+
+[[people]]
+name = "Dana"
+start_age = 50
+end_age = 95
+
+[[people]]
+name = "Robin"
+start_age = 50
+end_age = 95
+
+# The annuity amounts are the nominal checks at 62 (nominal_until_start), so
+# inflation erodes them for twelve years before the first payment.
+[[income_streams]]
+id = "dana_fers"
+kind = "pension"
+owner = "a"
+amount = 31_000
+start_age = 62
+nominal_until_start = true
+cola = "fers_diet"
+survivor_fraction = 0.5     # full survivor annuity elected
+
+[[income_streams]]
+id = "robin_fers"
+kind = "pension"
+owner = "b"
+amount = 22_000
+start_age = 62
+nominal_until_start = true
+cola = "fers_diet"
+survivor_fraction = 0.5
+
+[[income_streams]]
+id = "dana_ss"
+kind = "social_security"
+owner = "a"
+amount = 27_000    # at full retirement age
+start_age = 67     # claim age
+
+[[income_streams]]
+id = "robin_ss"
+kind = "social_security"
+owner = "b"
+amount = 21_000
+start_age = 67
+
+# FEHB premiums continue in retirement; modeled as required spending.
+[[spending_adjustments]]
+id = "fehb"
+owner = "household"
+amount = 7_000
+start_age = 50
+end_age = 96
+
+[portfolio]
+taxable = 350_000
+tax_deferred = 950_000     # TSP and traditional IRA
+roth = 150_000
+annual_fee = 0.0005
+
+[allocation]
+weights = { us_total_market = 0.60, us_agg_bonds = 0.40 }
+
+[spending]
+annual = 78_000
+rule = "guardrails"
+floor = 62_000
+ceiling = 110_000
+
+[survivor]
+decedent = "a"
+age = 84
+
+[simulation]
+trials = 10_000
+stress = ["stagflation_1970s", "historical_depression_1929"]

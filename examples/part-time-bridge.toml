@@ -1,0 +1,82 @@
+# Part-time bridge (fictional).
+#
+# Sam (48) and Riley (46) leave full-time work. Sam consults part time until
+# 55, which shrinks the early withdrawals. Both buy marketplace health
+# insurance until Medicare at 65. The portfolio is split across taxable,
+# tax-deferred and Roth accounts, so federal tax is modeled and the pre-59½
+# penalty applies if the taxable account runs dry first.
+#
+# Try: firebridgelab sweep part-time-bridge.toml \
+#        --set income_streams.sam_consulting.end_age=50,53,55,58
+
+name = "Part-time bridge"
+description = "Consulting to 55, ACA premiums to 65, taxes modeled."
+
+[[people]]
+name = "Sam"
+start_age = 48
+end_age = 95
+
+[[people]]
+name = "Riley"
+start_age = 46
+end_age = 95
+
+[[income_streams]]
+id = "sam_consulting"
+kind = "work"
+owner = "a"
+amount = 40_000
+start_age = 48
+end_age = 55               # paid through 54
+
+[[income_streams]]
+id = "sam_ss"
+kind = "social_security"
+owner = "a"
+amount = 26_000
+start_age = 67
+
+[[income_streams]]
+id = "riley_ss"
+kind = "social_security"
+owner = "b"
+amount = 20_000
+start_age = 67
+
+[[spending_adjustments]]
+id = "aca_sam"
+owner = "a"
+amount = 8_500
+start_age = 48
+end_age = 65
+
+[[spending_adjustments]]
+id = "aca_riley"
+owner = "b"
+amount = 8_500
+start_age = 46
+end_age = 65
+
+[[cash_events]]
+id = "roof"
+owner = "a"
+age = 60
+amount = -25_000
+
+[portfolio]
+taxable = 500_000
+tax_deferred = 700_000
+roth = 200_000
+taxable_gains_fraction = 0.4
+annual_fee = 0.001
+
+[allocation]
+weights = { us_total_market = 0.65, us_agg_bonds = 0.35 }
+
+[spending]
+annual = 70_000
+rule = "lifecycle"         # spends less from 75 and again from 85
+
+[simulation]
+trials = 5_000

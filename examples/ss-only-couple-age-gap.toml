@@ -1,0 +1,67 @@
+# Social Security-only couple with a five-year age gap (fictional).
+#
+# Jordan is 62 and Avery is 57. No pensions: Jordan delays Social Security to
+# 70 so the larger benefit lasts as the survivor benefit; Avery claims at 67.
+# The plan runs until Avery is 95 (Jordan's 100). The survivor case has Jordan
+# dying at 84: Avery keeps the larger benefit and spends 75%. A glidepath holds
+# more bonds until Jordan's benefit starts, then more stocks.
+#
+# Try: firebridgelab sweep ss-only-couple-age-gap.toml \
+#        --set income_streams.jordan_ss.start_age=67,70 --set survivor.age=75,84,92
+
+name = "SS-only couple, age gap"
+description = "No pensions, a 5-year age gap, survivor case at Jordan's 84."
+
+[[people]]
+name = "Jordan"
+start_age = 62
+end_age = 95
+
+[[people]]
+name = "Avery"
+start_age = 57
+end_age = 95
+
+[[income_streams]]
+id = "jordan_ss"
+kind = "social_security"
+owner = "a"
+amount = 34_000
+start_age = 70
+
+[[income_streams]]
+id = "avery_ss"
+kind = "social_security"
+owner = "b"
+amount = 16_000
+start_age = 67
+
+[[spending_adjustments]]
+id = "avery_aca"
+owner = "b"
+amount = 9_000
+start_age = 57
+end_age = 65
+
+[portfolio]
+balance = 1_050_000
+
+[allocation]
+mode = "glidepath"
+# Phases start at the plan start, at 60 (penalty-free account access), and at
+# each stream's start age on Jordan's axis: here 62 (start), 70 (Jordan's SS)
+# and 72 (Avery's SS at her 67). One weights table per phase, in order.
+phases = [
+  { us_total_market = 0.45, us_agg_bonds = 0.55 },
+  { us_total_market = 0.55, us_agg_bonds = 0.45 },
+  { us_total_market = 0.60, us_agg_bonds = 0.40 },
+]
+
+[spending]
+annual = 62_000
+rule = "constant"
+
+[survivor]
+decedent = "a"
+age = 84
+spending_fraction = 0.75

@@ -1,0 +1,119 @@
+# A firebridgelab plan file. Edit the numbers, then:
+#
+#   firebridgelab run plan.toml
+#   firebridgelab sweep plan.toml --set spending.annual=60000:90000:10000
+#   firebridgelab report plan.toml -o report.html
+#
+# Every key is documented in docs/plan-files.md. Dollars are REAL dollars
+# (today's purchasing power) unless a key says otherwise. Ages are each
+# person's own age. Lines starting with # are comments; uncomment a block to
+# use it. This starter describes a fictional couple; replace it with yours.
+#
+# Educational software, not financial advice.
+
+name = "Starter plan"
+description = "A fictional couple retiring at 52 and 50."
+
+# One or two people. The first is person "a", the second person "b".
+# start_age is the age at plan start (usually the year you retire);
+# end_age is how far to plan (a horizon, not a prediction).
+[[people]]
+name = "Alex"
+start_age = 52
+end_age = 95
+
+[[people]]
+name = "Blair"
+start_age = 50
+end_age = 95
+
+# Guaranteed income, one block per stream. Ages are the OWNER's ages;
+# end_age is exclusive (paid through end_age - 1) and omitted means for life.
+# kind: pension, social_security, annuity, work, rental, other.
+# For social_security, amount is the benefit at full retirement age (67) and
+# start_age is the claim age (62-70); the claim adjustment is applied for you.
+[[income_streams]]
+id = "a_pension"
+kind = "pension"
+owner = "a"
+amount = 18_000
+start_age = 60
+cola = "full"              # full, none, fixed (with cola_rate), fers_diet
+survivor_fraction = 0.5    # share that continues to the survivor
+
+[[income_streams]]
+id = "a_ss"
+kind = "social_security"
+owner = "a"
+amount = 28_000
+start_age = 67
+
+[[income_streams]]
+id = "b_ss"
+kind = "social_security"
+owner = "b"
+amount = 22_000
+start_age = 67
+
+# Required spending on top of the spending rule, e.g. health insurance
+# before Medicare. The rule cannot cut it.
+[[spending_adjustments]]
+id = "aca_a"
+owner = "a"
+amount = 7_500
+start_age = 52
+end_age = 65
+
+[[spending_adjustments]]
+id = "aca_b"
+owner = "b"
+amount = 7_500
+start_age = 50
+end_age = 65
+
+# One-off cash flows: positive in, negative out.
+# [[cash_events]]
+# id = "car"
+# owner = "a"
+# age = 58
+# amount = -35_000
+
+[portfolio]
+balance = 1_400_000
+# Optional tax-location split (must add up to balance). With it, federal tax
+# is modeled and lifetime tax is reported.
+# taxable = 400_000
+# tax_deferred = 800_000
+# roth = 200_000
+annual_fee = 0.001         # 0.1% a year, all-in
+
+[allocation]
+# Class ids: us_total_market, us_agg_bonds, us_small_value, lt_treasury,
+# it_treasury, st_treasury, gold (and, with optional data, intl_developed,
+# emerging_markets, us_reit, tips, commodities). Weights sum to 1.
+weights = { us_total_market = 0.60, us_agg_bonds = 0.40 }
+# Override a class's assumed real return or volatility (deterministic and
+# Monte Carlo use them; historical replay uses the data):
+# real_return = { us_total_market = 0.05 }
+
+[spending]
+annual = 80_000
+rule = "constant"   # constant, lifecycle, guardrails, fr_smooth, fr_guardrail, fr_tiers, amortization
+# floor = 64_000    # dynamic rules never go below this (default 80% of annual)
+# ceiling = 120_000 # nor above this (default 150% of annual)
+
+[assumptions]
+inflation = 0.025   # used by nominal pensions and partial COLAs
+
+# The survivor case: who dies first, at their own age.
+# [survivor]
+# decedent = "a"
+# age = 85
+# spending_fraction = 0.75
+
+[simulation]
+trials = 10_000     # Monte Carlo trials
+seed = 12345
+distribution = "normal"   # or student_t for fatter tails
+# Authored stress paths to run alongside (firebridgelab run --mode all):
+stress = ["stagflation_1970s", "gfc_2008"]

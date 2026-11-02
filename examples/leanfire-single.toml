@@ -1,0 +1,46 @@
+# Leanfire single (fictional).
+#
+# Casey, 40, has saved $1.15M and spends $45,000 a year. No pension: the
+# portfolio carries everything until Social Security, claimed at 70 for the
+# largest benefit. Guardrails trim spending in bad markets but never below
+# $38,000.
+#
+# Try: firebridgelab sweep leanfire-single.toml --set spending.annual=40000:55000:5000
+
+name = "Leanfire single"
+description = "Retired at 40 on $45k a year, no pension, Social Security at 70."
+
+[[people]]
+name = "Casey"
+start_age = 40
+end_age = 95
+
+[[income_streams]]
+id = "ss"
+kind = "social_security"
+amount = 19_000            # at full retirement age (reduced by the zero years)
+start_age = 70
+
+# Marketplace health insurance until Medicare.
+[[spending_adjustments]]
+id = "aca"
+amount = 5_000
+start_age = 40
+end_age = 65
+
+[portfolio]
+balance = 1_150_000
+annual_fee = 0.0005
+
+[allocation]
+weights = { us_total_market = 0.75, us_agg_bonds = 0.25 }
+
+[spending]
+annual = 45_000
+rule = "guardrails"
+floor = 38_000
+ceiling = 60_000
+
+[simulation]
+trials = 10_000
+distribution = "student_t"   # fatter-tailed Monte Carlo
