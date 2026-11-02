@@ -15,11 +15,11 @@ It is built for the common FIRE situation where you stop working years before gu
 - **When:** retirement age, plan horizon, pension start ages, Social Security claiming ages (62–70, with the exact SSA adjustment)
 - **How much:** starting portfolio, annual spending, a spending floor and ceiling, a lifecycle "go-go / slow-go / no-go" taper
 - **Spending rule:** constant, Guyton-Klinger-style guardrails, funded-ratio rules, or an amortization (VPW-style) frontier
-- **Income:** two pensions (with an optional freeze until they start and FERS-style partial COLAs) and two Social Security benefits, plus a survivor case
+- **Household:** one or two people with their own ages and planning horizons; any number of income streams (pensions, Social Security, annuities, part-time work, rental, other) each with its own start and end age, COLA rule (full, none, a fixed percentage, or FERS-style), survivor fraction and tax treatment; one-off cash events such as a home sale or a car; required spending over an age range such as pre-Medicare healthcare or a mortgage; and a survivor case (library and API; the web UI still edits two pensions and two Social Security benefits)
 - **Markets:** asset mix across up to 12 asset classes (five need optional data you download yourself), historical replay or Monte Carlo (Normal or fat-tailed), fees, and authored stress scenarios
 - **Taxes:** taxable, tax-deferred and Roth balances, with 2026 US federal brackets, capital gains, RMDs and the pre-59½ penalty
 
-Not yet modeled: other income streams such as part-time work, rental income or annuities you add yourself, and state or non-US taxes.
+Not yet modeled: state or non-US taxes; payroll tax on work income; Social Security spousal benefits and the earnings test; a person's planning end age as a death (it is a horizon only; deaths come from the survivor case); and per-person retirement accounts (the 59½ and RMD ages follow the first person).
 
 It ships as a Python library, worked Jupyter notebooks, and a self-hosted web UI.
 
