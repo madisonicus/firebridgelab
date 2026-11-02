@@ -25,13 +25,25 @@ What you can do now that you could not in 0.1.0:
   Social Security regulations, IRS worked examples, the FERS COLA statute,
   closed-form annuity math and Owl, each comparison a test that CI runs (M6).
 - The package is organised into subpackages; the old module paths still
-  import for one more release (M1).
+  import for one more release, except `firebridgelab.simulate`, which is
+  removed (M1; see "Breaking" below).
+
+### Breaking
+
+- **The `firebridgelab.simulate` module is removed.** It was a compatibility
+  re-export of `firebridgelab.engine.deterministic`, and importing it (for
+  example `import firebridgelab.simulate`) replaced the public function
+  `firebridgelab.simulate()` with the module object. `from firebridgelab
+  import simulate` and `firebridgelab.simulate(...)` are unchanged; code that
+  imported `YearPoint`, `Trajectory` or `simulate` from the old module path
+  imports them from `firebridgelab` or `firebridgelab.engine.deterministic`.
 
 ### M1: package layout
 
 - Split the package into `returns`, `income`, `spending`, `tax`, `engine`
   and `analysis`. The old flat module paths still import, as thin re-exports
-  kept for one release (docs/library.md).
+  kept for one release (docs/library.md), except `firebridgelab.simulate`
+  (removed; see "Breaking").
 
 ### M2: households
 
@@ -132,12 +144,41 @@ computes no tax.
   Worksheet. Before, it was up to $57 too high (joint; $28.50 single) when
   taxable income fell between the top of the 0% gains band and the top of the
   12% bracket.
-- Neither fix moves the deterministic canary, any existing test, or the
-  deterministic result of any bundled example.
-- Found and documented, not changed: the `amortization` rule plans with
-  start-of-year payments while the engine withdraws at mid-year, so on a flat
-  return its spend drifts up slightly instead of staying level
-  (docs/validation.md, "Closed form").
+- **Fixed: a survivor below full retirement age** gets a widow(er)'s benefit
+  reduced for age, as 20 CFR 404.410(c)(1) requires: PIA × 0.285 × months
+  before FRA / 84, so 71.5% of the PIA at 60, 79.6% at 62, 87.8% at 64, 100%
+  at 67. It starts no earlier than the survivor's 60 (404.335); a survivor
+  widowed younger gets it from 60. If the decedent claimed early, the 82.5%
+  limit applies after the age reduction (POMS RS 00615.320). The survivor
+  still takes the larger of their own benefit and the survivor benefit.
+  Before, the survivor got the unreduced benefit at any age: $30,000 instead
+  of $23,892.86 for a $30,000 PIA and a survivor widowed at 62.
+- **Fixed: FERS COLA before 62.** A `fers_diet` stream is now a fixed nominal
+  check until its owner is 62 and gets the FERS COLA from then on (5 U.S.C.
+  8462(c)(3)). Before, a stream that started before 62 got COLAs from its
+  start, overstating a regular retiree's annuity by 10.4% from 62 for a start
+  at 57 at 2.5% inflation. The new stream option `fers_cola_before_62 = true`
+  keeps the COLA from the start for the annuitants the rule exempts
+  (disability retirees; special-provision law enforcement officers,
+  firefighters and air traffic controllers; survivor annuities). The
+  `mra10-single` example is now one stream instead of two; its results are
+  unchanged. The legacy `pension_cola = "fers_diet"` field follows the same
+  rule, so a legacy pension that starts before 62 is worth less than before.
+- **Fixed: the `amortization` rule's timing.** It planned with start-of-year
+  payments while the engine withdraws at mid-year. It now plans with the
+  engine's mid-year timing for the spend, guaranteed income and required
+  spending, so on a constant return equal to `amortization_real_return` the
+  spend is level in real terms and the portfolio ends at zero. On $1,000,000
+  over 30 years at 3%: the first-year spend was $49,533 and rose 6.7% to
+  $52,869, leaving $793; it is now $50,265 every year, leaving $0. Every
+  amortization result moves up slightly (the first-year spend by
+  (1 + r)/(1 + r/2): 0.5% at the default 1% planning rate); the amortization
+  tests were re-pinned with their derivations.
+- None of these fixes moves the deterministic canary (the default scenario
+  has no survivor case, indexed pensions and constant spending) or any
+  bundled example's output. Notebooks 02 and 04 were re-run: their FERS
+  pensions start at 60, and notebook 02 has a survivor widowed at 62 and an
+  amortization row.
 - The README's validation numbers moved to docs/validation.md, and notebook
   01 no longer quotes them.
 - The web API reports the package version instead of a copy of it.

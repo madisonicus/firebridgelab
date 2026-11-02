@@ -252,11 +252,14 @@ cohorts" is a count, not a probability.
 commencement and deflated at `assumed_inflation`. This fits, for example, a US
 federal (FERS-style) deferred annuity, which is fixed from separation until it
 starts. `pension_cola="fers_diet"` then applies the FERS COLA rule each year it
-is paid. Social Security is entered as the full-retirement-age benefit plus a
+is paid from the owner's 62 (FERS pays no COLA before 62; an income stream can
+set `fers_cola_before_62` for the disability and special-provision retirees
+who are exempt). Social Security is entered as the full-retirement-age benefit plus a
 claim age (62–70). The API applies the SSA early-reduction and delayed-credit
 factors, and the benefit is then constant in real terms. The survivor case
 (`survivor_age`) keeps the larger of the survivor's own SS benefit and the
-widow(er)'s benefit on the decedent's record, continues
+widow(er)'s benefit on the decedent's record (reduced if the survivor takes it
+before full retirement age, and payable from the survivor's 60), continues
 `survivor_pension_fraction` of the decedent's pension, scales spending (and the
 guardrail rails) by `survivor_spending_fraction`, and files single from the
 death year.
@@ -281,7 +284,7 @@ credits, foreign tax, automatic ACA or standard Medicare premiums (enter them
 as required spending), long-term-care shocks as explicit lines, tracked cost
 basis, tax on taxable-account dividends and interest, Roth five-year rules,
 72(t)/SEPP access before 59½ (the penalty is applied and reported instead),
-the FERS no-COLA-before-62 rule, accounts tracked per person (access ages and
+accounts tracked per person (access ages and
 RMDs follow person A), mortality-weighted horizons, and valuation-conditioned
 or regime-switching returns. Monte Carlo has no autocorrelation or parameter
 uncertainty. Its fixed seed means success rates carry about ±0.5 point of

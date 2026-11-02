@@ -7,12 +7,13 @@ on every push (`pytest -m validation` runs it alone, in under a second).
 
 Each reference value was read from the party that published it: the study's
 own article, the regulation on eCFR, the IRS publication, the statute and
-OPM's own page. Sources were read on 2026-11-02. ssa.gov blocks fetches from
-the machine this was written on, so Social Security is checked against the
-regulation (20 CFR 404) rather than SSA's web pages.
+OPM's own page. Sources were read on 2026-11-02. www.ssa.gov blocks fetches
+from the machine this was written on, so Social Security is checked against
+the regulation (20 CFR 404) and SSA's Program Operations Manual (POMS, on
+secure.ssa.gov) rather than SSA's public pages.
 
 Where the model disagrees with a reference, the table says so and gives the
-reason. Three disagreements were bugs and were fixed in 0.2.0 (marked
+reason. Six disagreements were bugs and were fixed in 0.2.0 (marked
 **fixed**); the rest are differences of data or of scope, listed with their
 direction and size.
 
@@ -146,14 +147,40 @@ Decedent's PIA $30,000, survivor's own PIA $10,000 unless stated.
 
 Tolerance $0.000001; all match.
 
-Simplified, and not matched (pinned by `test_known_gap_survivor_before_full_retirement_age`):
+Survivor below full retirement age (**fixed**). A widow(er)'s benefit based on
+age is payable from 60
+([404.335](https://www.ecfr.gov/current/title-20/part-404/section-404.335))
+and, taken before full retirement age, is reduced by PIA × 0.285 × (months
+before FRA) / (months from 60 to the month before FRA)
+([404.410(c)(1)](https://www.ecfr.gov/current/title-20/part-404/section-404.410));
+with FRA 67 the period is 84 months. That is 0.285/84 of the PIA a month, not
+a fixed 19/40 of 1% (which is the same thing only for FRA 65, a 60-month
+period). The reduction is permanent; the model takes the benefit as soon as it
+is payable. Decedent's PIA $30,000, claimed at 67; survivor the same age, own
+PIA $10,000 claimed at 67:
 
-- **A survivor below full retirement age.** The regulation reduces a
-  widow(er)'s benefit taken before full retirement age by 0.285 × months
-  early / 84 (404.410(c)(1)): 79.6% of the PIA at 62. Before 60 there is none.
-  The model pays the unreduced benefit at any survivor age, so it overstates
-  the survivor's income in those years: by $6,107 a year for a $30,000 PIA at
-  62.
+| Survivor's age at the death | Regulation | Ours | Before the fix |
+| --- | --- | --- | --- |
+| 58 | nothing at 58–59; $21,450 (71.5%) from 60 | the same | $30,000 from 58 |
+| 60 | $21,450 (71.5%) | $21,450 | $30,000 |
+| 62 | $23,892.86 (79.64%) | $23,892.86 | $30,000 |
+| 64 | $26,335.71 (87.79%) | $26,335.71 | $30,000 |
+| 67 (FRA) | $30,000 | $30,000 | $30,000 |
+| 62, own PIA $36,000 claimed at 62 ($25,200) | $25,200, the own benefit (404.407(a)) | $25,200 | $30,000 |
+| 60, decedent claimed at 62 ($21,000) | $21,450: the reduced 71.5% is under the 82.5% limit | $21,450 | $24,750 |
+| 66, decedent claimed at 62 | $24,750: the reduced 95.93% is capped at 82.5% (404.338(c), applied after the age reduction per [POMS RS 00615.320](https://secure.ssa.gov/poms.nsf/lnx/0300615320)) | $24,750 | $24,750 |
+
+Tolerance $0.000001; all match.
+
+Simplified, and not matched:
+
+- **The order of the age reduction and delayed credits.** 404.410(c)(1)
+  reduces the PIA, so the model leaves the decedent's delayed credits
+  unreduced. Neither the regulation nor the POMS section above states the order
+  for that case explicitly.
+- **When to take the survivor benefit.** The model takes it as soon as it is
+  payable. Waiting (for example to full retirement age, for the unreduced
+  benefit) is not an option it models.
 - **Spousal benefits** (404.333) and the **earnings test** are not modelled, so
   a low earner married to a high earner is understated while both are alive.
 - Months: the model works in whole years of age.
@@ -208,24 +235,31 @@ CPI up to 2%, 2% for CPI of 2–3%, CPI − 1% above 3%.
 | Statute | 1.5% | 2.0% | 2.0% | 2.0% | 3.0% |
 | Ours (`fers_diet`) | 1.5% | 2.0% | 2.0% | 2.0% | 3.0% |
 
-No COLA before 62 (8462(b)(3)(A); OPM: COLAs "are not provided until age
+No COLA before 62 (8462(c)(3)(A); OPM: COLAs "are not provided until age
 62"). Checked against a hand-built schedule (the nominal check fixed until 62,
 then the 8462 COLA each year, deflated at CPI) at every age, at each of the
 five CPI rates:
 
 | Case | Ours vs the schedule | Tolerance |
 | --- | --- | --- |
-| MRA+10 retiree at 57, $22,500 annuity, the bundled `mra10-single` plan (a fixed-nominal stream to 62, then `nominal_until_start` + `fers_diet`) | equal at every age 57–95 | $0.000001 |
+| MRA+10 retiree at 57, one `fers_diet` stream of $22,500 from 57 (the bundled `mra10-single` plan) | equal at every age 57–95 | $0.000001 |
+| The same stream, owned by a person three years younger than person A (the rule reads the owner's own 62) | equal at every age | $0.000001 |
+| The same annuity as the old workaround, a `cola = "none"` stream to 62 and `nominal_until_start` + `fers_diet` from 62 | equal at every age | $0.000000001 |
 | Deferred annuity: separated at 50, $20,000 payable from 62, one stream with `nominal_until_start` + `fers_diet` | equal at every age 50–95 | $0.000001 |
+| Special-provision or disability retiree at 57, `fers_cola_before_62 = true` (schedule with the COLA from 57) | equal at every age 57–95 | $0.000001 |
 
-Not matched (pinned by `test_known_gap_single_fers_stream_before_62`): a
-single `fers_diet` stream that starts before 62 gets the COLA from its start
-age. For a regular retiree that overstates the annuity: by 1.02⁵ − 1 = 10.4%
-from 62 for a $22,500 annuity from 57 at 2.5% CPI. Split the stream at 62, as
-`mra10-single` does. Special-provision and disability retirees, who do get
-COLAs before 62, are modelled correctly by the single stream. The proration of
-the first COLA (8462(c)(1)) is a within-year detail the yearly model does not
-carry.
+**Fixed: no COLA before 62.** The statute's rule is 8462(c)(3)(A): an
+increase is not effective for an annuitant under 62. It covers annuitants under
+8412, 8413 and 8414; it does not cover special-provision law enforcement
+officers, firefighters and air traffic controllers (8412(d)(1), (e)) or
+disability retirees (8462(c)(3)(B)), and survivor annuities are outside it.
+Before the fix, a single `fers_diet` stream got the COLA from its start age,
+which overstated a regular retiree's annuity by 1.02⁵ − 1 = 10.4% from 62 for a
+$22,500 annuity from 57 at 2.5% CPI ($21,956.55 at 62 against the statute's
+$19,886.72). The exempt annuitants set `fers_cola_before_62 = true`.
+
+The proration of the first COLA (8462(c)(1)) is a within-year detail the
+yearly model does not carry.
 
 ## Closed form
 
@@ -239,17 +273,23 @@ withdrawal.
 | --- | --- | --- |
 | Final balance = P(1+r)ⁿ − s(1 + r/2)((1+r)ⁿ − 1)/r, r = 0–5% | equal | relative 1e-9 |
 | The constant real withdrawal with present value P, s* = P r (1+r)ⁿ / ((1 + r/2)((1+r)ⁿ − 1)), runs the portfolio to zero, and the solver reports it rounded down to $1,000 | equal | $0.000001; exact |
-| Amortization rule: each year's spend is the annuity-due payment on the current balance over the remaining years | equal, every year | relative 1e-9 |
+| Amortization rule: each year's spend is the level mid-year withdrawal that runs the current balance B to zero over the remaining m years, B r / ((1 + r/2)(1 − (1+r)⁻ᵐ)); on a flat return equal to the planning rate (0%, 1%, 3%) that is s* every year and the portfolio ends at zero | equal, every year; final balance 0 | relative 1e-9; $0.000001 |
 
-**A finding, not fixed.** The amortization rule plans with start-of-year
-payments (annuity due) and the engine withdraws at mid-year, so each
-withdrawal costs (1 + r/2)/(1 + r) of what the rule assumed. On a flat 3%
-return equal to the planning rate the spend is 1.5% below the level that
-would exhaust the portfolio exactly in year one, drifts up 6.7% by the last
-year, and a little is left at the end, instead of a level spend that ends at
-zero. The effect is small and on the cautious side; changing the rule's
-convention would move every amortization result, so it is recorded here
-instead.
+**Fixed: the amortization rule's timing.** The rule planned with
+start-of-year payments (annuity due) while the engine withdraws at mid-year,
+so each withdrawal cost (1 + r/2)/(1 + r) of what the rule assumed. It now
+plans with the engine's timing, for guaranteed income and required spending
+as well as the spend. $1,000,000 over 30 years on a flat 3% return equal to
+the planning rate:
+
+| | First-year spend | Last-year spend | Left at the end |
+| --- | --- | --- | --- |
+| Before the fix | $49,533.26 | $52,868.68 (+6.7%) | $793.03 |
+| After | $50,265.28 | $50,265.28 | $0.00 |
+
+When guaranteed income exceeds the spend in a later year, the rule does not
+borrow against the surplus (a gap is never negative), so a plan in which income
+eventually covers the spend ends with that later surplus in the portfolio.
 
 ## Owl cross-check
 
@@ -287,12 +327,12 @@ its own data, most of the scatter comes from the return series.
 
 | Comparison | Why |
 | --- | --- |
-| SSA's own pages (the benefit-reduction table, survivor planner) | ssa.gov blocks fetches from the machine this was written on; the regulation on eCFR was used instead |
+| SSA's own pages (the benefit-reduction table, survivor planner) | www.ssa.gov blocks fetches from the machine this was written on; the regulation on eCFR and the POMS were used instead |
 | Bengen's Figures 2–4 (portfolio life by allocation and rate) | the values exist only as bar charts; only figures stated in his text are compared |
 | Bengen's appendix (full assumptions) | the available scan of the appendix is unreadable |
 | Trinity 1998 withdrawal timing | the article does not state it |
 | A numeric NIIT worked example | the Form 8960 instructions state the rule but give no individual example with numbers; the test applies the stated rule |
 | OPM CSRS/FERS Handbook, COLA chapter | not used; the statute and OPM's own FAQ state the rule the tests check |
 | Pub. 915 Example 4, and any married-filing-separately or head-of-household case | the model has no such filing status |
-| Spousal benefits, the earnings test, a survivor below full retirement age | not modelled (see Social Security above) |
+| Spousal benefits, the earnings test | not modelled (see Social Security above) |
 | State income tax | not attempted in this release; each state's rules are cited in [methodology](methodology.md) and pinned by the unit tests, but no state's own worked example is reproduced |

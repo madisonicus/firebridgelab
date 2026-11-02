@@ -124,7 +124,8 @@ FERS
 
 FERS diet COLA
 :   The FERS rule that trails inflation: the full CPI increase when CPI is 2% or less, 2% when
-    CPI is between 2% and 3%, and CPI minus 1% above 3%. Over a long retirement the annuity
+    CPI is between 2% and 3%, and CPI minus 1% above 3%. Regular retirees get no COLA before
+    62, so the annuity is a fixed dollar amount until then. Over a long retirement the annuity
     loses real value.
 
 MRA, MRA+10, deferred annuity
@@ -144,6 +145,8 @@ Claim age
 Survivor benefit
 :   What continues after a spouse dies. The survivor gets the larger of their own Social
     Security benefit and the widow(er)'s benefit on the spouse's record; a pension continues at its elected survivor share.
+    The widow(er)'s benefit starts at 60 at the earliest and is reduced if taken before full
+    retirement age: to 71.5% at 60.
 
 ## Taxes
 

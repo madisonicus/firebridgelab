@@ -200,7 +200,15 @@ COLA options:
 - `fers_diet` applies [5 U.S.C. 8462](https://uscode.house.gov/us/usc/119-124/t5/s8462/)
   ([OPM summary](https://www.opm.gov/frequently-asked-questions/retire-faq/post-retirement/how-is-the-cost-of-living-adjustment-cola-determined/)):
   CPI up to 2%, 2% for CPI of 2–3%, CPI − 1% above 3%, evaluated at
-  `assumptions.inflation` (`income/pension.py`).
+  `assumptions.inflation` (`income/pension.py`). Under 8462(c)(3) an annuitant
+  under 62 gets no COLA, so a `fers_diet` stream is a fixed nominal check until
+  its owner is 62 and gets the COLA every year from then on. That rule covers
+  regular retirees (5 U.S.C. 8412, 8413, 8414); it exempts special-provision
+  law enforcement officers, firefighters and air traffic controllers
+  (8412(d)(1), (e)) and disability retirees, and survivor annuities are outside
+  it. For those, set `fers_cola_before_62 = true` on the stream to pay the COLA
+  from its start. The first COLA's proration by months on the rolls
+  (8462(c)(1)) is a within-year detail the yearly model does not carry.
 
 ## Survivor case
 
@@ -213,9 +221,17 @@ When the first person dies (`[survivor]`):
   if the decedent claimed early, at least 82.5% of their PIA; if the decedent
   died before claiming, the PIA plus the credits earned up to the death
   ([20 CFR 404.338](https://www.ecfr.gov/current/title-20/part-404/section-404.338),
-  404.313(e)). It is not reduced for a survivor below full retirement age
-  (404.410(c)), and it is paid at any survivor age, though the regulation
-  starts it at 60.
+  404.313(e)). It is payable from the survivor's 60
+  ([404.335](https://www.ecfr.gov/current/title-20/part-404/section-404.335)),
+  and the model takes it as soon as it is payable: in the death year, or the
+  year the survivor turns 60. Taken before full retirement age (67) it is
+  reduced, for good, by 0.285 × the months before FRA / 84 of the PIA
+  ([404.410(c)(1)](https://www.ecfr.gov/current/title-20/part-404/section-404.410)):
+  to 71.5% of the PIA at 60, 79.6% at 62, 87.8% at 64. Delayed credits are not
+  reduced (the regulation reduces the PIA). If the decedent claimed early, the
+  82.5% limit applies after the age reduction (SSA POMS RS 00615.320), so the
+  survivor gets the smaller of the age-reduced benefit and the larger of the
+  decedent's benefit and 82.5% of the PIA. Months are whole years in the model.
 - Each of the decedent's other streams continues at its `survivor_fraction`.
   A FERS full survivor annuity is 50% (5 U.S.C. 8442).
 - Spending and the guardrail rails scale by `spending_fraction`.
@@ -276,9 +292,13 @@ of sampling noise at 10,000 trials.
   guaranteed income and discounted at `amortization_real_return`. This is
   annuity (PMT) arithmetic, the same principle as the Bogleheads
   [variable percentage withdrawal](https://www.bogleheads.org/wiki/Variable_percentage_withdrawal).
-  The rule plans with start-of-year payments (annuity due) while the engine
-  withdraws at mid-year, so on a flat return the spend drifts up slightly
-  instead of staying level ([validation.md](validation.md#closed-form)).
+  The plan uses the engine's timing: each year's spend net of guaranteed
+  income and required spending is withdrawn at mid-year, so the remaining
+  gaps are worth (1 + r/2)/(1 + r) of their annuity-due value. On a constant
+  return equal to `amortization_real_return` the spend is level in real terms
+  and the portfolio ends at zero ([validation.md](validation.md#closed-form)).
+  Guaranteed income above the spend is not borrowed against: a year in which
+  income covers the spend adds nothing to the plan.
 
 ## What is not modelled
 
@@ -292,12 +312,10 @@ of sampling noise at 10,000 trials.
 - ACA premium credits. Enter premiums before 65 as required spending.
 - The standard Medicare premium. It is ordinary spending; only IRMAA is
   added.
-- The Social Security earnings test, spousal benefits, and the reduction of a
-  widow(er)'s benefit taken before full retirement age.
-- The FERS rule that regular retirees get no COLA before 62. `fers_diet`
-  applies from the start age; split the annuity at 62 (a `cola = "none"`
-  stream, then `nominal_until_start` with `fers_diet`), as the bundled
-  `mra10-single` example does.
+- The Social Security earnings test and spousal benefits. A survivor who
+  could do better by waiting to take the widow(er)'s benefit (for example to
+  full retirement age, for an unreduced benefit) is not modelled; the model
+  takes it as soon as it is payable.
 - Roth five-year rules, 72(t)/SEPP, the rule of 55, and other exceptions to
   the 10% penalty.
 - Accounts per person (access ages and RMDs follow person A), and per-person
