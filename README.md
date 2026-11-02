@@ -1,15 +1,21 @@
 # FIRE Bridge Lab
 
+![FIRE Bridge Lab: stress-test the bridge years between early retirement and pension + Social Security](docs/img/social-preview.png)
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)
+
 *Stress-test the bridge years: backtests, Monte Carlo and guardrails from early retirement to pension and Social Security.*
 
-A retirement-planning model for a one- or two-person household that retires
-before its guaranteed income starts. You give it a portfolio, an asset
-allocation, a spending plan and up to four guaranteed-income streams (two
-pensions and two Social Security benefits). It projects the portfolio year by
-year, in real dollars, under a deterministic return, every historical cohort
-since 1871, or Monte Carlo, with seven spending strategies, optional US federal
-tax by account type, and authored stress tests. It ships as a Python library,
-a set of worked Jupyter notebooks, and a self-hosted web UI.
+An open-source **FIRE calculator** and **safe withdrawal rate (SWR)** lab in Python, built for early retirees whose pensions or Social Security start years after they stop working. It replays every historical retirement since 1871 (cFIREsim/FIRECalc-style backtests), runs Monte Carlo with optional fat tails, and applies dynamic spending rules such as Guyton-Klinger-style guardrails and an amortization (VPW-style) frontier. Guaranteed income, including US federal (FERS-style) pensions with their COLA rules, a survivor case, and US federal tax by account type, is netted out of spending year by year, so the rules see the real gap the portfolio has to bridge. It ships as a Python library, worked Jupyter notebooks, and a self-hosted web UI.
+
+### Why another FIRE calculator?
+
+The popular free tools (cFIREsim, FIRECalc, FI Calc, ERN's SWR Toolbox) are excellent at constant-income backtests. FIRE Bridge Lab focuses on what they leave out or approximate:
+
+- **Bridge years:** spending rules that know a pension at 60 and Social Security at 67 are coming, instead of treating them as a flat adjustment.
+- **Taxes:** taxable, tax-deferred and Roth accounts, 2026 federal brackets, capital gains stacking, NIIT, RMDs and the pre-59½ penalty, solved each year.
+- **Pensions as they really work:** amounts fixed in dollars until they start, FERS-style partial COLAs, survivor benefits, single-filer brackets after a first death.
+- **Validated:** Trinity/Bengen backtests reproduced, and a per-cohort cross-check against the independent optimizer [Owl](https://github.com/mdlacasse/Owl) (see the notebooks).
 
 **Educational software, not financial advice. Consult a qualified advisor before acting.**
 
