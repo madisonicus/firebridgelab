@@ -66,39 +66,35 @@ def test_present_value_of_constant_real_withdrawal(r):
     assert solved.solved_spend == (s_star // 1000) * 1000
 
 
-def _annuity_due(balance: float, r: float, m: int) -> float:
-    """Textbook annuity-due payment: m equal payments, the first now, with
-    present value ``balance`` at rate r: balance * r / ((1+r)(1 - (1+r)^-m))."""
-    return balance * r / ((1.0 + r) * (1.0 - (1.0 + r) ** (-m)))
+@pytest.mark.parametrize("r", [0.0, 0.01, 0.03])
+def test_amortization_frontier_is_level_mid_year_withdrawal(r):
+    """The ``amortization`` rule sets each year's spend to the constant
+    withdrawal that runs the current balance to zero over the remaining years
+    at the planning rate (the Bogleheads VPW principle), withdrawn at mid-year
+    as the engine does. Remaining balance B over m years:
+    B = L(1+r/2) * sum_{j=1..m} (1+r)^-j, so L_k = B_k r / ((1+r/2)(1-(1+r)^-m))
+    (B/m at r = 0). On a flat return equal to the planning rate the recursion
+    B_{k+1} = B_k(1+r) - L_k(1+r/2) leaves L_{k+1} = L_k, so every year's spend
+    is the level s* of ``test_present_value_of_constant_real_withdrawal`` and
+    the portfolio ends at zero. Tolerance: relative 1e-9 on every year's spend,
+    1e-6 on the final balance.
 
-
-@pytest.mark.parametrize("r", [0.01, 0.03])
-def test_amortization_frontier_is_annuity_due(r):
-    """The ``amortization`` rule sets each year's spend to the annuity-due
-    payment on the current balance over the remaining years, at the planning
-    rate (the Bogleheads VPW principle). On a flat return equal to the
-    planning rate the whole path matches the recursion
-    L_k = annuity_due(B_k, r, n - k), B_{k+1} = B_k(1+r) - L_k(1+r/2).
-    Tolerance: relative 1e-9 on every year's spend.
-
-    A finding, pinned here and listed in docs/validation.md: because the rule
-    plans with start-of-year payments and the engine withdraws at mid-year,
-    each withdrawal costs (1 + r/2)/(1 + r) of what the rule assumed. The
-    spend therefore drifts up over the plan (+6.7% from first to last year at
-    3%) instead of staying level, and a little is left at the end. The
-    first-year spend is (1 + r/2)/(1 + r) of the level spend s* that would
-    exhaust the portfolio exactly (1.5% lower at 3%).
+    Fixed in 0.2.0: the rule used to plan with start-of-year (annuity-due)
+    payments, so its first-year spend was (1+r/2)/(1+r) of s* (1.5% low at 3%)
+    and it drifted up 6.7% over 30 years, leaving money at the end.
     """
     n = 30
     plan = replace(_flat(r, 50_000.0), spending_mode="amortization", amortization_real_return=r)
-    points = simulate(plan).points
+    traj = simulate(plan)
     balance = P
-    for k, point in enumerate(points):
-        expected = _annuity_due(balance, r, n - k)
+    for k, point in enumerate(traj.points):
+        m = n - k
+        expected = balance / m if r == 0 else balance * r / ((1.0 + r / 2.0) * (1.0 - (1.0 + r) ** (-m)))
         assert point.spending == pytest.approx(expected, rel=1e-9), k
         balance = balance * (1.0 + r) - expected * (1.0 + r / 2.0)
 
     g = (1.0 + r) ** n
-    level = P * r * g / ((1.0 + r / 2.0) * (g - 1.0))
-    assert points[0].spending == pytest.approx(level * (1.0 + r / 2.0) / (1.0 + r), rel=1e-12)
-    assert points[-1].spending > points[0].spending
+    level = P / n if r == 0 else P * r * g / ((1.0 + r / 2.0) * (g - 1.0))
+    for point in traj.points:
+        assert point.spending == pytest.approx(level, rel=1e-9)
+    assert abs(traj.final_portfolio) < 1e-6

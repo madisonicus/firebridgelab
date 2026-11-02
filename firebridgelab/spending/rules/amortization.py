@@ -14,6 +14,22 @@ View-only: the frontier IS the spend, so the max-spend solver is fenced.
 "GI" throughout is guaranteed income net of required spending
 (``net_income_at_age``): a spending adjustment is part of the gap the portfolio
 must fund, and ``L`` is the discretionary spend on top of it.
+
+Timing: the plan uses the engine's own convention (``engine.step.step_year``):
+the year's net withdrawal ``L - GI`` is taken at mid-year, so it costs
+``(1 + r/2)`` at year end, and the balance follows
+``B_{t+1} = B_t (1 + r) - (L - GI(t)) (1 + r/2)``. Run to zero at ``end_age``,
+that recursion gives
+
+    P_a = (1 + r/2)/(1 + r) * Σ_{t=a}^{end_age} max(0, L - GI(t)) / (1 + r)^(t-a)
+
+i.e. the annuity-due sum of the gaps scaled by ``(1 + r/2)/(1 + r)``
+(``mid_year_factor``). So each solve below works on the annuity-due sum against
+the scaled target ``P_a (1 + r)/(1 + r/2)``. On a constant return equal to
+``r`` the spend is then level in real terms and the portfolio ends at zero.
+Before 0.2.0 the plan used start-of-year payments against the engine's
+mid-year withdrawals, which set the first-year spend low by that factor and let
+it drift up over the plan.
 """
 
 from __future__ import annotations
@@ -40,16 +56,29 @@ from firebridgelab.spending.registry import register
 # match the textbook annuity to the cent, and an L-bracket of $1 leaves up to ~$0.09
 # of error (well over a cent). The cost is trivial: the solve recomputes a single
 # forward NPV over a ~40-year window per step, and even sub-cent convergence is ~35
-# bisection steps, so per-year cost is a few thousand float ops. Note the closed form
-# the zero-GI case must match is the annuity-DUE form ``P*r/((1+r)*(1-(1+r)^-n))`` —
-# the FIRST payment is taken NOW (undiscounted, t=0), matching this engine's existing
-# ``compute_npv_gaps_by_age`` convention (the t=0 term is undiscounted). That is the
-# convention the frontier MUST share, since the FR inversion's self-consistency is
-# checked against that same NPV function.
+# bisection steps, so per-year cost is a few thousand float ops. The closed form
+# the zero-GI case must match is the level mid-year withdrawal that exhausts P over
+# n years, ``P*r/((1+r/2)*(1-(1+r)^-n))``: the annuity-due payment on the scaled
+# target ``P*(1+r)/(1+r/2)`` (module docstring, "Timing"). The sum being solved is
+# still ``compute_npv_gaps_by_age``'s annuity-due sum (t=0 term undiscounted); only
+# its target is scaled.
 _AMORT_NPV_TOL: float = 1e-4         # NPV within $1e-4 of the portfolio → converged
 _AMORT_L_TOL: float = 1e-4           # bracket width within $1e-4 of L → converged
 _AMORT_MAX_ITERS: int = 200          # bisection cap (≈ log2 of any sane bracket)
 _AMORT_HI_PAD: float = 1_000_000.0   # additive pad on the upper bracket (safety)
+
+
+def mid_year_factor(r: float) -> float:
+    """``(1 + r/2) / (1 + r)``: what a withdrawal taken at mid-year costs, in
+    start-of-year money, relative to one taken at the start of the year.
+
+    The engine charges a year's net withdrawal ``(1 + r/2)`` at year end
+    (``engine.step.step_year``); discounting one year back gives this factor.
+    The present value of a stream of mid-year withdrawals is the annuity-due
+    sum of the stream times this factor. ``r > -1`` for every admissible
+    planning rate, so the factor is positive.
+    """
+    return (1.0 + r / 2.0) / (1.0 + r)
 
 
 def _npv_escalated_gaps_at_age(
@@ -105,12 +134,14 @@ class AmortizationFrontierStrategy(SpendingStrategy):
     gap stream, discounted at ``scenario.amortization_real_return`` (``r``) over the
     hard plan horizon ``end_age``::
 
-        Σ_{t=a}^{end_age} max(0, L - GI(t)) / (1 + r)^(t-a)  ==  P_a
+        (1 + r/2)/(1 + r) · Σ_{t=a}^{end_age} max(0, L - GI(t)) / (1 + r)^(t-a)  ==  P_a
 
-    i.e. the target ``L`` at which the funded ratio == 1. Spend ``L`` this year; next
-    year the engine calls again with the new balance and ``L`` is re-solved off it.
-    The LHS is exactly ``npv_gaps_at_age(scenario, a, target_real=L, discount_rate=r)``
-    and is monotonically INCREASING in ``L``, so we BISECT on ``L`` in ``[0, hi]``.
+    i.e. the present value of the gaps withdrawn at mid-year, the engine's timing
+    (module docstring). Spend ``L`` this year; next year the engine calls again with
+    the new balance and ``L`` is re-solved off it. The sum is exactly
+    ``npv_gaps_at_age(scenario, a, target_real=L, discount_rate=r)`` and is
+    monotonically INCREASING in ``L``, so every solve below finds the ``L`` at which
+    it equals the scaled target ``P_a / mid_year_factor(r)``.
 
     DRIFT-AWARE: when ``scenario.spending_real_drift != 0`` (the
     sustained_cost_drift overlay) the engine loops escalate this strategy's output by
@@ -175,6 +206,9 @@ class AmortizationFrontierStrategy(SpendingStrategy):
     def __init__(self, scenario: Scenario) -> None:
         # The planning real return the gap stream is discounted at.
         self.r = float(scenario.amortization_real_return)
+        # Mid-year timing: every solve targets P_a / mid_year_factor(r) on the
+        # annuity-due gap sum (module docstring).
+        self._p_scale = 1.0 / mid_year_factor(self.r)
         # Adjustment-event log + prior-state tracking (same shape/discipline as the
         # FR strategies). Purely descriptive — recording never alters the returned
         # spend. ``_prev_spend`` drives the raise/cut/hold action label;
@@ -278,7 +312,8 @@ class AmortizationFrontierStrategy(SpendingStrategy):
         (``_solve_l_bisect``) iff the non-decreasing assumption was violated at
         construction (e.g. ``pension_real_drift > 0``) or no segment validates —
         correctness is never at risk. Both return ``L`` with
-        ``npv_gaps_at_age(scenario, age, L, r) == begin_year_portfolio`` to the cent.
+        ``npv_gaps_at_age(scenario, age, L, r) == begin_year_portfolio / mid_year_factor(r)``
+        to the cent.
 
         DRIFT-AWARE branch: when ``spending_real_drift != 0`` the
         engine loop escalates this solve's output by ``(1+d)^(age - start_age)``,
@@ -286,7 +321,7 @@ class AmortizationFrontierStrategy(SpendingStrategy):
         (``_solve_l_segments_drift`` analytic / ``_solve_l_bisect_drift``
         reference — same fast-path-with-fallback shape, same guard). Both return
         ``L`` with ``_npv_escalated_gaps_at_age(scenario, age, L, r, d) ==
-        begin_year_portfolio`` to the cent. ``d == 0`` takes the no-drift path below.
+        begin_year_portfolio / mid_year_factor(r)`` to the cent. ``d == 0`` takes the no-drift path below.
         """
         if self.d != 0.0:
             if self._gi_nondecreasing:
@@ -305,7 +340,8 @@ class AmortizationFrontierStrategy(SpendingStrategy):
     ) -> float | None:
         """Analytic per-year solve via the GI breakpoints (no bisection, no inner loop).
 
-        Condition (multiply ``Σ_{t>=a} max(0,L-GI(t))(1+r)^-(t-a) == P_a`` by w(a)):
+        Condition (multiply ``Σ_{t>=a} max(0,L-GI(t))(1+r)^-(t-a) == P_a / mid_year_factor(r)``
+        by w(a), writing P_a for the scaled target):
 
             Σ_{t>=a} max(0, L - GI(t)) * w(t) == P_a * w(a)
 
@@ -325,7 +361,7 @@ class AmortizationFrontierStrategy(SpendingStrategy):
         end = self._end_age - self._start_age  # last offset (inclusive)
         if a < 0 or a > end:
             return None  # out of horizon → let the bisection path raise loudly
-        Pwa = begin_year_portfolio * self._w[a]
+        Pwa = begin_year_portfolio * self._p_scale * self._w[a]
         Wa = self._W[a]
         GWa = self._GW[a]
         gi = self._gi
@@ -354,7 +390,8 @@ class AmortizationFrontierStrategy(SpendingStrategy):
 
         Condition (the engine loop escalates year-t spend by ``(1+d)^(t-start)``;
         multiply ``Σ_{t>=a} max(0, L·(1+d)^(t-start) - GI(t))·(1+r)^-(t-a) == P_a``
-        through by ``w(a)``)::
+        through by ``w(a)``, writing P_a for the scaled target
+        ``begin_year_portfolio / mid_year_factor(r)``)::
 
             Σ_{t>=a} max(0, L·esc(t) - GI(t)) * w(t) == P_a * w(a)
 
@@ -383,7 +420,7 @@ class AmortizationFrontierStrategy(SpendingStrategy):
         end = self._end_age - self._start_age  # last offset (inclusive)
         if a < 0 or a > end:
             return None  # out of horizon → let the bisection path raise loudly
-        Pwa = begin_year_portfolio * self._w[a]
+        Pwa = begin_year_portfolio * self._p_scale * self._w[a]
         gi = self._gi
         w = self._w
         v = self._v
@@ -416,12 +453,12 @@ class AmortizationFrontierStrategy(SpendingStrategy):
         the analytic path and the equivalence-test oracle.
 
         Returns ``L`` such that ``npv_gaps_at_age(scenario, age, L, r) ==
-        begin_year_portfolio`` to within ``_AMORT_NPV_TOL`` (or the L-bracket has
+        begin_year_portfolio / mid_year_factor(r)`` to within ``_AMORT_NPV_TOL`` (or the L-bracket has
         collapsed within ``_AMORT_L_TOL``). Pure given the scenario + inputs.
         """
         from firebridgelab.spending.npv import npv_gaps_at_age
 
-        target_portfolio = begin_year_portfolio
+        target_portfolio = begin_year_portfolio * self._p_scale
 
         # The largest GI active anywhere in the remaining horizon — part of the upper
         # bracket so ``hi`` dominates the root even when GI is large (the gap at a
@@ -467,12 +504,12 @@ class AmortizationFrontierStrategy(SpendingStrategy):
         (``_npv_escalated_gaps_at_age`` — per-year ``net_income_at_age``, no precomputed
         tables), which is monotonically increasing in L. Returns ``L`` such that
         ``_npv_escalated_gaps_at_age(scenario, age, L, r, d) ==
-        begin_year_portfolio`` to within ``_AMORT_NPV_TOL`` (or the L-bracket has
+        begin_year_portfolio / mid_year_factor(r)`` to within ``_AMORT_NPV_TOL`` (or the L-bracket has
         collapsed within ``_AMORT_L_TOL``). Pure given the scenario + inputs.
         Deterministic-only in practice (the MC path takes the analytic solve).
         """
         d = self.d
-        target_portfolio = begin_year_portfolio
+        target_portfolio = begin_year_portfolio * self._p_scale
 
         gi_max = max(
             (net_income_at_age(scenario, a) for a in range(age, scenario.end_age + 1)),

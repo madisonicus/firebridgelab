@@ -9,21 +9,22 @@ CLOSED-FORM references (not just internal consistency) — the discipline from
 
 Anchors (amortization-frontier design §"Correctness validation"):
 
-  1. Zero-GI, flat-return ⇒ textbook VPW annuity. With all four GI streams off and a
-     single constant real return ``r``, the solved ``L`` must equal the closed-form
-     annuity to the cent at the start age. NOTE the convention: this engine's NPV
-     (``compute_npv_gaps_by_age`` / ``npv_gaps_at_age``) takes the FIRST payment NOW,
-     undiscounted (t=0), so the matching closed form is the annuity-DUE
-     ``L = P*r / ((1+r) * (1 - (1+r)^-n))``, NOT the annuity-immediate form. The
-     frontier MUST share the engine's NPV convention because the FR inversion's
-     self-consistency is checked against that same function (anchor 4).
+  1. Zero-GI, flat-return ⇒ the level mid-year withdrawal. With all four GI streams
+     off and a single constant real return ``r``, the solved ``L`` must equal, to the
+     cent at the start age, the constant withdrawal that the ENGINE's own step
+     (``B' = B(1+r) - L(1+r/2)``, ``engine.step.step_year``) runs to exactly zero
+     over n years: ``L = P*r / ((1+r/2) * (1 - (1+r)^-n))``. Derivation: summing
+     the recursion, ``P = L(1+r/2) Σ_{j=1..n} (1+r)^-j = L(1+r/2)(1-(1+r)^-n)/r``.
+     Equivalently the annuity-DUE payment on the scaled target ``P(1+r)/(1+r/2)``,
+     because the solve works on ``npv_gaps_at_age``'s annuity-due sum (t=0 term
+     undiscounted) against that scaled target (anchor 4).
   2. r = 0 ⇒ straight-line ``L = P / n`` (the annuity factor collapses to n).
   3. GI-aware > myopic in the bridge. With GI that turns on partway through, the
      GI-aware ``L`` in the pre-GI years is strictly HIGHER than the myopic
      ``GI(a) + P_a / annuity(n)`` value, and they converge once all GI is active.
   4. FR-inversion self-consistency. Plug the solved ``L`` back into
-     ``npv_gaps_at_age`` / ``compute_npv_gaps_by_age`` and confirm it equals ``P_a``
-     to tolerance (the bisection converged).
+     ``npv_gaps_at_age`` / ``compute_npv_gaps_by_age`` and confirm it equals the
+     scaled target ``P_a (1+r)/(1+r/2)`` to tolerance (the bisection converged).
   5. Degenerate ``P <= 0`` ⇒ returns ``gi_at_age``; the engine's realized-spend cap
      then governs the recorded dollars in broke years.
   6. Factory + capability flags (is_solvable False, collects_spends True).
@@ -79,29 +80,51 @@ def _annuity_due_payment(P: float, r: float, n: int) -> float:
     """Closed-form annuity-DUE payment: the constant ``L`` whose n payments (the
     FIRST taken NOW, undiscounted) have present value ``P`` at real rate ``r``.
 
-    ``Σ_{t=0}^{n-1} L / (1+r)^t == P``  ⇒  ``L = P*r / ((1+r) * (1 - (1+r)^-n))``.
-    This matches the engine's NPV convention (t=0 term undiscounted)."""
+    ``Σ_{t=0}^{n-1} L / (1+r)^t == P``  ⇒  ``L = P*r / ((1+r) * (1 - (1+r)^-n))``."""
     return P * r / ((1.0 + r) * (1.0 - (1.0 + r) ** (-n)))
 
 
+def _scaled_target(P: float, r: float) -> float:
+    """The annuity-due sum a mid-year plan must fund: ``P (1+r)/(1+r/2)``.
+
+    The engine takes each year's net withdrawal at mid-year, costing ``(1+r/2)``
+    at year end, so a withdrawal ``c`` in year ``j`` (0-based) is worth
+    ``c (1+r/2)/(1+r)^(j+1)`` today; factoring ``(1+r/2)/(1+r)`` out of the sum
+    leaves the annuity-due sum ``Σ c / (1+r)^j``, which must equal
+    ``P (1+r)/(1+r/2)``."""
+    return P * (1.0 + r) / (1.0 + r / 2.0)
+
+
+def _mid_year_level_payment(P: float, r: float, n: int) -> float:
+    """The constant withdrawal that the engine's step ``B' = B(1+r) - L(1+r/2)``
+    runs from ``P`` to exactly 0 in ``n`` years:
+    ``P = L(1+r/2)(1-(1+r)^-n)/r``  ⇒  ``L = P*r / ((1+r/2)(1-(1+r)^-n))``.
+    Equal to ``_annuity_due_payment(_scaled_target(P, r), r, n)``."""
+    return P * r / ((1.0 + r / 2.0) * (1.0 - (1.0 + r) ** (-n)))
+
+
 # --------------------------------------------------------------------------- #
-# 1. Zero-GI, flat-return ⇒ textbook VPW annuity (to the cent).                #
+# 1. Zero-GI, flat-return ⇒ the level mid-year withdrawal (to the cent).      #
 # --------------------------------------------------------------------------- #
 
 
 @pytest.mark.parametrize("r", [0.01, 0.03, 0.04, 0.05])
-def test_zero_gi_matches_vpw_annuity_to_the_cent(r):
+def test_zero_gi_matches_mid_year_level_payment_to_the_cent(r):
     """With no GI and a single real return, the solved L at the start age equals the
-    textbook (annuity-due) VPW payment to the cent."""
+    level withdrawal the engine's mid-year step runs to exactly zero over the n
+    remaining years, ``P r / ((1+r/2)(1-(1+r)^-n))``, to the cent. At 1% over 46
+    years that is (1.01)/(1.005) = 0.4975% above the old annuity-due payment."""
     s = _amort_scenario(amortization_real_return=r)
     strat = make_strategy(s)
     P = s.initial_portfolio
     n = s.end_age - s.start_age + 1  # remaining years, inclusive of the start age
 
     L = strat.spend_for_year(s, s.start_age, P, gi=0.0)
-    expected = _annuity_due_payment(P, r, n)
+    expected = _mid_year_level_payment(P, r, n)
     # To the cent.
     assert abs(L - expected) < 0.01, f"L={L:.6f} expected={expected:.6f}"
+    # The same number as the annuity-due payment on the scaled target.
+    assert expected == pytest.approx(_annuity_due_payment(_scaled_target(P, r), r, n), rel=1e-12)
 
 
 def test_zero_gi_vpw_holds_at_a_smaller_horizon():
@@ -113,7 +136,7 @@ def test_zero_gi_vpw_holds_at_a_smaller_horizon():
     P = s.initial_portfolio
     n = s.end_age - s.start_age + 1  # 11
     L = strat.spend_for_year(s, s.start_age, P, gi=0.0)
-    assert abs(L - _annuity_due_payment(P, 0.03, n)) < 0.01
+    assert abs(L - _mid_year_level_payment(P, 0.03, n)) < 0.01
 
 
 # --------------------------------------------------------------------------- #
@@ -122,7 +145,8 @@ def test_zero_gi_vpw_holds_at_a_smaller_horizon():
 
 
 def test_zero_return_is_straight_line():
-    """r = 0 collapses the annuity factor to n ⇒ L = P / n (straight-line)."""
+    """r = 0 collapses the annuity factor to n and the mid-year factor
+    (1+r/2)/(1+r) to 1 ⇒ L = P / n (straight-line), unchanged by the timing."""
     s = _amort_scenario(amortization_real_return=0.0)
     strat = make_strategy(s)
     P = s.initial_portfolio
@@ -138,14 +162,15 @@ def test_zero_return_is_straight_line():
 
 def _myopic_vpw(P: float, r: float, n: int, gi: float) -> float:
     """The REJECTED myopic VPW: this year's GI plus the portfolio amortized over the
-    remaining horizon, ignoring FUTURE GI. ``GI(a) + P_a / annuity_due_factor(n)``.
+    remaining horizon, ignoring FUTURE GI, on the same mid-year timing as the
+    frontier: ``GI(a) + P_a (1+r)/(1+r/2) / annuity_due_factor(n)``.
 
     annuity_due_factor = Σ_{t=0}^{n-1} (1+r)^-t = (1+r)*(1-(1+r)^-n)/r (r>0)."""
     if r == 0:
         factor = float(n)
     else:
         factor = (1.0 + r) * (1.0 - (1.0 + r) ** (-n)) / r
-    return gi + P / factor
+    return gi + _scaled_target(P, r) / factor
 
 
 def test_gi_aware_beats_myopic_in_bridge_and_converges_when_gi_on():
@@ -198,7 +223,8 @@ def test_gi_aware_beats_myopic_in_bridge_and_converges_when_gi_on():
 @pytest.mark.parametrize("age,P", [(50, 1_800_000.0), (60, 1_500_000.0), (67, 1_200_000.0), (90, 200_000.0)])
 def test_fr_inversion_self_consistency(age, P):
     """Plug the solved L back into the SAME NPV function the FR machinery uses and
-    confirm it funds the portfolio to tolerance (the bisection converged). Checked at
+    confirm it funds the scaled target P(1+r)/(1+r/2) — the portfolio, with each
+    gap withdrawn at mid-year — to tolerance (the bisection converged). Checked at
     several ages with GI active so the GI-netting is exercised."""
     s = _amort_scenario(
         person_a_pension_amount=24_000.0, person_a_pension_start_age=60,
@@ -210,12 +236,13 @@ def test_fr_inversion_self_consistency(age, P):
     strat = make_strategy(s)
     L = strat._solve_l(s, age, P)
     r = s.amortization_real_return
+    target = _scaled_target(P, r)
     # Against the single-age helper.
     npv_focused = npv_gaps_at_age(s, age, L, r)
-    assert npv_focused == pytest.approx(P, abs=1.0)
+    assert npv_focused == pytest.approx(target, abs=1.0)
     # And against the full backward table the FR strategies build — same value.
     npv_table = compute_npv_gaps_by_age(s, target_real=L, discount_rate=r)[age]
-    assert npv_table == pytest.approx(P, abs=1.0)
+    assert npv_table == pytest.approx(target, abs=1.0)
     assert npv_focused == pytest.approx(npv_table, abs=1e-3)
 
 
@@ -294,12 +321,12 @@ def test_records_one_adjustment_event_per_year_with_honest_action():
 
 
 def test_amortizes_to_near_zero_by_horizon_end_to_end():
-    """END-TO-END through the real engine (simulate): on the default scenario with a
-    constant real return, the frontier amortized at the SAME return should drive the
-    terminal portfolio essentially to zero by end_age (the whole point — "spend it all
-    by the end of the plan"). We set amortization_real_return == the blended real
-    return so the plan and the realized path agree; the residual is the midpoint-
-    convention discount, not a modeling error."""
+    """END-TO-END through the real engine (simulate): on the default scenario the
+    frontier should drive the terminal portfolio essentially to zero by end_age (the
+    whole point — "spend it all by the end of the plan"). The planning rate is 5.0%,
+    the plain blend; the engine's rebalanced return is a little higher (5.38%), so a
+    small residual remains. The exact case (return == planning rate) is
+    ``test_flat_return_equal_to_planning_rate_spends_level_and_ends_at_zero``."""
     base = default_scenario()  # 5.0% blended real
     s = replace(
         base,
@@ -313,6 +340,73 @@ def test_amortizes_to_near_zero_by_horizon_end_to_end():
         f"{result.final_portfolio:,.0f}"
     )
     assert result.final_portfolio >= 0.0
+
+
+@pytest.mark.parametrize("r", [0.0, 0.01, 0.03, 0.05])
+def test_flat_return_equal_to_planning_rate_spends_level_and_ends_at_zero(r):
+    """THE TIMING PIN. On a constant real return equal to the planning rate and no
+    GI, the engine's step ``B_{k+1} = B_k(1+r) - L_k(1+r/2)`` with the frontier's
+    re-solved ``L_k`` must give a LEVEL real spend equal to the closed form
+    ``P r / ((1+r/2)(1-(1+r)^-n))`` every year, and end at 0.
+
+    Derivation: if ``L_k = L`` funds ``B_k`` exactly over the remaining m years,
+    ``B_k = L(1+r/2)Σ_{j=1..m}(1+r)^-j``; one step later
+    ``B_{k+1} = B_k(1+r) - L(1+r/2) = L(1+r/2)Σ_{j=1..m-1}(1+r)^-j``, which the same
+    L funds exactly over m-1 years. So the re-solve returns L every year and the
+    last step leaves 0.
+
+    Before the fix the plan used annuity-due payments: at 3% over 30 years the
+    first-year spend was (1.015/1.03) = 98.54% of this level and the last year's
+    was 6.7% above the first."""
+    n = 30
+    P = 1_000_000.0
+    s = _amort_scenario(
+        start_age=65, end_age=64 + n, initial_portfolio=P,
+        allocation=(AssetClass("all", "All", 1.0, r, 0.0),),
+        amortization_real_return=r,
+    )
+    traj = simulate(s)
+    level = P / n if r == 0 else _mid_year_level_payment(P, r, n)
+    for p in traj.points:
+        assert p.spending == pytest.approx(level, rel=1e-9), p.age
+    assert abs(traj.final_portfolio) < 1e-6
+    assert traj.depleted_age is None or traj.depleted_age == s.end_age
+
+
+def test_flat_return_with_income_and_required_spending_ends_at_zero():
+    """GI and required spending get the engine's own treatment in the plan: both
+    are mid-year flows netted into the gap (``net_income_at_age``). With a pension
+    from 60, Social Security from 67 and required spending of $12,000 a year until
+    65 (health cover before Medicare), on a 3% return equal to the planning rate,
+    the re-solved L is the same every year — the gap stream the first solve planned
+    is exactly the one the engine then withdraws — and the portfolio ends at 0.
+
+    Derivation as in the no-GI pin: if L funds ``B_k`` over the remaining gaps
+    ``c_j = L - G(j)`` (all positive here, so no max(0, ·) clamp binds),
+    ``B_k = (1+r/2)Σ_j c_j (1+r)^-(j-k+1)`` and one engine step
+    ``B_k(1+r) - c_k(1+r/2)`` leaves exactly the PV of the remaining gaps."""
+    r = 0.03
+    s = _amort_scenario(
+        start_age=55, end_age=90, initial_portfolio=1_500_000.0,
+        allocation=(AssetClass("all", "All", 1.0, r, 0.0),),
+        person_a_pension_amount=20_000.0, person_a_pension_start_age=60,
+        person_a_ss_amount=25_000.0, person_a_ss_start_age=67,
+        amortization_real_return=r,
+    )
+    from firebridgelab.income.household import SpendingAdjustment
+
+    s = replace(s, spending_adjustments=(SpendingAdjustment(
+        label="health", amount=12_000.0, start_age=55, end_age=65),))
+    traj = simulate(s)
+    from firebridgelab.income.guaranteed import net_income_at_age
+
+    discretionary = [
+        p.spending - (p.guaranteed_income - net_income_at_age(s, p.age))
+        for p in traj.points
+    ]
+    assert max(discretionary) - min(discretionary) < 1e-6
+    assert all(d > net_income_at_age(s, p.age) for d, p in zip(discretionary, traj.points))
+    assert abs(traj.final_portfolio) < 1e-6
 
 
 def test_engine_records_realized_spend_cap_in_broke_year():
@@ -380,8 +474,9 @@ def test_analytic_segment_solve_equals_bisection_to_the_cent(r, P, gi_cfg):
             f"age={age} P={P} r={r} gi={gi_cfg}: analytic L={l_fast:.6f} != "
             f"bisection L={l_ref:.6f}"
         )
-        # And the analytic L is FR-self-consistent against the same NPV the engine uses.
-        assert npv_gaps_at_age(s, age, l_fast, r) == pytest.approx(P, abs=1.0)
+        # And the analytic L is FR-self-consistent against the same NPV the engine
+        # uses, at the mid-year scaled target.
+        assert npv_gaps_at_age(s, age, l_fast, r) == pytest.approx(_scaled_target(P, r), abs=1.0)
 
 
 def test_analytic_solve_used_on_nondecreasing_gi_and_falls_back_on_drift():
@@ -405,8 +500,9 @@ def test_analytic_solve_used_on_nondecreasing_gi_and_falls_back_on_drift():
     for age in (50, 65, 90):
         L = strat_drift._solve_l(s_drift, age, 1_500_000.0)
         assert abs(L - strat_drift._solve_l_bisect(s_drift, age, 1_500_000.0)) < 0.01
-        assert npv_gaps_at_age(s_drift, age, L, s_drift.amortization_real_return) == pytest.approx(
-            1_500_000.0, abs=1.0
+        r = s_drift.amortization_real_return
+        assert npv_gaps_at_age(s_drift, age, L, r) == pytest.approx(
+            _scaled_target(1_500_000.0, r), abs=1.0
         )
 
 
@@ -436,7 +532,8 @@ def _growing_annuity_due_payment(P: float, r: float, d: float, n: int) -> float:
         Σ_{t=0}^{n-1} L·(1+d)^t / (1+r)^t == P  ⇒  L = P·(1-q) / (1-q^n),
         q = (1+d)/(1+r)   (q != 1)
 
-    Collapses to the plain annuity-due form at d == 0."""
+    Collapses to the plain annuity-due form at d == 0. The frontier's mid-year
+    plan pays this on the scaled target ``_scaled_target(P, r)``."""
     q = (1.0 + d) / (1.0 + r)
     return P * (1.0 - q) / (1.0 - q**n)
 
@@ -444,7 +541,9 @@ def _growing_annuity_due_payment(P: float, r: float, d: float, n: int) -> float:
 @pytest.mark.parametrize("r,d", [(0.01, 0.015), (0.03, 0.015), (0.01, -0.01), (0.05, 0.02)])
 def test_drift_solve_matches_growing_annuity_due_closed_form(r, d):
     """Zero GI + drift ⇒ the solved base L at the start age equals the textbook
-    GROWING annuity-due payment to the cent (the drift sibling of anchor 1).
+    GROWING annuity-due payment on the mid-year scaled target P(1+r)/(1+r/2), to the
+    cent (the drift sibling of anchor 1; the derivation of the scaling is in
+    ``_scaled_target``).
     Positive drift ⇒ base L strictly BELOW the flat annuity (the early frontier
     honestly comes DOWN to pay for the escalating tail); negative drift ⇒ above."""
     s = _amort_scenario(amortization_real_return=r, spending_real_drift=d)
@@ -452,9 +551,9 @@ def test_drift_solve_matches_growing_annuity_due_closed_form(r, d):
     P = s.initial_portfolio
     n = s.end_age - s.start_age + 1
     L = strat.spend_for_year(s, s.start_age, P, gi=0.0)
-    expected = _growing_annuity_due_payment(P, r, d, n)
+    expected = _growing_annuity_due_payment(_scaled_target(P, r), r, d, n)
     assert abs(L - expected) < 0.01, f"L={L:.6f} expected={expected:.6f}"
-    flat = _annuity_due_payment(P, r, n)
+    flat = _mid_year_level_payment(P, r, n)
     if d > 0:
         assert L < flat
     else:
@@ -467,7 +566,8 @@ def test_drift_escalation_anchored_at_sim_start_not_resolve_age():
     escalate year-t spend by ``(1+d)^(t - start_age)`` — at t == a the spend is
     ALREADY ``L·(1+d)^(a - start_age)``. Zero-GI closed form at a mid-horizon age::
 
-        L = P / ((1+d)^(a-start) · Σ_{j=0}^{m-1} q^j),  m = end_age - a + 1
+        L = P' / ((1+d)^(a-start) · Σ_{j=0}^{m-1} q^j),  m = end_age - a + 1,
+        P' = P (1+r)/(1+r/2)   (the mid-year scaled target)
 
     A solve anchored at the re-solve age instead (``(1+d)^(t-a)``) returns an L too
     large by (1.015)^20 ≈ 1.35 here — far outside the cent tolerance."""
@@ -477,21 +577,22 @@ def test_drift_escalation_anchored_at_sim_start_not_resolve_age():
     age, P = 70, 1_000_000.0  # offset 20 from start_age 50
     q = (1.0 + d) / (1.0 + r)
     m = s.end_age - age + 1
-    expected = P / ((1.0 + d) ** (age - s.start_age) * (1.0 - q**m) / (1.0 - q))
+    Pt = _scaled_target(P, r)
+    expected = Pt / ((1.0 + d) ** (age - s.start_age) * (1.0 - q**m) / (1.0 - q))
     L = strat._solve_l(s, age, P)
     assert abs(L - expected) < 0.01, f"L={L:.6f} expected={expected:.6f}"
     # The wrongly-anchored value is decisively rejected.
-    wrong = P / ((1.0 - q**m) / (1.0 - q))
+    wrong = Pt / ((1.0 - q**m) / (1.0 - q))
     assert abs(L - wrong) > 1_000.0
 
 
 def test_drift_frontier_rides_to_zero_at_end_age_end_to_end():
     """THE ACCEPTANCE CRITERION: under deterministic returns equal to
     ``amortization_real_return`` and ``spending_real_drift = 0.015``, the frontier
-    trajectory must ride to ~0 AT end_age — terminal a small fraction of the start
-    (the residual is the midpoint-convention discount, same as the no-drift
-    end-to-end test) — and must NOT hit 0 at any age before end_age (the pre-fix
-    behavior: depleting years early). DIVERGENT start from defaults
+    trajectory must ride to 0 AT end_age (the plan uses the engine's mid-year
+    timing, so on a return equal to the planning rate nothing is left) — and must
+    NOT hit 0 at any age before end_age (the pre-fix behavior: depleting years
+    early). DIVERGENT start from defaults
     ([[feedback_preservation_vs_correctness]]): different ages, portfolio, GI."""
     s = _amort_scenario(
         start_age=55, end_age=93, initial_portfolio=3_200_000.0,
@@ -511,8 +612,8 @@ def test_drift_frontier_rides_to_zero_at_end_age_end_to_end():
     )
     for p in traj.points[:-1]:
         assert p.end_portfolio > 0.0, f"balance hit 0 early at age {p.age}"
-    # And it DOES amortize down: terminal ~0 (within the midpoint residual).
-    assert 0.0 <= traj.final_portfolio < 0.02 * s.initial_portfolio, (
+    # And it DOES amortize down: terminal 0 to float precision.
+    assert 0.0 <= traj.final_portfolio < 1e-6, (
         f"frontier should ride to ~0 at end_age: terminal={traj.final_portfolio:,.0f}"
     )
 
@@ -568,7 +669,7 @@ def test_drift_analytic_solve_equals_drift_bisection_to_the_cent(d, r, P, gi_cfg
             f"drift bisection L={l_ref:.6f}"
         )
         assert _npv_escalated_gaps_at_age(s, age, l_fast, r, d) == pytest.approx(
-            P, abs=1.0
+            _scaled_target(P, r), abs=1.0
         )
 
 
@@ -588,11 +689,10 @@ def test_drift_with_pension_drift_falls_back_to_drift_bisection():
     r, d = s.amortization_real_return, s.spending_real_drift
     for age in (50, 65, 90):
         L = strat._solve_l(s, age, 1_500_000.0)
-        assert _npv_escalated_gaps_at_age(s, age, L, r, d) == pytest.approx(
-            1_500_000.0, abs=1.0
-        )
+        target = _scaled_target(1_500_000.0, r)
+        assert _npv_escalated_gaps_at_age(s, age, L, r, d) == pytest.approx(target, abs=1.0)
         # And decisively NOT the drift-blind solve (escalation matters here).
-        assert npv_gaps_at_age(s, age, L, r) != pytest.approx(1_500_000.0, abs=100.0)
+        assert npv_gaps_at_age(s, age, L, r) != pytest.approx(target, abs=100.0)
 
 
 def test_escalated_npv_collapses_to_plain_npv_at_zero_drift():
