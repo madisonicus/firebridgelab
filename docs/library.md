@@ -109,12 +109,16 @@ In short:
   use A's age). `amount` is real dollars at plan start, or the nominal check at
   commencement with `nominal_until_start=True`. COLA: `full` keeps real value
   constant, `none` loses `assumed_inflation` a year, `fixed` adds `cola_rate`
-  nominal, `fers_diet` applies the FERS rule. `tax_treatment` is `ordinary`
+  nominal, `fers_diet` applies the FERS rule from the owner's 62 and holds the
+  nominal check fixed before then (`fers_cola_before_62=True` pays it from the
+  start, for disability and special-provision retirees). `tax_treatment` is `ordinary`
   (the default), `tax_free`, or `social_security` (85% included; Social
   Security only).
 - **Survivor case.** `survivor_decedent` dies at their own age
   `survivor_age`. The survivor gets the larger of their own Social Security
-  benefit and the widow(er)'s benefit on the decedent's record; the
+  benefit and the widow(er)'s benefit on the decedent's record (from the
+  survivor's 60 at the earliest, reduced if taken before full retirement
+  age); the
   decedent's other streams continue at their `survivor_fraction` (default 0,
   rental 1.0, household-owned 1.0); spending scales by
   `survivor_spending_fraction` and taxes switch to single filer.
@@ -190,5 +194,9 @@ self-employment tax instead of FICA.
 The old flat module paths (`firebridgelab.scenario`, `firebridgelab.historical`,
 `firebridgelab.monte_carlo`, `firebridgelab.tax_location`, ...) still import:
 each is a thin re-export of the names it used to define, kept for one release.
+The exception is `firebridgelab.simulate`, removed in 0.2.0: a submodule of that
+name replaced the `firebridgelab.simulate()` function on the package as soon as
+anything imported it. Import `simulate`, `Trajectory` and `YearPoint` from
+`firebridgelab` or `firebridgelab.engine.deterministic`.
 
 The notebooks in [`notebooks/`](../notebooks/) are worked examples.
