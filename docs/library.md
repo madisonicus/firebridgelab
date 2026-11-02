@@ -113,7 +113,8 @@ In short:
   (the default), `tax_free`, or `social_security` (85% included; Social
   Security only).
 - **Survivor case.** `survivor_decedent` dies at their own age
-  `survivor_age`. The survivor keeps the larger Social Security benefit; the
+  `survivor_age`. The survivor gets the larger of their own Social Security
+  benefit and the widow(er)'s benefit on the decedent's record; the
   decedent's other streams continue at their `survivor_fraction` (default 0,
   rental 1.0, household-owned 1.0); spending scales by
   `survivor_spending_fraction` and taxes switch to single filer.

@@ -246,7 +246,8 @@ Optional; two-person households only. Omit the table for no survivor case.
 | `age` | integer | required | The decedent's own age at death. |
 | `spending_fraction` | number 0–1 | `0.75` | Survivor's spending (and rails) as a share of the couple's. |
 
-From that year the survivor keeps the larger Social Security benefit, the
+From that year the survivor gets the larger of their own Social Security
+benefit and the widow(er)'s benefit on the decedent's record ([methodology.md](methodology.md)), the
 decedent's other streams continue at their `survivor_fraction`, and taxes use
 single-filer brackets.
 

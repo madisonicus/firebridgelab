@@ -142,8 +142,8 @@ Claim age
     each year after FRA adds 8% (124% at 70). The model applies the SSA's exact factors.
 
 Survivor benefit
-:   What continues after a spouse dies. The survivor keeps the larger of the two Social
-    Security benefits; a pension continues at its elected survivor share.
+:   What continues after a spouse dies. The survivor gets the larger of their own Social
+    Security benefit and the widow(er)'s benefit on the spouse's record; a pension continues at its elected survivor share.
 
 ## Taxes
 

@@ -62,6 +62,11 @@ _EARLY_RATE_BEYOND_36 = (5.0 / 12.0) / 100.0  # 5/12 of 1% per month, months 37+
 _DELAYED_RATE_PER_MONTH = (2.0 / 3.0) / 100.0  # 2/3 of 1% per month after FRA
 _EARLY_FIRST_TIER_MONTHS = 36                  # boundary between the two early tiers
 
+# A widow(er)'s benefit on the record of a worker who claimed early is the
+# worker's reduced benefit or 82.5% of the worker's PIA, whichever is larger
+# (20 CFR 404.338(c)).
+WIDOW_LIMIT_FRACTION = 0.825
+
 
 def ss_factor(claim_age: int, fra_age: int = DEFAULT_FRA_AGE) -> float:
     """Actuarial factor: effective benefit = FRA benefit * ss_factor(claim_age).
@@ -119,9 +124,10 @@ def effective_ss_amount(
 
 def ss_income_at_age(scenario: Scenario, age: int) -> float:
     """Summed Social Security income at ``age``. After the first death the
-    survivor keeps the larger of the two people's benefits in payment (SSA
-    survivor rule; a simplification — it ignores the survivor's own early-claim
-    limit). Computed by ``income.household``."""
+    survivor gets the larger of their own benefit and the widow(er)'s benefit
+    on the decedent's record (20 CFR 404.338, including the 82.5% floor when
+    the decedent claimed early); the reduction for a survivor below full
+    retirement age is not modelled. Computed by ``income.household``."""
     from firebridgelab.income.household import household
 
     return household(scenario).year(age).social_security
