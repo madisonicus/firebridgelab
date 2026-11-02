@@ -76,7 +76,7 @@ The popular free tools (cFIREsim, FIRECalc, FI Calc, ERN's SWR Toolbox) are exce
 - **Bridge years:** spending rules that know a pension at 60 and Social Security at 67 are coming, instead of treating them as a flat adjustment.
 - **Taxes:** taxable, tax-deferred and Roth accounts, 2026 federal brackets, capital gains stacking, NIIT, RMDs and the pre-59½ penalty, solved each year.
 - **Pensions as they really work:** amounts fixed in dollars until they start, FERS-style partial COLAs, survivor benefits, single-filer brackets after a first death.
-- **Validated:** Trinity/Bengen backtests reproduced, and a per-cohort cross-check against the independent optimizer [Owl](https://github.com/mdlacasse/Owl) (see the notebooks).
+- **Validated:** compared with the Trinity and Bengen studies, the Social Security regulations, IRS worked examples, the FERS COLA statute, closed-form annuity math and the independent optimizer [Owl](https://github.com/mdlacasse/Owl), each comparison cited and run as a test ([Validation](docs/validation.md)).
 
 ## Quick start with a plan file
 
@@ -255,7 +255,8 @@ starts. `pension_cola="fers_diet"` then applies the FERS COLA rule each year it
 is paid. Social Security is entered as the full-retirement-age benefit plus a
 claim age (62–70). The API applies the SSA early-reduction and delayed-credit
 factors, and the benefit is then constant in real terms. The survivor case
-(`survivor_age`) keeps the larger SS benefit, continues
+(`survivor_age`) keeps the larger of the survivor's own SS benefit and the
+widow(er)'s benefit on the decedent's record, continues
 `survivor_pension_fraction` of the decedent's pension, scales spending (and the
 guardrail rails) by `survivor_spending_fraction`, and files single from the
 death year.
@@ -288,34 +289,16 @@ sampling noise.
 
 ## Validation
 
-- **Trinity / Bengen** ([notebook 01](notebooks/01-historical-backtest.ipynb)).
-  30-year 4% constant-real withdrawals over the 126 Shiller cohorts starting
-  1871–1996 succeed in 81.7% (25/75), 95.2% (50/50), 96.8% (75/25) and 97.6%
-  (100/0) of cohorts. At 50/50 the failures are the 1964–69 starts. The
-  worst-cohort safe withdrawal rate is 3.34%, 3.58%, 3.74% and 3.83% for the
-  four mixes; 1966 is the worst start for the first three and 1929 for 100/0.
-  These are in line with Shiller-based tools such as cFIREsim and FIRECalc.
-- **Closed form.** Zero-volatility paths match annuity math to 1e-9.
-- **IRS constants.** The 2026 federal brackets, standard deduction and
-  capital-gains thresholds match IRS Rev. Proc. 2025-32.
-- **Owl cross-check** ([notebook 03](notebooks/03-owl-cross-check.ipynb)).
-  The default fictional household (60/40 stocks/10-year Treasuries, 25/60/15
-  taxable/tax-deferred/Roth, indexed pensions, flat spending, no bequest) went
-  through Owl 2026.10.28 for every start year from 1928 to 1980, the last with a
-  full 46-year window. The maximum flat after-tax spend per cohort compares as
-  follows:
-  - worst cohort: both tools pick 1973; Owl gives $91,845 and this library
-    $90,991 (−0.9%);
-  - median cohort: Owl $115,803, this library $117,499 (+1.5%);
-  - per cohort, this library ranges from −3.7% to +6.3% of Owl (median +1.6%),
-    with a rank correlation of 0.99;
-  - both name the same four worst starts: 1973, 1969, 1966 and 1968 here, with
-    the last two swapped in Owl.
-
-  Run on Owl's own return table, this library comes out 0.9% to 4.3% above Owl
-  in every cohort. So most of the scatter comes from the two tools' return
-  data, and the steady gap comes from modelling differences; for example, this
-  library does not tax taxable-account interest and dividends.
+[docs/validation.md](docs/validation.md) is the one place that compares the
+model's numbers with published references: the Trinity (1998, 2011) and
+Bengen (1994) withdrawal studies, 20 CFR 404 for Social Security claim factors
+and survivor benefits, IRS worked examples and tables (Rev. Proc. 2025-32,
+Pub. 915, Pub. 590-B, the capital-gain worksheet, Form 8960), 5 U.S.C. 8462
+for the FERS COLA, closed-form annuity math, and a per-cohort cross-check
+against Owl. Each row cites its source, states the tolerance and gives the
+reason for any gap, and each is a test in
+[`tests/validation/`](tests/validation/) that CI runs on every push. The page
+also lists the comparisons that could not be made.
 
 ## Data sources
 
@@ -332,6 +315,7 @@ the terms, the citations and how to add the optional classes.
 pip install -r requirements.txt -e ".[dev]"
 firebridgelab-fetch-data
 python -m pytest -q tests          # library + API
+python -m pytest -q -m validation tests   # only the validation suite (docs/validation.md)
 node --test tests/test_*.mjs       # web modules (Node 22, no npm dependencies)
 ```
 

@@ -73,4 +73,6 @@ include = ["firebridgelab", "firebridgelab.*"]
 testpaths = ["tests"]
 markers = [
     "requires_optional_classes: needs the non-redistributable asset-class series (Nareit, testfol.io); skipped when they are not installed",
+    "validation: compares the model with a published reference (tests/validation, docs/validation.md)",
+    "slow: takes more than a few seconds; still run in CI",
 ]

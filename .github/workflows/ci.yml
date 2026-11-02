@@ -32,7 +32,13 @@ jobs:
         run: firebridgelab-fetch-data
 
       - name: Python tests
-        run: python -m pytest -q tests
+        run: python -m pytest -q tests --ignore=tests/validation
+
+      # The model against published references (docs/validation.md). Its own
+      # step so a disagreement with a reference is visible as such. Tests
+      # marked slow run here too.
+      - name: Validation against published references
+        run: python -m pytest -q tests/validation
 
       - name: Run every example plan
         run: |

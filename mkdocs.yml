@@ -62,6 +62,7 @@ nav:
   - How it works:
       - Methodology: methodology.md
       - Data sources: data-sources.md
+      - Validation: validation.md
       - Design decisions:
           - adr/README.md
           - adr/0001-byte-stable-canary-discipline.md

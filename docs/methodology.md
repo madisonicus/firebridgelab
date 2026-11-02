@@ -5,7 +5,9 @@ number comes from, and what is left out. Every value is taken from the body
 that sets it (the IRS, SSA, CMS, OPM, or a state's revenue department) and
 the yearly tax tables live in `firebridgelab/tax/data/*.toml` with a `source`
 on every table (`tests/test_tax_m4.py` fails if a table has none). Pages were
-read on 2026-11-01.
+read on 2026-11-01. How the results compare with published references (the
+withdrawal studies, the regulations, IRS worked examples, Owl) is in
+[validation.md](validation.md).
 
 All dollars are real: plan-start purchasing power (ADR 0004). The 2026 tax
 tables are treated as plan-start values. The law indexes most of them to
@@ -34,7 +36,9 @@ tax.
   person or after the first death (the survivor year). This is conservative by
   the one year a surviving spouse may still file jointly.
 - Long-term gains stack on top of ordinary taxable income through the 0/15/20%
-  breakpoints. A flat `taxable_gains_fraction` of each taxable-account
+  breakpoints, and the total is capped at the regular tax on all taxable
+  income, as on line 25 of the IRS Qualified Dividends and Capital Gain Tax
+  Worksheet. A flat `taxable_gains_fraction` of each taxable-account
   withdrawal is gain; the model does not track cost basis.
 - Net investment income tax: 3.8% of the smaller of the year's gains and MAGI
   over $250,000 joint or $200,000 single (IRC 1411). The thresholds are not
@@ -202,9 +206,16 @@ COLA options:
 
 When the first person dies (`[survivor]`):
 
-- The survivor keeps the larger of the two Social Security benefits in payment
-  (SSA widow(er)'s benefit and dual-entitlement rules; the survivor's own
-  early-claim limit is ignored).
+- The survivor gets the larger of their own Social Security benefit and the
+  widow(er)'s benefit on the decedent's record
+  ([20 CFR 404.407](https://www.ecfr.gov/current/title-20/part-404/section-404.407)).
+  The widow(er)'s benefit is the decedent's benefit with any delayed credits;
+  if the decedent claimed early, at least 82.5% of their PIA; if the decedent
+  died before claiming, the PIA plus the credits earned up to the death
+  ([20 CFR 404.338](https://www.ecfr.gov/current/title-20/part-404/section-404.338),
+  404.313(e)). It is not reduced for a survivor below full retirement age
+  (404.410(c)), and it is paid at any survivor age, though the regulation
+  starts it at 60.
 - Each of the decedent's other streams continues at its `survivor_fraction`.
   A FERS full survivor annuity is 50% (5 U.S.C. 8442).
 - Spending and the guardrail rails scale by `spending_fraction`.
@@ -265,7 +276,9 @@ of sampling noise at 10,000 trials.
   guaranteed income and discounted at `amortization_real_return`. This is
   annuity (PMT) arithmetic, the same principle as the Bogleheads
   [variable percentage withdrawal](https://www.bogleheads.org/wiki/Variable_percentage_withdrawal).
-  A test pins it to the closed-form annuity.
+  The rule plans with start-of-year payments (annuity due) while the engine
+  withdraws at mid-year, so on a flat return the spend drifts up slightly
+  instead of staying level ([validation.md](validation.md#closed-form)).
 
 ## What is not modelled
 
@@ -279,10 +292,12 @@ of sampling noise at 10,000 trials.
 - ACA premium credits. Enter premiums before 65 as required spending.
 - The standard Medicare premium. It is ordinary spending; only IRMAA is
   added.
-- The Social Security earnings test, spousal benefits, and the survivor's own
-  early-claim limit.
+- The Social Security earnings test, spousal benefits, and the reduction of a
+  widow(er)'s benefit taken before full retirement age.
 - The FERS rule that regular retirees get no COLA before 62. `fers_diet`
-  applies from the start age.
+  applies from the start age; split the annuity at 62 (a `cola = "none"`
+  stream, then `nominal_until_start` with `fers_diet`), as the bundled
+  `mra10-single` example does.
 - Roth five-year rules, 72(t)/SEPP, the rule of 55, and other exceptions to
   the 10% penalty.
 - Accounts per person (access ages and RMDs follow person A), and per-person
