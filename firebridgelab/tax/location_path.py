@@ -512,6 +512,49 @@ def simulate_tax_location_deterministic(scenario) -> TaxLocationPath:
     return simulate_path_decomposition(scenario, returns, strategy)
 
 
+def dragged_deterministic_trajectory(scenario, *, path: TaxLocationPath | None = None):
+    """The deterministic projection with federal tax paid from the portfolio.
+
+    For a scenario with a tax-location split in single sourcing (the caller
+    checks), this is the deterministic main line: the same ``Trajectory`` shape
+    ``engine.deterministic.simulate`` returns, built from the dragged
+    decomposition. ``start_portfolio`` and ``growth = start * r`` come from the
+    same deterministic return sequence the decomposition used; ``spending`` is
+    the realized (fundable-capped) spend; ``end_portfolio`` is the after-tax
+    total of the three accounts; ``depleted_age`` is the dragged depletion age.
+    Pass ``path`` when ``simulate_tax_location_deterministic`` has already run.
+    """
+    from firebridgelab.engine.deterministic import Trajectory, YearPoint
+    from firebridgelab.income.guaranteed import gi_at_age
+
+    if path is None:
+        path = simulate_tax_location_deterministic(scenario)
+    returns = deterministic_blended_returns(scenario)
+    totals = [
+        path.taxable[i] + path.tax_deferred[i] + path.roth[i] for i in range(len(path.ages))
+    ]
+    points = []
+    start = scenario.initial_portfolio
+    for i, age in enumerate(path.ages):
+        r = float(returns[i])
+        points.append(
+            YearPoint(
+                age=age,
+                start_portfolio=start,
+                growth=start * r,
+                spending=path.realized_spend[i],
+                guaranteed_income=gi_at_age(scenario, age),
+                end_portfolio=totals[i],
+            )
+        )
+        start = totals[i]
+    return Trajectory(
+        points=points,
+        depleted_age=path.dragged_depleted_age,
+        final_portfolio=totals[-1] if totals else scenario.initial_portfolio,
+    )
+
+
 def simulate_dragged_depletion_only(
     scenario,
     returns,

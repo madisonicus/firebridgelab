@@ -1000,75 +1000,16 @@ def get_solve(
 
 
 def _dragged_deterministic_trajectory(scenario, *, path=None):
-    """The plain deterministic MAIN LINE, DRAGGED (tax-drag design td1 DECISION 1,
-    td-c scope 2).
-
-    Caller (``_run_trajectory``) invokes this ONLY when ``has_tax_split(scenario)``
-    and sourcing is single — the same gate ``_tax_location_payload`` /
-    ``_federal_tax_payload`` use. Builds an ``firebridgelab.engine.deterministic.Trajectory`` (the
-    SAME shape ``simulate()`` returns, so ``DeterministicPayload.from_result``
-    needs no changes) off the dragged decomposition
-    (``simulate_tax_location_deterministic``), mirroring
-    ``firebridgelab.analysis.stress.simulate_stress``'s Family-A/B dragged-wrapping exactly:
-    ``start_portfolio`` / ``growth = start_portfolio * r`` reconstructed off the
-    SAME deterministic blended-return sequence the decomposition consumed,
-    ``spending`` is the REALIZED (fundable-capped) consumption
-    (``TaxLocationPath.realized_spend`` — never the intended series, which would
-    overstate after-tax consumption on a depleted portfolio), ``end_portfolio``
-    is the dragged per-age total, ``depleted_age`` is
-    ``TaxLocationPath.dragged_depleted_age``.
-
-    ``path`` (det-request memoization) is the OPTIONAL precomputed
-    ``TaxLocationPath`` — the caller (``_run_trajectory``) already resolved it
-    once for this request and passes it through so this function doesn't
-    re-run the decomposition; ``None`` (the default) recomputes it inline,
-    byte-identical to before this optimization existed (any other/future
-    caller stays correct with no changes).
-
-    This is what "kills the mixed-semantics interim" (design td-c slice bullet):
-    before this, the ``trajectory`` block was the pre-tax scalar
-    ``simulate(scenario)`` output sitting next to a DRAGGED ``tax_location``
-    balance chart. Now both read the same dragged world; the pre-tax scalar
-    survives only as the DECISION 9 estate-cost counterfactual
-    (``_deterministic_estate_cost``) and, for no-split scenarios, as the
-    (byte-stable, untouched) main line.
+    """The deterministic main line with tax paid from the portfolio (tax-drag
+    design td1 DECISION 1). ``_run_trajectory`` calls it only for a split-active,
+    single-sourcing scenario, so the ``trajectory`` block and the dragged
+    ``tax_location`` chart describe the same world. The builder lives in the
+    library (``tax.location_path.dragged_deterministic_trajectory``) so the CLI
+    reports the same line; ``path`` is the request's precomputed decomposition.
     """
-    from firebridgelab.income.guaranteed import gi_at_age
-    from firebridgelab.engine.deterministic import Trajectory, YearPoint
-    from firebridgelab.tax.location_path import deterministic_blended_returns, simulate_tax_location_deterministic
+    from firebridgelab.tax.location_path import dragged_deterministic_trajectory
 
-    if path is None:
-        path = simulate_tax_location_deterministic(scenario)
-    returns = deterministic_blended_returns(scenario)
-    n = len(path.ages)
-    dragged_totals = [
-        path.taxable[i] + path.tax_deferred[i] + path.roth[i] for i in range(n)
-    ]
-
-    points: List = []
-    start = scenario.initial_portfolio
-    for i, age in enumerate(path.ages):
-        r = float(returns[i])
-        growth = start * r
-        points.append(
-            YearPoint(
-                age=age,
-                start_portfolio=start,
-                growth=growth,
-                spending=path.realized_spend[i],
-                guaranteed_income=gi_at_age(scenario, age),
-                end_portfolio=dragged_totals[i],
-            )
-        )
-        start = dragged_totals[i]
-
-    return Trajectory(
-        points=points,
-        depleted_age=path.dragged_depleted_age,
-        final_portfolio=(
-            dragged_totals[-1] if dragged_totals else scenario.initial_portfolio
-        ),
-    )
+    return dragged_deterministic_trajectory(scenario, path=path)
 
 
 def _run_solve(scenario, mode: str, spending_mode: str, confidence: float) -> dict:
