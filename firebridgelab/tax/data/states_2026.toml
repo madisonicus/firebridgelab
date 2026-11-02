@@ -1,0 +1,161 @@
+# State income tax parameters for tax year 2026, read by firebridgelab/tax/state.py.
+#
+# Every value was read from the state's own revenue department, legislature
+# or official form instructions on 2026-11-01; each state's `source` names the
+# pages. A value the state had only published for 2025 says so in its source.
+# States are listed only when every value the model needs could be read from
+# the state itself; the others are left out (docs/methodology.md lists them).
+#
+# kind = "none": no tax on wages, pensions, IRA withdrawals or Social Security.
+# kind = "flat": one rate on state taxable income. The fields:
+#   rate                 the flat rate
+#   zero_bracket         state taxable income taxed at 0% before the rate applies
+#   start                "federal_agi" (the default) or "federal_taxable_income"
+#                        (the federal standard deduction is already taken)
+#   deduction_single / deduction_mfj
+#                        the state standard deduction (or base exemption) per return
+#   deduction_per_person per living person (personal exemptions)
+#   deduction_per_65_plus
+#                        per living person aged 65 or more
+#   extra_65_plus_low_agi / low_agi_limit
+#                        a further per-person 65+ amount while federal AGI is below the limit
+#   exemption_agi_limit_single / _mfj
+#                        all deductions above are lost when federal AGI exceeds this
+#   exempt_social_security
+#                        subtract the federally taxable Social Security
+#   pension_exempt_min_age / ira_exempt_min_age
+#                        pension and annuity income / tax-deferred account distributions
+#                        are exempt for people at or above this age (absent = taxable)
+#   retirement_exclusion [[min_age, dollars per person], ...]: an exclusion per
+#                        living person at or above each age (the highest row that applies)
+#   exclusion_covers     which income the exclusion may absorb: pension, ira, ltcg, other
+
+year = 2026
+source = "Each state's revenue department, legislature or form instructions, read 2026-11-01; URLs in each state's source"
+
+[states.AK]
+name = "Alaska"
+kind = "none"
+source = "Alaska Department of Revenue, Tax Division FY2025 Annual Report, history: '1980 - The Legislature repealed the parts of AS 43.20 that impose the individual income tax', https://tax.alaska.gov/programs/programs/reports/AnnualReport.aspx?Year=2025"
+
+[states.FL]
+name = "Florida"
+kind = "none"
+source = "Florida Department of Revenue FAQ 1307: 'Florida does not have an income tax for individuals, and therefore, no capital gains tax for individuals', https://floridarevenue.com/faq/Pages/FAQDetails.aspx?FAQID=1307"
+
+[states.NV]
+name = "Nevada"
+kind = "none"
+source = "Nevada Department of Taxation: 'The State of Nevada does not impose a state income tax on individuals', https://tax.nv.gov/about-nevada-department-of-taxation/income-tax-in-nevada/"
+
+[states.NH]
+name = "New Hampshire"
+kind = "none"
+source = "New Hampshire RSA chapter 77 (Taxation of Incomes, the interest and dividends tax): 'Entire Chapter was repealed [Repealed by 2021, 91:99, II, eff. Jan. 1, 2025.]', https://www.gencourt.state.nh.us/rsa/html/V/77/77-mrg.htm. New Hampshire has never taxed wages or pensions"
+
+[states.SD]
+name = "South Dakota"
+kind = "none"
+source = "South Dakota Department of Revenue: 'South Dakota is one of seven states that does not impose a state income tax', https://dor.sd.gov/individuals/taxes/"
+
+[states.TN]
+name = "Tennessee"
+kind = "none"
+source = "Tennessee Department of Revenue: 'The Hall Income tax was repealed for tax periods that begin on January 1, 2021, or later', https://www.tn.gov/revenue/taxes/hall-income-tax.html (the Hall tax only ever reached interest and dividends)"
+
+[states.TX]
+name = "Texas"
+kind = "none"
+source = "Texas Constitution art. 8 sec. 24-a: 'The legislature may not impose a tax on the net incomes of individuals', Texas Legislative Council, https://tlc.texas.gov/docs/legref/TxConst.pdf"
+
+[states.WY]
+name = "Wyoming"
+kind = "none"
+source = "Wyoming Legislative Service Office, 'Wyoming Tax Rates and Collections' (2025-06-03): 'Individual Income Tax 0% ... $0', https://wyoleg.gov/InterimCommittee/2025/03-202506032-01WyomingtaxstructureratesandcollectionsJune32025.pdf"
+
+[states.GA]
+name = "Georgia"
+kind = "flat"
+rate = 0.0499
+deduction_single = 15_000.0
+deduction_mfj = 30_000.0
+exempt_social_security = true
+retirement_exclusion = [[62, 35_000.0], [65, 65_000.0]]
+exclusion_covers = ["pension", "ira", "ltcg", "other"]
+source = "Rate and standard deduction: Georgia DOR, '2026 Income Tax Changes': 'reduced to a flat rate of 4.99%' and 'standard deduction has been increased to $15,000 for single ... or $30,000 for married taxpayers filing jointly', https://dor.georgia.gov/taxes/important-tax-updates. Social Security subtraction and retirement exclusion ($35,000 at 62-64, $65,000 at 65+, each spouse separately; covers pensions, annuities, interest, dividends, rental, capital gains, royalties): 2025 Form IT-511 booklet, https://dor.georgia.gov/document/document/2025-it-511-individual-income-tax-booklet/download, and https://dor.georgia.gov/retirement-income-exclusion. The exclusion amounts are from the 2025 booklet (the 2026 booklet was not yet published)"
+
+[states.IL]
+name = "Illinois"
+kind = "flat"
+rate = 0.0495
+deduction_per_person = 2_925.0
+deduction_per_65_plus = 1_000.0
+exemption_agi_limit_single = 250_000.0
+exemption_agi_limit_mfj = 500_000.0
+exempt_social_security = true
+pension_exempt_min_age = 0
+ira_exempt_min_age = 0
+source = "Rate: IL-700-T, 'Effective January 1, 2026, Tax Rate 4.95%', https://tax.illinois.gov/forms/withholding/currentyear/il-700-t-withholding-guide-tables.html, and 2025 IL-1040 instructions 'The Illinois income tax rate is 4.95 percent'. Exemption: Informational Bulletin FY 2026-15, 'The personal exemption amount for tax year 2026 will increase to $2,925', https://tax.illinois.gov/research/publications/bulletins/fy-2026-15.html. 65+ exemption ($1,000 each) and the AGI limits ($250,000 single, $500,000 joint): 2025 IL-1040 instructions, https://tax.illinois.gov/content/dam/soi/en/web/tax/forms/incometax/documents/currentyear/individual/il-1040-instr.pdf. Social Security, 401(k), IRA, Roth conversions and government plans not taxed: https://tax.illinois.gov/questionsandanswers/answer.99.html"
+
+[states.IN]
+name = "Indiana"
+kind = "flat"
+rate = 0.0295
+deduction_per_person = 1_000.0
+deduction_per_65_plus = 1_000.0
+extra_65_plus_low_agi = 500.0
+low_agi_limit = 40_000.0
+exempt_social_security = true
+source = "Rate: Indiana DOR, 'The Indiana Individual adjusted gross income tax rate for 2026 is 2.95%', https://www.in.gov/dor/resources/tax-rates-and-reports/rates-fees-and-penalties/. Exemptions ($1,000 each, $1,000 more at 65+, $500 more at 65+ when federal AGI is under $40,000): https://www.in.gov/dor/i-am-a/individual/seniors. Social Security deductible, pensions and annuities taxable: Information Bulletin 26, https://www.in.gov/dor/files/ib26.pdf. County income taxes are not modelled"
+
+[states.IA]
+name = "Iowa"
+kind = "flat"
+rate = 0.038
+start = "federal_taxable_income"
+exempt_social_security = true
+pension_exempt_min_age = 55
+ira_exempt_min_age = 55
+source = "Rate: Iowa DOR press release 2025-10-21, 'flat tax rate of 3.8 percent. In 2026, all levels of taxable individual income will be subject to this rate', https://revenue.iowa.gov/press-release/2025-10-21/idr-announces-2026-individual-income-tax-and-interest-rates. Starting point (federal taxable income under IRC 63), Social Security subtraction (422.7(8)) and retirement exclusion (422.7(19)): Iowa Code 422.7, https://www.legis.iowa.gov/docs/code/2026/422.7.pdf. Age 55 and per-spouse rule: https://revenue.iowa.gov/taxes/tax-guidance/individual-income-tax/retirement-income-tax-guidance"
+
+[states.LA]
+name = "Louisiana"
+kind = "flat"
+rate = 0.03
+deduction_single = 12_838.0
+deduction_mfj = 25_676.0
+exempt_social_security = true
+retirement_exclusion = [[65, 12_324.0]]
+exclusion_covers = ["pension", "ira"]
+source = "Rate: 2025 Form IT-540 instructions, 'changed the income tax rate to a flat tax rate of 3%'; Social Security exempt (line 07E) and the 65+ annual retirement income exemption per taxpayer covering pension, annuity and IRA distributions (line 06E): https://dam.ldr.la.gov/taxforms/IT540i-WEB-2025-Revised-7-26.pdf. 2026 standard deduction ($12,838 / $25,676) and retirement exemption ($12,324): Revenue Information Bulletin 26-019, https://dam.ldr.la.gov/lawspolicies/RIB%2026-019.pdf. Federal and Louisiana public pensions that are fully exempt are not modelled separately"
+
+[states.MS]
+name = "Mississippi"
+kind = "flat"
+rate = 0.04
+zero_bracket = 10_000.0
+deduction_single = 8_300.0
+deduction_mfj = 16_600.0
+deduction_per_65_plus = 1_500.0
+exempt_social_security = true
+pension_exempt_min_age = 0
+ira_exempt_min_age = 60
+source = "Rate: Mississippi DOR, 'Tax Year 2026 Excess of $10,000 of Taxable Income is taxed @ 4%'; exemptions (single $6,000, joint $12,000, $1,500 each over 65) and standard deduction (single $2,300, joint $4,600), shown here summed: https://www.dor.ms.gov/general-information. Social Security and retirement income exempt: 2025 Form 80-100 instructions, 'Social Security benefits, Railroad Retirement benefits, and retirement income from federal, state, and private retirement systems are exempt in total', https://www.dor.ms.gov/sites/default/files/tax-forms/individual/80100251%202.pdf. IRAs included and early distributions taxable: Miss. Admin. Code Title 35 Part III, https://www.sos.ms.gov/adminsearch/ACCode/00000158c.pdf (modelled as taxable before 60, the model's 59 1/2)"
+
+[states.NC]
+name = "North Carolina"
+kind = "flat"
+rate = 0.0399
+deduction_single = 12_750.0
+deduction_mfj = 25_500.0
+exempt_social_security = true
+source = "Rate: NCDOR, 'For Taxable Years after 2025, the North Carolina individual income tax rate is 3.99%', https://www.ncdor.gov/taxes-forms/individual-income-tax/tax-rate-schedules. Standard deduction: G.S. 105-153.5(a)(1), https://www.ncleg.gov/enactedlegislation/statutes/html/bysection/chapter_105/gs_105-153.5.html; no extra amount at 65: https://www.ncdor.gov/taxes-forms/individual-income-tax/filing-topics/north-carolina-standard-deduction-or-north-carolina-itemized-deductions. Social Security not taxed: https://www.ncdor.gov/taxes-forms/individual-income-tax/filing-topics/social-security-and-railroad-retirement-benefits. Pensions and IRA withdrawals taxable (the Bailey exclusion for pre-1989 government service is not modelled)"
+
+[states.PA]
+name = "Pennsylvania"
+kind = "flat"
+rate = 0.0307
+exempt_social_security = true
+pension_exempt_min_age = 0
+ira_exempt_min_age = 60
+source = "Rate: PA Department of Revenue, 'Pennsylvania personal income tax is levied at the rate of 3.07 percent', https://www.pa.gov/agencies/revenue/resources/tax-types-and-information/personal-income-tax. Social Security not taxable, employer-plan payments exempt after retirement, IRA distributions exempt 'on or after reaching the age of 59 1/2' (modelled as 60), no standard deduction or personal exemption: 2024 PA-40 instructions, https://www.pa.gov/content/dam/copapwp-pagov/en/revenue/documents/formsandpublications/formsforindividuals/pit/documents/2024/2024_pa-40in.pdf. Local earned income taxes are not modelled"

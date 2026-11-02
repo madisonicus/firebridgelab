@@ -33,7 +33,8 @@ ltcg_breakpoints = [
     [613_700.0, 0.15],
     [inf, 0.20],
 ]
-# IRC 1411(b); fixed in law, not indexed.
+# IRC 1411(b); fixed in law, not indexed: the engine erodes it in real terms
+# at assumed_inflation (tax.thresholds).
 niit_threshold = 250_000.0
 
 [single]
@@ -54,12 +55,41 @@ ltcg_breakpoints = [
     [545_500.0, 0.15],
     [inf, 0.20],
 ]
-# IRC 1411(b); fixed in law, not indexed.
+# IRC 1411(b); fixed in law, not indexed (eroded in real terms, as above).
 niit_threshold = 200_000.0
 
 [niit]
 source = "IRC 1411(a)"
 rate = 0.038
+
+[social_security_taxation]
+source = "IRC 86(a) (50%/85% tiers), 86(c)(1) base amount, 86(c)(2) adjusted base amount; IRS Pub. 915 (2025), 'Base amount' and 'Maximum taxable part', https://www.irs.gov/publications/p915 (read 2026-11-01)"
+# Not indexed for inflation in law (IRC 86 sets fixed dollar amounts), so the
+# engine erodes them in real terms at assumed_inflation.
+indexed = false
+base_amount_single = 25_000.0
+base_amount_mfj = 32_000.0
+adjusted_base_amount_single = 34_000.0
+adjusted_base_amount_mfj = 44_000.0
+tier1_rate = 0.50
+tier2_rate = 0.85
+# The legacy "flat85" mode includes this share of every benefit regardless of
+# income (the IRC 86(a)(2) ceiling).
+flat_inclusion = 0.85
+
+[payroll]
+source = "Rates: IRC 3101(a)/(b)(1) employee OASDI 6.2% and HI 1.45%; IRC 3101(b)(2) and 1401(b)(2) additional Medicare 0.9% over $250,000 joint / $200,000 others (not indexed); IRC 1401(a)/(b)(1) self-employment 12.4% + 2.9%; IRC 1402(a)(12) net earnings = 92.35% of self-employment income; IRC 1402(b)(2) $400 minimum; IRC 164(f) deduction of half the self-employment tax. IRS Tax Topics 751, 554 and 560 (https://www.irs.gov/taxtopics/tc751, tc554, tc560, read 2026-11-01). Wage base: SSA, 'Cost-of-Living Increase and Other Determinations for 2026', 90 FR, Federal Register doc. 2025-19763 (2025-11-03): 'The OASDI contribution and benefit base is $184,500 for remuneration paid in 2026'"
+social_security_wage_base = 184_500.0
+employee_social_security_rate = 0.062
+employee_medicare_rate = 0.0145
+se_social_security_rate = 0.124
+se_medicare_rate = 0.029
+se_net_earnings_factor = 0.9235
+se_minimum_net_earnings = 400.0
+additional_medicare_rate = 0.009
+# Not indexed (IRC 3101(b)(2)): eroded in real terms like the NIIT threshold.
+additional_medicare_threshold_mfj = 250_000.0
+additional_medicare_threshold_single = 200_000.0
 
 [early_withdrawal]
 source = "IRC 72(t)(1): 10% additional tax on qualified-plan / IRA distributions before age 59 1/2"

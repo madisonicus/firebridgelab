@@ -1,0 +1,74 @@
+# Medicare Part B and Part D income-related monthly adjustment amounts (IRMAA)
+# for 2026, read by firebridgelab/tax/irmaa.py.
+#
+# Each row is one MAGI tier: the surcharge applies while MAGI is at most
+# `magi_up_to` (CMS: "less than or equal to"), or below `magi_below` (CMS:
+# "less than"), and the last row has no bound. `part_b` and `part_d` are the
+# MONTHLY adjustments per enrollee on top of the standard premium (the
+# standard premium itself is not modelled: it is ordinary spending).
+
+year = 2026
+source = "CMS fact sheet '2026 Medicare Parts A & B Premiums and Deductibles', https://www.cms.gov/newsroom/fact-sheets/2026-medicare-parts-b-premiums-deductibles (read 2026-11-01)"
+
+[irmaa]
+source = "Tiers and amounts: CMS 2026 fact sheet above (full Part B coverage table; Part D income-related monthly adjustment table). MAGI year: 20 CFR 418.1135(a), 'the tax year 2 years prior to the effective year'. Indexing: 20 CFR 418.1115(e), ranges raised each year by the CPI, except the $500,000/$750,000 bounds, which are not adjusted until 2028"
+# Two years between the MAGI year and the premium year (20 CFR 418.1135(a)).
+lookback_years = 2
+# Medicare eligibility age (42 U.S.C. 1395o): every living person at or above
+# it pays the surcharge.
+medicare_age = 65
+# The top bounds are frozen in nominal dollars through 2027 (20 CFR
+# 418.1115(e)(2)); the model erodes them by one year of inflation and holds
+# them in real terms after that. The other bounds are CPI-indexed and held
+# constant in real terms.
+frozen_bounds_years = 1
+
+[[irmaa.single]]
+magi_up_to = 109_000.0
+part_b = 0.0
+part_d = 0.0
+[[irmaa.single]]
+magi_up_to = 137_000.0
+part_b = 81.20
+part_d = 14.50
+[[irmaa.single]]
+magi_up_to = 171_000.0
+part_b = 202.90
+part_d = 37.50
+[[irmaa.single]]
+magi_up_to = 205_000.0
+part_b = 324.60
+part_d = 60.40
+[[irmaa.single]]
+magi_below = 500_000.0
+frozen = true
+part_b = 446.30
+part_d = 83.30
+[[irmaa.single]]
+part_b = 487.00
+part_d = 91.00
+
+[[irmaa.mfj]]
+magi_up_to = 218_000.0
+part_b = 0.0
+part_d = 0.0
+[[irmaa.mfj]]
+magi_up_to = 274_000.0
+part_b = 81.20
+part_d = 14.50
+[[irmaa.mfj]]
+magi_up_to = 342_000.0
+part_b = 202.90
+part_d = 37.50
+[[irmaa.mfj]]
+magi_up_to = 410_000.0
+part_b = 324.60
+part_d = 60.40
+[[irmaa.mfj]]
+magi_below = 750_000.0
+frozen = true
+part_b = 446.30
+part_d = 83.30
+[[irmaa.mfj]]
+part_b = 487.00
+part_d = 91.00
