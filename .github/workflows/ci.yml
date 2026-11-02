@@ -23,7 +23,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install -e ".[dev,notebooks]"
+          pip install -e ".[dev,notebooks,report]"
 
       # Downloads the freely redistributable sources and builds the staged series.
       # The optional Nareit / testfol.io classes are absent in CI, so the tests
@@ -33,6 +33,14 @@ jobs:
 
       - name: Python tests
         run: python -m pytest -q tests
+
+      - name: Run every example plan
+        run: |
+          for plan in examples/*.toml; do
+            echo "::group::$plan"
+            firebridgelab run "$plan" --trials 1000
+            echo "::endgroup::"
+          done
 
       - name: JavaScript tests
         run: node --test tests/test_*.mjs

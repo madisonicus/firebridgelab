@@ -15,13 +15,13 @@ It is built for the common FIRE situation where you stop working years before gu
 - **When:** retirement age, plan horizon, pension start ages, Social Security claiming ages (62–70, with the exact SSA adjustment)
 - **How much:** starting portfolio, annual spending, a spending floor and ceiling, a lifecycle "go-go / slow-go / no-go" taper
 - **Spending rule:** constant, Guyton-Klinger-style guardrails, funded-ratio rules, or an amortization (VPW-style) frontier
-- **Household:** one or two people with their own ages and planning horizons; any number of income streams (pensions, Social Security, annuities, part-time work, rental, other) each with its own start and end age, COLA rule (full, none, a fixed percentage, or FERS-style), survivor fraction and tax treatment; one-off cash events such as a home sale or a car; required spending over an age range such as pre-Medicare healthcare or a mortgage; and a survivor case (library and API; the web UI still edits two pensions and two Social Security benefits)
+- **Household:** one or two people with their own ages and planning horizons; any number of income streams (pensions, Social Security, annuities, part-time work, rental, other) each with its own start and end age, COLA rule (full, none, a fixed percentage, or FERS-style), survivor fraction and tax treatment; one-off cash events such as a home sale or a car; required spending over an age range such as pre-Medicare healthcare or a mortgage; and a survivor case (library, API and plan files; the web UI still edits two pensions and two Social Security benefits)
 - **Markets:** asset mix across up to 12 asset classes (five need optional data you download yourself), historical replay or Monte Carlo (Normal or fat-tailed), fees, and authored stress scenarios
 - **Taxes:** taxable, tax-deferred and Roth balances, with 2026 US federal brackets, capital gains, RMDs and the pre-59½ penalty
 
 Not yet modeled: state or non-US taxes; payroll tax on work income; Social Security spousal benefits and the earnings test; a person's planning end age as a death (it is a horizon only; deaths come from the survivor case); and per-person retirement accounts (the 59½ and RMD ages follow the first person).
 
-It ships as a Python library, worked Jupyter notebooks, and a self-hosted web UI.
+It ships as a command line that runs plans written as small text files, a Python library, worked Jupyter notebooks, and a self-hosted web UI.
 
 ### Why another FIRE calculator?
 
@@ -33,6 +33,36 @@ The popular free tools (cFIREsim, FIRECalc, FI Calc, ERN's SWR Toolbox) are exce
 - **Validated:** Trinity/Bengen backtests reproduced, and a per-cohort cross-check against the independent optimizer [Owl](https://github.com/mdlacasse/Owl) (see the notebooks).
 
 **Educational software, not financial advice. Consult a qualified advisor before acting.**
+
+## Quick start with a plan file
+
+A plan is a short [TOML](https://toml.io) file you can edit in any text editor
+and keep in git. [docs/plan-files.md](docs/plan-files.md) lists every key.
+
+```bash
+pip install "firebridgelab[report] @ git+https://github.com/madisonicus/firebridgelab"
+firebridgelab-fetch-data                 # the public return data, once
+
+firebridgelab init plan.toml             # a commented starter plan; edit it
+firebridgelab run plan.toml              # deterministic, historical, Monte Carlo
+firebridgelab sweep plan.toml --set spending.annual=60000:90000:10000 \
+                              --set income_streams.a_ss.start_age=62,67,70
+firebridgelab solve plan.toml --confidence 0.9     # max sustainable spending
+firebridgelab compare plan.toml plan-retire-55.toml
+firebridgelab report plan.toml -o report.html      # one offline HTML file
+```
+
+`run` prints success and depletion counts, the earliest depletion age, how
+often a dynamic rule hits its spending floor, spending and ending-portfolio
+percentiles, lifetime federal tax when you give a tax split, and a
+year-by-year table; add `--format json` or `--format csv` for scripts. `sweep`
+runs every combination of the values you give it. Any key can be changed for
+one run with `--set`, e.g. `--set people.a.start_age=55`.
+`firebridgelab init --list` shows the [examples](examples/), all fictional:
+a deferred federal couple, an MRA+10 single retiree, a leanfire single, a
+Social Security-only couple with an age gap, a part-time bridge with ACA
+premiums, and rental income with a pension. `firebridgelab ui` starts the web
+UI from a checkout.
 
 ## The example household
 
@@ -250,7 +280,8 @@ suite. The settled design decisions are in [docs/adr/](docs/adr/README.md).
 ## Layout
 
 ```
-firebridgelab/  the library (pure Python, real dollars) and the data fetcher
+firebridgelab/  the library (pure Python, real dollars), the data fetcher and the CLI (cli/)
+examples/            fictional plan files for the command line
 api/                 FastAPI app: parameter parsing, validation, serialization
 web/                 zero-build vanilla-JS frontend
 notebooks/           worked examples, committed with outputs

@@ -35,6 +35,10 @@ dev = [
     "pytest>=8",
     "httpx2>=2.13",
 ]
+# `firebridgelab report` draws its charts with matplotlib.
+report = [
+    "matplotlib",
+]
 notebooks = [
     "jupyter",
     "nbconvert",
@@ -44,6 +48,7 @@ notebooks = [
 ]
 
 [project.scripts]
+firebridgelab = "firebridgelab.cli:main"
 firebridgelab-fetch-data = "firebridgelab.returns.fetch:main"
 
 [project.urls]
@@ -55,6 +60,7 @@ Issues = "https://github.com/madisonicus/firebridgelab/issues"
 include = ["firebridgelab", "firebridgelab.*"]
 
 [tool.setuptools.package-data]
+"firebridgelab" = ["plan_starter.toml", "examples/*.toml"]
 "firebridgelab.tax" = ["data/*.toml"]
 
 [tool.pytest.ini_options]
