@@ -22,7 +22,7 @@ and show how its numbers compare with published references.
   index shrink with inflation. Optional payroll tax, Medicare IRMAA, a Roth
   conversion policy, and state income tax for the no-tax and flat-rate states.
   docs/methodology.md gives the source of each rule and what is left out.
-- **Easier to start.** The notebooks run in a browser on Binder. The web app
+- **Easier to start.** The notebooks are set up to run in a browser on Binder. The web app
   edits households, loads the examples and loads and saves plan files. A
   documentation site has an examples gallery, a FAQ for non-programmers and a
   glossary.
