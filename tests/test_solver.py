@@ -32,8 +32,8 @@ from firebridgelab import (
     simulate_historical,
     solve_max_spend,
 )
-from firebridgelab.scenario import SPENDING_MODE_GUARDRAILS, SPENDING_MODE_LIFECYCLE
-from firebridgelab.solver import (
+from firebridgelab.spending.modes import SPENDING_MODE_GUARDRAILS, SPENDING_MODE_LIFECYCLE
+from firebridgelab.analysis.solver import (
     MODE_DETERMINISTIC,
     MODE_HISTORICAL,
     MODE_MONTE_CARLO,
@@ -42,9 +42,10 @@ from firebridgelab.solver import (
     _historical_evaluator_dragged,
     evaluate,
 )
-from firebridgelab.monte_carlo import _monte_carlo_evaluator
-from firebridgelab.spending import TaxDragMonteCarloNotSolvable, make_strategy
-from firebridgelab.tax_location import (
+from firebridgelab.engine.monte_carlo import _monte_carlo_evaluator
+from firebridgelab.spending.base import TaxDragMonteCarloNotSolvable
+from firebridgelab.spending.registry import make_strategy
+from firebridgelab.tax.location_path import (
     deterministic_blended_returns,
     simulate_dragged_depletion_only,
     simulate_tax_location_deterministic,

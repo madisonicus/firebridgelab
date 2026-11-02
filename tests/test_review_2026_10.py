@@ -12,19 +12,19 @@ import numpy as np
 import pytest
 
 from firebridgelab import default_scenario, simulate
-from firebridgelab._step import max_fundable_spend, net_return, step_year
-from firebridgelab.buckets import _step_buckets
-from firebridgelab.federal_tax_core import compute_federal_tax
-from firebridgelab.monte_carlo import _sample_class_returns, rebalanced_compound_return
-from firebridgelab.scenario import (
-    ScenarioValidationError,
-    fers_diet_cola,
-    gi_at_age,
-    pension_income_at_age,
-    spending_multiplier,
-    ss_income_at_age,
-    validate_scenario,
+from firebridgelab.engine.step import (
+    max_fundable_spend,
+    net_return,
+    step_year,
 )
+from firebridgelab.engine.buckets import _step_buckets
+from firebridgelab.tax.core import compute_federal_tax
+from firebridgelab.returns.sampling import _sample_class_returns, rebalanced_compound_return
+from firebridgelab.engine.validation import ScenarioValidationError, validate_scenario
+from firebridgelab.income.pension import fers_diet_cola, pension_income_at_age
+from firebridgelab.income.guaranteed import gi_at_age
+from firebridgelab.spending.lifecycle import spending_multiplier
+from firebridgelab.income.social_security import ss_income_at_age
 
 
 # ---------- Mid-year timing: GI and spending are symmetric ----------

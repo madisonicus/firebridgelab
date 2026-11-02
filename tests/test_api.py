@@ -1674,7 +1674,7 @@ def test_classes_is_equity_is_single_source_of_truth():
     ``firebridgelab.buckets.EQUITY_CLASS_IDS`` EXACTLY — so the browser can drop its
     hand-kept replica and read the classification from the API instead.
     """
-    from firebridgelab.buckets import EQUITY_CLASS_IDS
+    from firebridgelab.engine.buckets import EQUITY_CLASS_IDS
 
     classes = client.get("/api/classes").json()["classes"]
     # Every class carries the flag (additive, never omitted).
@@ -2597,7 +2597,7 @@ def test_solve_monte_carlo_split_returns_tax_drag_fence_422():
     """POST /api/solve mode=monte_carlo + a split is a 422 carrying the
     engine's OWN fence message verbatim (TaxDragMonteCarloNotSolvable ->
     api.error_translation, td-c) — the dragged MC solve is a later card."""
-    from firebridgelab.solver import TAX_DRAG_MC_FENCE_MESSAGE
+    from firebridgelab.analysis.solver import TAX_DRAG_MC_FENCE_MESSAGE
 
     res = client.post(
         "/api/solve",

@@ -1,343 +1,47 @@
-"""Pure federal-tax primitives — the LEAF module (tax-drag design, DECISION 4's
-module-layering fix).
+"""Deprecated import path: ``firebridgelab.federal_tax_core``.
 
-Why this module exists (the import-cycle this untangles): the dragged
-decomposition in ``firebridgelab.tax_location`` needs the FULL tax computation (not
-just the RMD factor it already used pre-drag) to resolve its per-year fixed
-point — but ``firebridgelab.federal_tax`` has always imported ``firebridgelab.tax_location``
-(for ``PRE_595_MAX_AGE`` / ``TaxLocationPath`` / ``resolve_split``). Letting
-``tax_location`` import back from ``federal_tax`` would be a cycle. So the pure
-primitives that both modules need move here, to a LEAF with no engine
-dependencies of its own:
+Its contents moved to:
 
-    federal_tax_core   (this module — imports nothing from the other two)
-        ^                       ^
-        |                       |
-    tax_location.py        federal_tax.py
-    (imports the leaf       (imports the leaf AND tax_location; re-exports
-     for its fixed point)    every name this module defines, unchanged, so
-                             every existing ``from firebridgelab.federal_tax import
-                             X`` — API and test alike — keeps working)
+- ``firebridgelab.tax.core``
+- ``firebridgelab.tax.rmd``
 
-Two public entry points:
-
-  - ``compute_federal_tax(ordinary_income, ltcg_income, n_65_plus=0)`` — pure
-    year-income -> ``FederalTaxYear`` (ordinary tax / LTCG tax / NIIT / total).
-    UNCHANGED from the federal-tax overlay design (ft1) — moved verbatim, not
-    rewritten; the five IRS-anchor tests in ``tests/test_federal_tax.py`` pin
-    it and must not move.
-  - ``n_65_plus_at_age(age)`` / the RMD helpers (``RMD_START_AGE``,
-    ``rmd_factor``) — the small age-keyed lookups both ``tax_location``'s
-    fixed point and ``federal_tax``'s (now much thinner) overlay pass need.
-
-2026 MFJ constants (VERIFIED against IRS Rev. Proc. 2025-32 — the 2026 annual
-inflation adjustments) are FROZEN in REAL dollars per ADR 0004: the brackets,
-standard deduction, and LTCG breakpoints are CPI-indexed IN LAW, but this
-engine runs entirely in real (today's) dollars, so holding them constant in
-real terms is the coherent choice. Two exceptions are frozen NOMINAL in law
-and held fixed-real here too (documented simplifications, disclosed in the
-ft1/td1 design notes): the 85%-flat SS inclusion rule and the NIIT $250k MAGI
-threshold.
-
-The 0% LTCG bracket is load-bearing (the most-likely-wrong spot in the PURE
-tax layer): LTCG tax is STACKED on top of ordinary taxable income through the
-real 0/15/20 brackets, never flat-rated — see ``_stacked_ltcg_tax``.
+This module re-exports the public names it used to define so existing
+imports keep working for one release. Import from the new modules.
 """
+# Compatibility shim (plain re-export, no DeprecationWarning). Remove after
+# one release.
 
-from __future__ import annotations
-
-from dataclasses import dataclass
-
-# ---------------------------------------------------------------------------
-# 2026 MFJ constants (VERIFIED against IRS Rev. Proc. 2025-32).
-# ---------------------------------------------------------------------------
-
-# MFJ ordinary-income brackets: (upper bound of TAXABLE income in this bracket,
-# marginal rate), ascending. The top bracket's upper bound is +inf (37% above
-# $768,700).
-_ORDINARY_BRACKETS_MFJ_2026: tuple[tuple[float, float], ...] = (
-    (24_800.0, 0.10),
-    (100_800.0, 0.12),
-    (211_400.0, 0.22),
-    (403_550.0, 0.24),
-    (512_450.0, 0.32),
-    (768_700.0, 0.35),
-    (float("inf"), 0.37),
+from firebridgelab.tax.core import (
+    STANDARD_DEDUCTION_MFJ,
+    ADDITIONAL_DEDUCTION_65_PLUS,
+    NIIT_RATE,
+    NIIT_THRESHOLD_MFJ,
+    STANDARD_DEDUCTION_SINGLE,
+    ADDITIONAL_DEDUCTION_65_PLUS_SINGLE,
+    NIIT_THRESHOLD_SINGLE,
+    standard_deduction,
+    EARLY_WITHDRAWAL_PENALTY_RATE,
+    n_65_plus_at_age,
+    FederalTaxYear,
+    compute_federal_tax,
+    federal_tax_total,
 )
+from firebridgelab.tax.rmd import RMD_START_AGE, rmd_factor
 
-# MFJ standard deduction + the additional PER-PERSON age-65+ standard deduction
-# (couple treated as same age — a documented approximation, ft1 design risk
-# callout). The TEMPORARY OBBBA senior deduction (2025-2028) is deliberately
-# EXCLUDED — it expires roughly a decade before either member of the default household turns 65.
-STANDARD_DEDUCTION_MFJ = 32_200.0
-ADDITIONAL_DEDUCTION_65_PLUS = 1_650.0
-
-# MFJ LTCG breakpoints (on TOTAL taxable income, gains stacked on top of
-# ordinary income — see ``_stacked_ltcg_tax``): 0% to $98,900; 15% to
-# $613,700; 20% above. Same (upper bound, rate) shape as the ordinary brackets.
-_LTCG_BREAKPOINTS_MFJ_2026: tuple[tuple[float, float], ...] = (
-    (98_900.0, 0.00),
-    (613_700.0, 0.15),
-    (float("inf"), 0.20),
-)
-
-# Net Investment Income Tax: 3.8% x min(net investment income, max(0, MAGI -
-# threshold)). Net investment income is approximated here as the year's LTCG
-# income; MAGI is approximated as ordinary_income + ltcg_income (pre-deduction).
-# The $250k MFJ threshold is STATUTORY-UNINDEXED (frozen-nominal in law) — held
-# fixed-real here too (documented simplification; mildly optimistic as the
-# horizon grows, since a truly-indexed threshold would rise in nominal/real
-# terms while this one does not).
-NIIT_RATE = 0.038
-NIIT_THRESHOLD_MFJ = 250_000.0
-
-# Single-filer 2026 constants (IRS Rev. Proc. 2025-32, checked 2026-10-11),
-# used for the survivor years (``Scenario.survivor_age``). The survivor files
-# single from the death year on — conservative by the one year a surviving
-# spouse may still file jointly. NIIT's single threshold ($200k) is statutory.
-_ORDINARY_BRACKETS_SINGLE_2026: tuple[tuple[float, float], ...] = (
-    (12_400.0, 0.10),
-    (50_400.0, 0.12),
-    (105_700.0, 0.22),
-    (201_775.0, 0.24),
-    (256_225.0, 0.32),
-    (640_600.0, 0.35),
-    (float("inf"), 0.37),
-)
-STANDARD_DEDUCTION_SINGLE = 16_100.0
-ADDITIONAL_DEDUCTION_65_PLUS_SINGLE = 2_050.0
-_LTCG_BREAKPOINTS_SINGLE_2026: tuple[tuple[float, float], ...] = (
-    (49_450.0, 0.00),
-    (545_500.0, 0.15),
-    (float("inf"), 0.20),
-)
-NIIT_THRESHOLD_SINGLE = 200_000.0
-
-
-def standard_deduction(n_65_plus: int, single: bool = False) -> float:
-    """Standard deduction incl. the per-person 65+ addition, by filing status."""
-    if single:
-        return STANDARD_DEDUCTION_SINGLE + ADDITIONAL_DEDUCTION_65_PLUS_SINGLE * n_65_plus
-    return STANDARD_DEDUCTION_MFJ + ADDITIONAL_DEDUCTION_65_PLUS * n_65_plus
-
-# 10% early-withdrawal penalty on a forced pre-59½ tax-deferred draw (ft1
-# DECISION 7 / td1 DECISION 3). Applied on top of ordinary tax, not instead of
-# it. Under drag (td1) this now applies to ALL walled-year tax-deferred draws
-# — spending-driven AND tax-funding — not just the spending-driven ones ft1/ft2
-# saw (see ``firebridgelab.tax_location``'s module docstring, DECISION 6).
-EARLY_WITHDRAWAL_PENALTY_RATE = 0.10
-
-# RMDs begin at age 75 (SECURE 2.0, born 1960+). IRS Pub 590-B Table III
-# (Uniform Lifetime Table): age -> distribution period (years).
-RMD_START_AGE = 75
-_RMD_UNIFORM_LIFETIME_TABLE: dict[int, float] = {
-    75: 24.6, 76: 23.7, 77: 22.9, 78: 22.0, 79: 21.1, 80: 20.2,
-    81: 19.4, 82: 18.5, 83: 17.7, 84: 16.8, 85: 16.0, 86: 15.2,
-    87: 14.4, 88: 13.7, 89: 12.9, 90: 12.2, 91: 11.5, 92: 10.8,
-    93: 10.1, 94: 9.5, 95: 8.9, 96: 8.4, 97: 7.8, 98: 7.3,
-    99: 6.8, 100: 6.4, 101: 6.0, 102: 5.6, 103: 5.2, 104: 4.9,
-    105: 4.6, 106: 4.3, 107: 4.1, 108: 3.9, 109: 3.7, 110: 3.5,
-    111: 3.4, 112: 3.3, 113: 3.1, 114: 3.0, 115: 2.9, 116: 2.8,
-    117: 2.7, 118: 2.5, 119: 2.3, 120: 2.0,
-}
-
-# Couple-same-age approximation for the extra 65+ standard deduction: both are
-# treated as 65+ together once the single engine age axis crosses 65.
-_N_65_PLUS_AT_65 = 2
-
-
-def n_65_plus_at_age(age: int) -> int:
-    """The couple-same-age 65+ deduction-multiplier count at ``age``.
-
-    2 once ``age >= 65`` (both members of the couple get the extra per-person
-    standard deduction simultaneously — the documented same-age approximation),
-    else 0. Factored out so ``tax_location``'s fixed point and ``federal_tax``'s
-    overlay pass compute this identically (previously duplicated as a bare
-    ``2 if age >= 65 else 0`` inline in ``federal_tax.compute_tax_overlay``).
-    """
-    return _N_65_PLUS_AT_65 if age >= 65 else 0
-
-
-def rmd_factor(age: int) -> float:
-    """Uniform Lifetime Table factor at ``age``.
-
-    ``age`` below ``RMD_START_AGE`` never reaches an RMD year (callers gate on
-    that before calling this); ages at/above the table's last entry (120) reuse
-    the 120 factor (2.0) — the IRS table itself is "120 and over" -> 2.0, so
-    this is not an approximation beyond the table's own definition.
-    """
-    if age >= 120:
-        return _RMD_UNIFORM_LIFETIME_TABLE[120]
-    if age <= RMD_START_AGE:
-        return _RMD_UNIFORM_LIFETIME_TABLE[RMD_START_AGE]
-    return _RMD_UNIFORM_LIFETIME_TABLE[age]
-
-
-def _marginal_tax(taxable: float, brackets: tuple[tuple[float, float], ...]) -> float:
-    """Marginal-bracket tax on ``taxable`` income given an ascending (upper,
-    rate) bracket table, starting from $0. Shared by the ordinary-income calc;
-    LTCG uses the STACKED variant below (``_stacked_ltcg_tax``) since gains
-    ride on top of ordinary income rather than from $0.
-    """
-    if taxable <= 0.0:
-        return 0.0
-    tax = 0.0
-    lower = 0.0
-    for upper, rate in brackets:
-        if taxable <= lower:
-            break
-        # perf: inline conditional instead of ``min(taxable, upper)`` —
-        # byte-identical value (CPython ``min(a, b)`` returns ``b`` only when
-        # ``b < a``), no builtin-call overhead; this line runs ~10M times in a
-        # split-MC 10k run.
-        segment = (upper if upper < taxable else taxable) - lower
-        tax += segment * rate
-        lower = upper
-    return tax
-
-
-def _stacked_ltcg_tax(
-    taxable_ordinary: float,
-    taxable_ltcg: float,
-    breakpoints: tuple[tuple[float, float], ...],
-) -> float:
-    """LTCG tax with gains STACKED on top of ordinary taxable income.
-
-    The taxable LTCG occupies the band ``[taxable_ordinary, taxable_ordinary +
-    taxable_ltcg]`` on the TOTAL-taxable-income axis; this slices that band by
-    the 0/15/20 breakpoints rather than flat-rating it (the most-likely-wrong
-    spot in the pure tax layer — in bridge years ordinary income is low and a
-    material share of gains lands in the 0% bracket). Both inputs are already
-    POST-deduction (the caller resolves the deduction split via
-    ``compute_federal_tax``).
-    """
-    if taxable_ltcg <= 0.0:
-        return 0.0
-    band_start = taxable_ordinary
-    band_end = taxable_ordinary + taxable_ltcg
-    tax = 0.0
-    lower = 0.0
-    for upper, rate in breakpoints:
-        if band_end <= lower:
-            break
-        # perf: inline conditionals instead of ``max``/``min`` builtins —
-        # byte-identical values, no call overhead (see ``_marginal_tax``).
-        seg_lower = band_start if band_start > lower else lower
-        seg_upper = band_end if band_end < upper else upper
-        if seg_upper > seg_lower:
-            tax += (seg_upper - seg_lower) * rate
-        lower = upper
-    return tax
-
-
-@dataclass(frozen=True)
-class FederalTaxYear:
-    """One year's federal tax, decomposed by source.
-
-    ``total`` = ``ordinary_tax + ltcg_tax + niit``. Does NOT include the 10%
-    early-withdrawal penalty — callers (``firebridgelab.tax_location``'s fixed point)
-    apply that on top of ``total``, once the walled-year tax-deferred draw
-    amount is known; ``compute_federal_tax`` is a pure year-income -> tax
-    function with no notion of "forced" or "walled."
-    """
-
-    ordinary_tax: float
-    ltcg_tax: float
-    niit: float
-    total: float
-
-
-def compute_federal_tax(
-    ordinary_income: float, ltcg_income: float, n_65_plus: int = 0, single: bool = False
-) -> FederalTaxYear:
-    """Federal tax (MFJ, 2026 constants) on one year's ordinary + LTCG income.
-
-    Pure, closed-form, no firebridgelab/scenario dependency — a plain year-income ->
-    tax function so it is independently unit-testable against hand-computed /
-    external-reference scenario-years, AND so ``tax_location``'s per-year fixed
-    point can call it repeatedly (up to 100 times/year) with negligible cost.
-
-    - ``deduction`` = ``STANDARD_DEDUCTION_MFJ + ADDITIONAL_DEDUCTION_65_PLUS *
-      n_65_plus``.
-    - ``taxable_ordinary`` = ``max(0, ordinary_income - deduction)``; any
-      LEFTOVER deduction (when ordinary income doesn't use it all) reduces
-      taxable LTCG: ``taxable_ltcg = max(0, ltcg_income - max(0, deduction -
-      ordinary_income))``.
-    - Ordinary tax: marginal MFJ brackets on ``taxable_ordinary``.
-    - LTCG tax: STACKED on top of ``taxable_ordinary`` through the 0/15/20
-      breakpoints (``_stacked_ltcg_tax``) — never flat-rated.
-    - NIIT: 3.8% x ``min(ltcg_income, max(0, MAGI - $250k))``, MAGI ~=
-      ``ordinary_income + ltcg_income`` (pre-deduction, per the design's
-      approximation).
-    """
-    ordinary_tax, ltcg_tax, niit, total = _tax_components(
-        ordinary_income, ltcg_income, n_65_plus, single
-    )
-    return FederalTaxYear(
-        ordinary_tax=ordinary_tax, ltcg_tax=ltcg_tax, niit=niit, total=total
-    )
-
-
-def federal_tax_total(
-    ordinary_income: float, ltcg_income: float, n_65_plus: int = 0, single: bool = False
-) -> float:
-    """``compute_federal_tax(...).total`` without the ``FederalTaxYear``
-    allocation — the hot-path variant for ``tax_location``'s per-year
-    fixed point, which calls this ~3.5M times in a split-MC 10k run and reads
-    ONLY the total (the frozen-dataclass construction was pure overhead
-    there: four ``object.__setattr__`` calls per iterate).
-
-    Byte-identical to ``compute_federal_tax(...).total`` by construction —
-    both are thin wrappers over the SAME ``_tax_components`` arithmetic (a
-    single source; the two cannot drift), pinned by a test in
-    ``tests/test_federal_tax.py``.
-    """
-    return _tax_components(ordinary_income, ltcg_income, n_65_plus, single)[3]
-
-
-def _tax_components(
-    ordinary_income: float, ltcg_income: float, n_65_plus: int, single: bool = False
-) -> tuple[float, float, float, float]:
-    """The shared arithmetic behind ``compute_federal_tax`` /
-    ``federal_tax_total``: ``(ordinary_tax, ltcg_tax, niit, total)``.
-
-    Extracted verbatim from ``compute_federal_tax`` so the hot-path
-    total and the dataclass-returning entry point share ONE implementation.
-    The ``max``/``min`` builtins became inline conditionals — byte-identical
-    values (CPython ``max(0.0, x)`` returns ``x`` only when ``x > 0.0``),
-    no builtin-call overhead at ~3.5M calls per split-MC 10k run.
-    """
-    if single:
-        brackets = _ORDINARY_BRACKETS_SINGLE_2026
-        ltcg_breaks = _LTCG_BREAKPOINTS_SINGLE_2026
-        niit_threshold = NIIT_THRESHOLD_SINGLE
-    else:
-        brackets = _ORDINARY_BRACKETS_MFJ_2026
-        ltcg_breaks = _LTCG_BREAKPOINTS_MFJ_2026
-        niit_threshold = NIIT_THRESHOLD_MFJ
-    deduction = standard_deduction(n_65_plus, single)
-    taxable_ordinary = ordinary_income - deduction
-    if taxable_ordinary < 0.0:
-        taxable_ordinary = 0.0
-    leftover_deduction = deduction - ordinary_income
-    if leftover_deduction < 0.0:
-        leftover_deduction = 0.0
-    taxable_ltcg = ltcg_income - leftover_deduction
-    if taxable_ltcg < 0.0:
-        taxable_ltcg = 0.0
-
-    ordinary_tax = _marginal_tax(taxable_ordinary, brackets)
-    ltcg_tax = _stacked_ltcg_tax(
-        taxable_ordinary, taxable_ltcg, ltcg_breaks
-    )
-
-    magi = ordinary_income + ltcg_income
-    niit_base = magi - niit_threshold
-    if niit_base < 0.0:
-        niit_base = 0.0
-    if ltcg_income < niit_base:
-        niit_base = ltcg_income
-    niit = NIIT_RATE * niit_base
-
-    total = ordinary_tax + ltcg_tax + niit
-    return ordinary_tax, ltcg_tax, niit, total
+__all__ = [
+    "STANDARD_DEDUCTION_MFJ",
+    "ADDITIONAL_DEDUCTION_65_PLUS",
+    "NIIT_RATE",
+    "NIIT_THRESHOLD_MFJ",
+    "STANDARD_DEDUCTION_SINGLE",
+    "ADDITIONAL_DEDUCTION_65_PLUS_SINGLE",
+    "NIIT_THRESHOLD_SINGLE",
+    "standard_deduction",
+    "EARLY_WITHDRAWAL_PENALTY_RATE",
+    "RMD_START_AGE",
+    "n_65_plus_at_age",
+    "rmd_factor",
+    "FederalTaxYear",
+    "compute_federal_tax",
+    "federal_tax_total",
+]

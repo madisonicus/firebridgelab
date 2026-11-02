@@ -16,7 +16,7 @@ from functools import lru_cache
 
 import pytest
 
-from firebridgelab.shiller import CACHE_FILE
+from firebridgelab.returns.shiller import CACHE_FILE
 
 # sha256 of the ie_data.xls the pins below were taken from (fetched 2026-11-01).
 REFERENCE_SHILLER_SHA256 = "98a54927942e842ec07ffe73000998e793953708c345b6b27bb363e9ada8366a"

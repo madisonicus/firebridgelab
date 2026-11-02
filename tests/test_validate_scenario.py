@@ -23,10 +23,8 @@ from firebridgelab import (
     glidepath_boundaries,
     validate_scenario,
 )
-from firebridgelab.scenario import (
-    ALLOCATION_MODE_GLIDEPATH,
-    SOURCING_MODE_BUCKETS,
-)
+from firebridgelab.engine.allocation import ALLOCATION_MODE_GLIDEPATH
+from firebridgelab.engine.scenario import SOURCING_MODE_BUCKETS
 
 
 def test_default_scenario_passes():

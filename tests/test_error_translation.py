@@ -19,9 +19,9 @@ import numpy as np
 import pytest
 
 from api.error_translation import engine_error_to_detail
-from firebridgelab.correlation import CorrelationNotEstimable
-from firebridgelab.historical import NoReplayableWindow, _apply_window_floor
-from firebridgelab.spending import (
+from firebridgelab.returns.correlation import CorrelationNotEstimable
+from firebridgelab.engine.cohort_windows import NoReplayableWindow, _apply_window_floor
+from firebridgelab.spending.base import (
     BucketsGuardrailsNotComposable,
     BucketsNotSolvable,
     SpendingStrategyNotSolvable,
@@ -104,7 +104,7 @@ def test_frobenius_gate_raises_typed_correlation_not_estimable(monkeypatch):
     """The D6 Frobenius gate raises ``CorrelationNotEstimable`` (a ValueError
     subclass) with the unchanged technical message when an estimate is badly
     non-PSD — proving the typed signal, not a bare ValueError, reaches the API."""
-    import firebridgelab.correlation as corr
+    import firebridgelab.returns.correlation as corr
 
     bad = np.array(
         [

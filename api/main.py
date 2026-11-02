@@ -33,24 +33,26 @@ from firebridgelab import (
     solve_max_spend,
     validate_scenario,
 )
-from firebridgelab.monte_carlo import CORRELATION_LIMIT
-from firebridgelab.scenario import (
+from firebridgelab.returns.sampling import CORRELATION_LIMIT
+from firebridgelab.engine.allocation import (
     ALLOCATION_MODE_CONSTANT,
     ALLOCATION_MODE_GLIDEPATH,
     CLASS_MENU,
     DEFAULT_CORRELATION,
+    _DEFAULT_EQUITY_VOLATILITY,
+    _legacy_default_volatility,
+)
+from firebridgelab.engine.scenario import (
     SOURCING_MODE_BUCKETS,
     SOURCING_MODE_SINGLE,
-    SPENDING_MODE_CONSTANT,
     Bucket,
     BucketConfig,
-    _DEFAULT_EQUITY_VOLATILITY,
     _GUARDRAIL_CEILING,
     _GUARDRAIL_FLOOR,
-    _legacy_default_volatility,
     default_bucket_config,
 )
-from firebridgelab.ss_claim import effective_ss_amount, ss_factor
+from firebridgelab.spending.modes import SPENDING_MODE_CONSTANT
+from firebridgelab.income.social_security import effective_ss_amount, ss_factor
 from api import scenario_store
 from api.error_translation import engine_error_to_detail
 from api.spending_modes import (
@@ -727,7 +729,7 @@ def _run_trajectory(
             effective_spending_ceiling=eff_ceiling,
         )
 
-    from firebridgelab.tax_location import has_tax_split
+    from firebridgelab.tax.location import has_tax_split
 
     # Tax-drag design td1 DECISION 1 / td-c scope 2: for a split-active,
     # single-sourcing scenario the plain deterministic MAIN LINE becomes the
@@ -748,7 +750,7 @@ def _run_trajectory(
         # independent simulate_tax_location_deterministic re-runs per request
         # into 1. Per-request only (a fresh `path` every call); never a
         # cross-request cache.
-        from firebridgelab.tax_location import simulate_tax_location_deterministic
+        from firebridgelab.tax.location_path import simulate_tax_location_deterministic
 
         path = simulate_tax_location_deterministic(scenario)
         result = _dragged_deterministic_trajectory(scenario, path=path)
@@ -776,7 +778,7 @@ def _deterministic_bucket_balances(scenario) -> Optional[dict]:
     """
     if scenario.sourcing_mode != SOURCING_MODE_BUCKETS:
         return None
-    from firebridgelab.buckets import simulate_buckets_deterministic
+    from firebridgelab.engine.buckets import simulate_buckets_deterministic
 
     bt = simulate_buckets_deterministic(scenario)
     return {
@@ -967,12 +969,9 @@ def _dragged_deterministic_trajectory(scenario, *, path=None):
     (``_deterministic_estate_cost``) and, for no-split scenarios, as the
     (byte-stable, untouched) main line.
     """
-    from firebridgelab.scenario import gi_at_age
-    from firebridgelab.simulate import Trajectory, YearPoint
-    from firebridgelab.tax_location import (
-        deterministic_blended_returns,
-        simulate_tax_location_deterministic,
-    )
+    from firebridgelab.income.guaranteed import gi_at_age
+    from firebridgelab.engine.deterministic import Trajectory, YearPoint
+    from firebridgelab.tax.location_path import deterministic_blended_returns, simulate_tax_location_deterministic
 
     if path is None:
         path = simulate_tax_location_deterministic(scenario)
@@ -1162,9 +1161,9 @@ def _class_menu_entries() -> list[dict]:
     """
     import numpy as np
 
-    from firebridgelab.buckets import EQUITY_CLASS_IDS
-    from firebridgelab.correlation import real_return_series_by_series_id
-    from firebridgelab.historical import SERIES_FOR_CLASS
+    from firebridgelab.engine.buckets import EQUITY_CLASS_IDS
+    from firebridgelab.returns.correlation import real_return_series_by_series_id
+    from firebridgelab.returns.series import SERIES_FOR_CLASS
 
     series = real_return_series_by_series_id()
     entries: list[dict] = []
@@ -1407,11 +1406,9 @@ def _tax_location_payload(scenario, *, path=None) -> Optional[dict]:
           "reachable_depletion_age": int | null,  # earliest age <=59 taxable+roth hit 0
         }
     """
-    from firebridgelab.scenario import SOURCING_MODE_BUCKETS as _BUCKETS
-    from firebridgelab.tax_location import (
-        has_tax_split,
-        simulate_tax_location_deterministic,
-    )
+    from firebridgelab.engine.scenario import SOURCING_MODE_BUCKETS as _BUCKETS
+    from firebridgelab.tax.location import has_tax_split
+    from firebridgelab.tax.location_path import simulate_tax_location_deterministic
 
     if not has_tax_split(scenario) or scenario.sourcing_mode == _BUCKETS:
         return None
@@ -1527,9 +1524,10 @@ def _federal_tax_payload(scenario, *, path=None) -> Optional[dict]:
     tolerance, never a bare ``==`` (the crossing-year caveat is semantic on
     top of that — see ``TaxLocationPath.gross_outflow``'s docstring).
     """
-    from firebridgelab.federal_tax import compute_tax_overlay
-    from firebridgelab.scenario import SOURCING_MODE_BUCKETS as _BUCKETS
-    from firebridgelab.tax_location import has_tax_split, simulate_tax_location_deterministic
+    from firebridgelab.tax.overlay import compute_tax_overlay
+    from firebridgelab.engine.scenario import SOURCING_MODE_BUCKETS as _BUCKETS
+    from firebridgelab.tax.location import has_tax_split
+    from firebridgelab.tax.location_path import simulate_tax_location_deterministic
 
     if not has_tax_split(scenario) or scenario.sourcing_mode == _BUCKETS:
         return None
@@ -1667,12 +1665,10 @@ def _deterministic_estate_cost(scenario, *, path=None):
     is a different, unrelated computation (not the decomposition the card
     targets) and every call site here needs its own independent pre-tax run.
     """
-    from firebridgelab.scenario import SOURCING_MODE_BUCKETS as _BUCKETS
-    from firebridgelab.tax_location import (
-        aggregate_estate_cost,
-        has_tax_split,
-        simulate_tax_location_deterministic,
-    )
+    from firebridgelab.engine.scenario import SOURCING_MODE_BUCKETS as _BUCKETS
+    from firebridgelab.tax.location_risk import aggregate_estate_cost
+    from firebridgelab.tax.location import has_tax_split
+    from firebridgelab.tax.location_path import simulate_tax_location_deterministic
 
     if not has_tax_split(scenario) or scenario.sourcing_mode == _BUCKETS:
         return None
@@ -1989,10 +1985,8 @@ class DeterministicPayload:
         # so the three block builders share ONE decomposition instead of each
         # independently re-running it (was up to 4x per request).
         if tax_location_path is None and scenario.sourcing_mode != SOURCING_MODE_BUCKETS:
-            from firebridgelab.tax_location import (
-                has_tax_split,
-                simulate_tax_location_deterministic,
-            )
+            from firebridgelab.tax.location import has_tax_split
+            from firebridgelab.tax.location_path import simulate_tax_location_deterministic
 
             if has_tax_split(scenario):
                 tax_location_path = simulate_tax_location_deterministic(scenario)
@@ -2295,7 +2289,7 @@ def _build_scenario(
     # GI-age overrides imply, so the seed has one phase per derived boundary.
     phase_allocations = None
     if allocation_mode == ALLOCATION_MODE_GLIDEPATH:
-        from firebridgelab.scenario import glidepath_boundaries
+        from firebridgelab.engine.allocation import glidepath_boundaries
 
         seed_alloc = parsed_allocation if parsed_allocation is not None else defaults.allocation
         # Build a probe carrying the GI-age overrides so the derived phase count is
@@ -2718,7 +2712,7 @@ def _validate_tax_location(scenario) -> None:
     source of the sum rule), translating its ``ValueError`` to a 422 so the same
     rule guards the engine and the API. No-op when the feature is off.
     """
-    from firebridgelab.tax_location import has_tax_split, resolve_split
+    from firebridgelab.tax.location import has_tax_split, resolve_split
 
     if not has_tax_split(scenario):
         return

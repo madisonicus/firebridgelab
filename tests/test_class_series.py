@@ -17,17 +17,18 @@ test_simulate.py / test_api.py and re-confirmed here at the allocation level.
 import numpy as np
 import pytest
 
-from firebridgelab.class_series import (
+from firebridgelab.returns.class_series import (
     NEW_CLASS_SERIES,
     ClassSeries,
     load_class_series,
 )
-from firebridgelab.historical import (
+from firebridgelab.returns.series import (
     SERIES_FOR_CLASS,
     SERIES_REGISTRY,
     SERIES_REGISTRY_NEW,
 )
-from firebridgelab.scenario import CLASS_MENU, blended_real_return, default_scenario
+from firebridgelab.engine.allocation import CLASS_MENU, blended_real_return
+from firebridgelab.engine.scenario import default_scenario
 
 
 # Expected approximate start year per series (asset-class design D5). These pin

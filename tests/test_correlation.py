@@ -16,7 +16,7 @@ Anchors the D6 contract:
 import numpy as np
 import pytest
 
-from firebridgelab.correlation import (
+from firebridgelab.returns.correlation import (
     DEFAULT_PRIOR,
     FROBENIUS_TOLERANCE,
     MIN_OVERLAP,
@@ -25,7 +25,7 @@ from firebridgelab.correlation import (
     pairwise_correlation,
     real_return_series_by_series_id,
 )
-from firebridgelab.monte_carlo import _nearest_psd
+from firebridgelab.returns.sampling import _nearest_psd
 
 # The 7 loaded classes (those with a real-return series staged today), as their
 # SERIES ids, in a fixed order for the matrix tests.
@@ -178,7 +178,7 @@ def test_frobenius_gate_trips_on_a_non_psd_estimate(monkeypatch):
     past the tolerance, and estimate_with_gate raises rather than silently using a
     structurally-corrected matrix — the whole point of the D6 acceptance gate.
     """
-    import firebridgelab.correlation as corr
+    import firebridgelab.returns.correlation as corr
 
     bad = np.array(
         [

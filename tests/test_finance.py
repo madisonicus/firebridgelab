@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import pytest
 
-from firebridgelab.finance import compute_npv_gaps_by_age, npv_gaps_at_age
-from firebridgelab.scenario import AssetClass, Scenario
+from firebridgelab.spending.npv import compute_npv_gaps_by_age, npv_gaps_at_age
+from firebridgelab.engine.allocation import AssetClass
+from firebridgelab.engine.scenario import Scenario
 
 
 def _scenario(**overrides) -> Scenario:

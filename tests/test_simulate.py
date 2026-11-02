@@ -19,7 +19,7 @@ from firebridgelab import (
     simulate,
     spending_for_age,
 )
-from firebridgelab.scenario import SPENDING_MODE_CONSTANT, SPENDING_MODE_LIFECYCLE
+from firebridgelab.spending.modes import SPENDING_MODE_CONSTANT, SPENDING_MODE_LIFECYCLE
 from tests._canary import DET_FINAL_CANARY, DET_YEAR0_CANARY
 
 

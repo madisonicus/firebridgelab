@@ -37,15 +37,15 @@ This module imports the typed exceptions from the engine (api → engine is a
 clean one-way dependency, no import cycle).
 """
 
-from firebridgelab.correlation import CorrelationNotEstimable
-from firebridgelab.historical import NoReplayableWindow
-from firebridgelab.spending import (
+from firebridgelab.returns.correlation import CorrelationNotEstimable
+from firebridgelab.engine.cohort_windows import NoReplayableWindow
+from firebridgelab.spending.base import (
     BucketsGuardrailsNotComposable,
     BucketsNotSolvable,
     SpendingStrategyNotSolvable,
     TaxDragMonteCarloNotSolvable,
 )
-from firebridgelab.stress import StressNotAvailable
+from firebridgelab.analysis.stress import StressNotAvailable
 
 __all__ = ["engine_error_to_detail"]
 

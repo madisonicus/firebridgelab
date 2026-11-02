@@ -35,22 +35,20 @@ import numpy as np
 import pytest
 
 from firebridgelab import default_scenario, simulate
-from firebridgelab.finance import compute_npv_gaps_by_age
-from firebridgelab.historical import simulate_historical
-from firebridgelab.monte_carlo import simulate_monte_carlo
-from firebridgelab.scenario import (
-    AssetClass,
-    Scenario,
-    SPENDING_MODE_FR_TIERS,
-)
-from firebridgelab.spending import (
-    FundedRatioStrategyBase,
+from firebridgelab.spending.npv import compute_npv_gaps_by_age
+from firebridgelab.engine.historical import simulate_historical
+from firebridgelab.engine.monte_carlo import simulate_monte_carlo
+from firebridgelab.engine.allocation import AssetClass
+from firebridgelab.engine.scenario import Scenario
+from firebridgelab.spending.modes import SPENDING_MODE_FR_TIERS
+from firebridgelab.spending.funded_ratio import FundedRatioStrategyBase
+from firebridgelab.spending.rules.fr_tiers import (
     FundedRatioTierStrategy,
     _FR_TIER_NPV_TARGET,
     _fr_tier_floor_threshold,
-    make_strategy,
 )
-import firebridgelab.spending as spending_module
+from firebridgelab.spending.registry import make_strategy
+import firebridgelab.spending.rules.fr_tiers as spending_module
 
 
 # --------------------------------------------------------------------------- #

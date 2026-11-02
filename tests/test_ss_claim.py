@@ -10,7 +10,7 @@ per-age table).
 
 import pytest
 
-from firebridgelab.ss_claim import (
+from firebridgelab.income.social_security import (
     DEFAULT_FRA_AGE,
     MAX_CLAIM_AGE,
     MIN_CLAIM_AGE,

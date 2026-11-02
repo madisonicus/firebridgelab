@@ -31,7 +31,7 @@ from firebridgelab import (
     simulate_historical,
     simulate_monte_carlo,
 )
-from firebridgelab.scenario import validate_glidepath_class_consistency
+from firebridgelab.engine.validation import validate_glidepath_class_consistency
 from tests._canary import DET_FINAL_CANARY
 
 

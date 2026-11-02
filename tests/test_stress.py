@@ -29,14 +29,14 @@ from firebridgelab import (
     simulate,
     simulate_stress,
 )
-from firebridgelab._step import max_fundable_spend
-from firebridgelab.scenario import gi_at_age
-from firebridgelab.stress import (
+from firebridgelab.engine.step import max_fundable_spend
+from firebridgelab.income.guaranteed import gi_at_age
+from firebridgelab.analysis.stress import (
     STRESS_PERTURBATIONS,
     STRESS_SCENARIOS,
     StressNotAvailable,
 )
-from firebridgelab.tax_location import has_tax_split
+from firebridgelab.tax.location import has_tax_split
 from tests._canary import DET_FINAL_CANARY, DET_FINAL_PIN
 
 # The explicit year-1..5 US-Total column of the stagflation table (stress-test
@@ -263,7 +263,7 @@ def test_tail_falls_back_to_class_default_when_column_absent():
     table whose normal row omits the US Total column. The single-class plan's late
     return must then be the class's own real_return (0.07), not an invented number.
     """
-    from firebridgelab.stress import _StressTable, _class_return_array
+    from firebridgelab.analysis.stress import _StressTable, _class_return_array
     from firebridgelab import AssetClass as _AC
 
     ac = _AC("us_total_market", "Single", 1.0, 0.07, 0.174)
@@ -762,7 +762,7 @@ def test_spending_drift_applied_in_cohort_loop_too():
     """
     import numpy as np
 
-    from firebridgelab.sim_core import _simulate_cohort
+    from firebridgelab.engine.sim_core import _simulate_cohort
 
     sc = replace(default_scenario(), spending_real_drift=0.015)
     n_steps = sc.end_age - sc.start_age + 1
@@ -865,7 +865,7 @@ def _buckets_scenario(scenario):
     sourcing run for run.
     """
     from firebridgelab import SOURCING_MODE_BUCKETS
-    from firebridgelab.scenario import Bucket, BucketConfig
+    from firebridgelab.engine.scenario import Bucket, BucketConfig
 
     config = BucketConfig(
         cash=Bucket("cash", "Cash", scenario.allocation),
@@ -973,9 +973,9 @@ def test_stressed_split_trajectory_pays_taxes_family_a():
     reported pre-tax (the old, tax-blind ``_simulate_cohort`` path), on at
     least one age — "a stressed split trajectory pays its taxes like any
     other" (the td1 HARD CONSTRAINT)."""
-    from firebridgelab.sim_core import _simulate_cohort
-    from firebridgelab.spending import make_strategy
-    from firebridgelab.stress import _class_return_array
+    from firebridgelab.engine.sim_core import _simulate_cohort
+    from firebridgelab.spending.registry import make_strategy
+    from firebridgelab.analysis.stress import _class_return_array
     import numpy as np
 
     sc = replace(
@@ -992,7 +992,7 @@ def test_stressed_split_trajectory_pays_taxes_family_a():
     # Independently rebuild the SAME blended stress return array and run the
     # plain (tax-blind) cohort loop, mirroring simulate_stress's own mechanism
     # (module docstring steps 2-4) so the comparison is apples-to-apples.
-    from firebridgelab.stress import STRESS_SCENARIOS
+    from firebridgelab.analysis.stress import STRESS_SCENARIOS
 
     table = STRESS_SCENARIOS["gfc_2008"]
     n_steps = sc.end_age - sc.start_age + 1

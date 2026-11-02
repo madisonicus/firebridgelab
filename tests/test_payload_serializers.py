@@ -14,8 +14,8 @@ arranges what the engine handed it into the contracted dict.
 """
 
 from firebridgelab import simulate_historical, simulate_monte_carlo
-from firebridgelab.scenario import default_scenario
-from firebridgelab.simulate import simulate
+from firebridgelab.engine.scenario import default_scenario
+from firebridgelab.engine.deterministic import simulate
 
 from api.main import (
     DeterministicPayload,

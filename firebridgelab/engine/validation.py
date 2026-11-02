@@ -1,0 +1,312 @@
+"""engine.validation (split from the flat layout)."""
+
+from __future__ import annotations
+
+from firebridgelab.engine.allocation import ALLOCATION_MODE_CONSTANT, ALLOCATION_MODE_GLIDEPATH
+from firebridgelab.engine.scenario import (
+    MC_DISTRIBUTIONS,
+    SOURCING_MODE_BUCKETS,
+    SOURCING_MODE_SINGLE,
+    Scenario,
+)
+from firebridgelab.income.pension import PENSION_COLAS
+from firebridgelab.income.survivor import SURVIVOR_DECEDENTS
+from firebridgelab.spending.registry import registered_modes
+
+
+# Recognized allocation / sourcing modes. Spending modes are whatever the
+# spending registry has (``registered_modes()``).
+_VALID_ALLOCATION_MODES = frozenset(
+    {ALLOCATION_MODE_CONSTANT, ALLOCATION_MODE_GLIDEPATH}
+)
+_VALID_SOURCING_MODES = frozenset({SOURCING_MODE_SINGLE, SOURCING_MODE_BUCKETS})
+
+# Allocation-weight sum tolerance for validate_scenario. Matches the API's
+# _parse_allocation 100%-sum check (1e-6); deliberately NOT stricter than the
+# default scenario / existing fixtures satisfy (all sum to 1.0 exactly). The
+# Historical / Monte Carlo engines RENORMALIZE weights, so this is a sanity guard
+# against a clearly-broken allocation, not a hard engine precondition.
+_ALLOCATION_SUM_TOLERANCE = 1e-6
+
+# Permissive age sanity bounds for validate_scenario. Intentionally WIDER than the
+# API's editorial 18..110 window (api.main._AGE_MIN/_AGE_MAX) — this is the
+# low-layer "is this age a plausible integer, not garbage" guard, not the product
+# range. Anything the API admits already sits inside this; tests that construct
+# extreme horizons (e.g. start_age=0/end_age=199) drive the engine DIRECTLY and
+# never flow through validate_scenario, so they are unaffected.
+_VALIDATE_AGE_MIN = 0
+_VALIDATE_AGE_MAX = 150
+
+
+class ScenarioValidationError(ValueError):
+    """A Scenario violates a construction invariant.
+
+    Raised by ``validate_scenario`` on the FIRST violated invariant, with a
+    specific, named-field message. Subclasses ``ValueError`` so existing
+    engine-error → 422 translation paths (which catch ``ValueError``) keep
+    working if a caller routes it through them.
+    """
+
+
+def validate_scenario(scenario: Scenario) -> None:
+    """Validate a Scenario's construction invariants; raise on the first failure.
+
+    Turns the previously-IMPLICIT preconditions the engine relies on into ONE
+    explicit, testable seam. A malformed scenario used to crash DEEP and opaquely
+    (``scenario.buckets.n1`` ``AttributeError`` when buckets is ``None`` in buckets
+    mode; a glidepath with too few phases silently clamping; the tax split sum only
+    checked inside ``tax_location.resolve_split``). This raises a single
+    ``ScenarioValidationError`` naming the offending field on the FIRST violated
+    invariant instead.
+
+    Pure (no I/O). Lives in the low scenario layer and uses only this module's
+    derived helpers plus a function-local import of the tax-split sum rule (to
+    reuse its single source of truth without a module-top cycle). It does NOT
+    import higher engine layers.
+
+    Behavior-preserving: ``validate_scenario(default_scenario())`` passes, and so
+    does every scenario the existing suite constructs. At the API boundary it runs
+    AFTER the existing ``_validate_*`` checks, so it only converts
+    previously-uncaught DEEP crashes into clean errors; inputs the API already
+    rejects keep their existing message.
+    """
+    # --- Recognized mode constants -------------------------------------------
+    if scenario.spending_mode not in registered_modes():
+        raise ScenarioValidationError(
+            f"spending_mode '{scenario.spending_mode}' is not a recognized "
+            f"spending mode"
+        )
+    if scenario.allocation_mode not in _VALID_ALLOCATION_MODES:
+        raise ScenarioValidationError(
+            f"allocation_mode '{scenario.allocation_mode}' is not a recognized "
+            f"allocation mode"
+        )
+    if scenario.sourcing_mode not in _VALID_SOURCING_MODES:
+        raise ScenarioValidationError(
+            f"sourcing_mode '{scenario.sourcing_mode}' is not a recognized "
+            f"sourcing mode"
+        )
+
+    # --- Portfolio / spending magnitudes -------------------------------------
+    if scenario.initial_portfolio <= 0:
+        raise ScenarioValidationError(
+            f"initial_portfolio must be > 0 (got {scenario.initial_portfolio})"
+        )
+    if scenario.annual_spending < 0:
+        raise ScenarioValidationError(
+            f"annual_spending must be >= 0 (got {scenario.annual_spending})"
+        )
+
+    # --- Horizon / ages ------------------------------------------------------
+    age_fields = (
+        "start_age",
+        "end_age",
+        "person_a_pension_start_age",
+        "person_b_pension_start_age",
+        "person_a_ss_start_age",
+        "person_b_ss_start_age",
+    )
+    for name in age_fields:
+        value = getattr(scenario, name)
+        if not (_VALIDATE_AGE_MIN <= value <= _VALIDATE_AGE_MAX):
+            raise ScenarioValidationError(
+                f"{name} must be between {_VALIDATE_AGE_MIN} and "
+                f"{_VALIDATE_AGE_MAX} (got {value})"
+            )
+    if scenario.start_age >= scenario.end_age:
+        raise ScenarioValidationError(
+            f"start_age ({scenario.start_age}) must be less than end_age "
+            f"({scenario.end_age})"
+        )
+
+    # --- Allocation ----------------------------------------------------------
+    if not scenario.allocation:
+        raise ScenarioValidationError(
+            "allocation must contain at least one asset class"
+        )
+    weight_sum = sum(ac.weight for ac in scenario.allocation)
+    if abs(weight_sum - 1.0) > _ALLOCATION_SUM_TOLERANCE:
+        raise ScenarioValidationError(
+            f"allocation weights must sum to 1.0 within "
+            f"{_ALLOCATION_SUM_TOLERANCE:g} (got {weight_sum})"
+        )
+
+    # --- Spending rails ------------------------------------------------------
+    # The operational floor must not exceed the satiation ceiling, or the
+    # guardrail / funded-ratio clamps have an inverted band. Checked
+    # unconditionally (cheap, and a supplied-but-broken pair shouldn't pass just
+    # because the active spending mode ignores the rails).
+    if scenario.spending_floor > scenario.spending_ceiling:
+        raise ScenarioValidationError(
+            f"spending_floor ({scenario.spending_floor}) must be <= "
+            f"spending_ceiling ({scenario.spending_ceiling})"
+        )
+
+    # --- Real-drift knobs (stress-test design slice 4) ------------------------
+    # Sanity bounds on the per-year real-drift rates: a plausible annual real
+    # erosion/growth rate, not garbage. ±50% bounds the COLA-freeze / cost-of-
+    # living drift well outside any real stress (the shipped stresses use 0.025
+    # and 0.015). Default 0.0 always passes.
+    for name in ("pension_real_drift", "spending_real_drift"):
+        value = getattr(scenario, name)
+        if not (-0.5 <= value <= 0.5):
+            raise ScenarioValidationError(
+                f"{name} must be between -0.5 and 0.5 (got {value})"
+            )
+
+    # --- Amortization-frontier planning return -------------------------------
+    # The frontier discounts the gap stream at this real return. A value <= -1.0
+    # makes the discount factor (1 + r) non-positive (division blows up); the upper
+    # bound mirrors the drift knobs' plausible-real-return window. The slider only
+    # ever sends [0, allocation-return]; bound it permissively here so garbage 422s
+    # cleanly. Default 0.01 always passes.
+    if not (-0.5 <= scenario.amortization_real_return <= 0.5):
+        raise ScenarioValidationError(
+            f"amortization_real_return must be between -0.5 and 0.5 (got "
+            f"{scenario.amortization_real_return})"
+        )
+
+    # --- Bucket sourcing -----------------------------------------------------
+    # buckets mode reads scenario.buckets.{n1,n2,...} unconditionally; a None
+    # config is the opaque deep AttributeError this seam replaces.
+    if scenario.sourcing_mode == SOURCING_MODE_BUCKETS:
+        if scenario.buckets is None:
+            raise ScenarioValidationError(
+                "sourcing_mode is 'buckets' but no bucket config was provided "
+                "(buckets is None)"
+            )
+        if scenario.buckets.n1 < 0 or scenario.buckets.n2 < 0:
+            raise ScenarioValidationError(
+                f"bucket sizing years must be non-negative (got n1="
+                f"{scenario.buckets.n1}, n2={scenario.buckets.n2})"
+            )
+
+    # --- Glidepath allocation ------------------------------------------------
+    # glidepath mode maps each DERIVED phase to phase_allocations by index. The
+    # engine CLAMPS a SHORT list to the last supplied phase rather than crashing
+    # (see allocation_at_age), so the phase COUNT is intentionally NOT validated
+    # here — a short list is a legal run. Only two things are enforced: the list
+    # must be PRESENT + NON-EMPTY (a MISSING / EMPTY phase_allocations under
+    # glidepath mode is the silent degrade-to-constant the seam rejects), and no
+    # individual phase may be empty (an empty phase tuple crashes the engine with
+    # "no asset class maps to a known historical series").
+    if scenario.allocation_mode == ALLOCATION_MODE_GLIDEPATH:
+        if not scenario.phase_allocations:
+            raise ScenarioValidationError(
+                "allocation_mode is 'glidepath' but no phase_allocations were "
+                "provided"
+            )
+        for i, phase in enumerate(scenario.phase_allocations):
+            if not phase:
+                raise ScenarioValidationError(
+                    f"glidepath phase_allocations[{i}] is empty; each phase must "
+                    f"contain at least one asset class"
+                )
+
+    # --- Tax-location split --------------------------------------------------
+    # When ANY of the three tax-location balances is supplied, all three are
+    # treated as supplied (missing → 0) and must sum to initial_portfolio within
+    # tolerance. Reuse the canonical sum rule from firebridgelab.tax_location via a
+    # function-local import (tax_location imports scenario only lazily, so there
+    # is no module-top cycle); this keeps the $1 tolerance single-sourced.
+    from firebridgelab.tax.location import has_tax_split, resolve_split
+
+    if has_tax_split(scenario):
+        try:
+            resolve_split(scenario)
+        except ValueError as exc:
+            raise ScenarioValidationError(str(exc)) from exc
+
+    # --- Taxable-gains fraction (federal-tax overlay design ft1) --------------
+    if not (0.0 <= scenario.taxable_gains_fraction <= 1.0):
+        raise ScenarioValidationError(
+            "taxable_gains_fraction must be between 0 and 1 (got "
+            f"{scenario.taxable_gains_fraction})"
+        )
+
+    # --- Bracket-fill lever target (tax-drag design td1, DECISION 5) ----------
+    # None = lever off, always valid. When set, bounded 0..5,000,000 (the
+    # design's own range — a UI dollar field with presets at the real bracket
+    # tops, not a rate, so the bound is a plausible dollar-income sanity check,
+    # not a percentage).
+    if scenario.bracket_fill_target is not None and not (
+        0.0 <= scenario.bracket_fill_target <= 5_000_000.0
+    ):
+        raise ScenarioValidationError(
+            "bracket_fill_target must be between 0 and 5,000,000 (got "
+            f"{scenario.bracket_fill_target})"
+        )
+    # --- Review 2026-10-11 knobs ---------------------------------------------
+    if not (0.0 <= scenario.annual_fee <= 0.03):
+        raise ScenarioValidationError(
+            f"annual_fee must be between 0 and 0.03 (got {scenario.annual_fee})"
+        )
+    if scenario.mc_distribution not in MC_DISTRIBUTIONS:
+        raise ScenarioValidationError(
+            f"mc_distribution must be one of {MC_DISTRIBUTIONS} "
+            f"(got {scenario.mc_distribution!r})"
+        )
+    if not (2.5 <= scenario.mc_t_df <= 100.0):
+        raise ScenarioValidationError(
+            f"mc_t_df must be between 2.5 and 100 (got {scenario.mc_t_df})"
+        )
+    if scenario.pension_cola not in PENSION_COLAS:
+        raise ScenarioValidationError(
+            f"pension_cola must be one of {PENSION_COLAS} (got {scenario.pension_cola!r})"
+        )
+    if not (0.0 <= scenario.assumed_inflation <= 0.10):
+        raise ScenarioValidationError(
+            f"assumed_inflation must be between 0 and 0.10 (got {scenario.assumed_inflation})"
+        )
+    if scenario.survivor_age is not None and not (
+        scenario.start_age < scenario.survivor_age <= scenario.end_age
+    ):
+        raise ScenarioValidationError(
+            f"survivor_age must be after start_age and at most end_age "
+            f"(got {scenario.survivor_age})"
+        )
+    if scenario.survivor_decedent not in SURVIVOR_DECEDENTS:
+        raise ScenarioValidationError(
+            f"survivor_decedent must be one of {SURVIVOR_DECEDENTS} "
+            f"(got {scenario.survivor_decedent!r})"
+        )
+    for name in ("survivor_pension_fraction", "survivor_spending_fraction"):
+        value = getattr(scenario, name)
+        if not (0.0 <= value <= 1.0):
+            raise ScenarioValidationError(f"{name} must be between 0 and 1 (got {value})")
+
+
+def validate_glidepath_class_consistency(scenario: Scenario) -> None:
+    """Enforce the v1 glidepath contract: per-class return ASSUMPTIONS are global.
+
+    A glidepath changes WEIGHTS across phases; the per-class ``real_return`` and
+    ``volatility`` are a property of the class, not of the phase. If the SAME class
+    id carries DIFFERING ``real_return`` or ``volatility`` across phases, the engines
+    silently disagree: the deterministic path reads each phase's own ``real_return``
+    (``blended_real_return_at_age``), while the Monte Carlo sampler dedups the union
+    of phase classes by id (first occurrence wins — one vol per sampled series), so
+    the two would describe DIFFERENT portfolios with no error. Rather than blend
+    silently, reject the inconsistency loudly.
+
+    Raises ``ValueError`` naming the offending class. A no-op under ``constant``
+    mode, when ``phase_allocations`` is empty, or when every phase agrees on each
+    class's params (the legal case: same id, same params, different WEIGHTS).
+    """
+    if scenario.allocation_mode != ALLOCATION_MODE_GLIDEPATH:
+        return
+    phases = scenario.phase_allocations
+    if not phases:
+        return
+    seen: dict[str, tuple[float, float | None]] = {}
+    for phase in phases:
+        for ac in phase:
+            params = (ac.real_return, ac.volatility)
+            prior = seen.get(ac.id)
+            if prior is None:
+                seen[ac.id] = params
+            elif prior != params:
+                raise ValueError(
+                    f"class '{ac.id}' has conflicting real_return/volatility "
+                    f"across glidepath phases; per-class return assumptions must be "
+                    f"consistent — vary weights, not returns"
+                )

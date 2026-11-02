@@ -25,30 +25,28 @@ import pytest
 from dataclasses import replace
 
 from firebridgelab import default_scenario, simulate
-from firebridgelab.sim_core import _simulate_cohort
-from firebridgelab.scenario import (
-    AssetClass,
-    Scenario,
+from firebridgelab.engine.sim_core import _simulate_cohort
+from firebridgelab.engine.allocation import AssetClass
+from firebridgelab.engine.scenario import Scenario
+from firebridgelab.spending.modes import (
     SPENDING_MODE_CONSTANT,
     SPENDING_MODE_FR_GUARDRAIL,
     SPENDING_MODE_FR_SMOOTH,
     SPENDING_MODE_GUARDRAILS,
     SPENDING_MODE_LIFECYCLE,
-    activity_multiplier,
-    spending_for_age,
 )
-from firebridgelab.spending import (
+from firebridgelab.spending.lifecycle import activity_multiplier, spending_for_age
+from firebridgelab.spending.rules.fr_guardrail import (
     _FR_GR_LOWER,
     _FR_GR_STEP,
     _FR_GR_UPPER,
-    _FR_SMOOTH_ALPHA,
     FundedRatioGuardrailStrategy,
-    FundedRatioSmoothStrategy,
-    FundedRatioStrategyBase,
-    GuardrailStrategy,
-    PureAgeStrategy,
-    make_strategy,
 )
+from firebridgelab.spending.rules.fr_smooth import _FR_SMOOTH_ALPHA, FundedRatioSmoothStrategy
+from firebridgelab.spending.funded_ratio import FundedRatioStrategyBase
+from firebridgelab.spending.rules.guardrails import GuardrailStrategy
+from firebridgelab.spending.rules.constant import PureAgeStrategy
+from firebridgelab.spending.registry import make_strategy
 
 
 def _guardrail_scenario(**overrides) -> Scenario:
@@ -386,8 +384,8 @@ def test_guardrail_spend_clamps_to_floor_until_depletion_across_engines():
     this test asserted ``min(spend_p10) >= floor`` unconditionally; that masked the
     overstatement bug by recording the unfundable floor through depletions.)
     """
-    from firebridgelab.historical import simulate_historical
-    from firebridgelab.monte_carlo import simulate_monte_carlo
+    from firebridgelab.engine.historical import simulate_historical
+    from firebridgelab.engine.monte_carlo import simulate_monte_carlo
 
     for floor in (85_000.0, 110_000.0):
         scenario = replace(
@@ -796,8 +794,8 @@ def test_fr_smooth_emits_per_year_events():
 def test_fr_smooth_runs_across_all_three_engines():
     """Cross-mode smoke: fr-smooth runs in deterministic / historical / MC and
     returns a spending series (the minimum-bar fan requirement)."""
-    from firebridgelab.historical import simulate_historical
-    from firebridgelab.monte_carlo import simulate_monte_carlo
+    from firebridgelab.engine.historical import simulate_historical
+    from firebridgelab.engine.monte_carlo import simulate_monte_carlo
 
     scenario = replace(
         default_scenario(),
@@ -819,8 +817,8 @@ def test_fr_smooth_runs_across_all_three_engines():
 def test_fr_smooth_spend_never_below_floor_across_engines():
     """fr-smooth spending respects the operational floor in every engine (except a
     fully depleted year), mirroring the guardrail invariant."""
-    from firebridgelab.historical import simulate_historical
-    from firebridgelab.monte_carlo import simulate_monte_carlo
+    from firebridgelab.engine.historical import simulate_historical
+    from firebridgelab.engine.monte_carlo import simulate_monte_carlo
 
     scenario = replace(
         default_scenario(),
@@ -1015,8 +1013,8 @@ def test_fr_guardrail_emits_per_year_events():
 def test_fr_guardrail_runs_across_all_three_engines():
     """Cross-mode smoke: fr-guardrail runs in deterministic / historical / MC and
     returns a spending series (the minimum-bar fan requirement)."""
-    from firebridgelab.historical import simulate_historical
-    from firebridgelab.monte_carlo import simulate_monte_carlo
+    from firebridgelab.engine.historical import simulate_historical
+    from firebridgelab.engine.monte_carlo import simulate_monte_carlo
 
     scenario = replace(
         default_scenario(),
@@ -1035,7 +1033,7 @@ def test_fr_guardrail_runs_across_all_three_engines():
 def test_fr_guardrail_spend_never_below_floor_across_engines():
     """fr-guardrail spending respects the operational floor in every engine (except
     a fully depleted year), mirroring the sibling invariant."""
-    from firebridgelab.historical import simulate_historical
+    from firebridgelab.engine.historical import simulate_historical
 
     scenario = replace(
         default_scenario(),

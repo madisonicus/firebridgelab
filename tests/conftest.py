@@ -9,7 +9,7 @@ marker is registered in pyproject.toml.)
 
 import pytest
 
-from firebridgelab.class_series import NEW_CLASS_SERIES, OPTIONAL_CLASS_SERIES
+from firebridgelab.returns.class_series import NEW_CLASS_SERIES, OPTIONAL_CLASS_SERIES
 
 _MISSING_OPTIONAL = sorted(OPTIONAL_CLASS_SERIES - set(NEW_CLASS_SERIES))
 

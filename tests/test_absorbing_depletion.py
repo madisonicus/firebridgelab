@@ -37,8 +37,8 @@ from firebridgelab import (
     simulate_historical,
     simulate_monte_carlo,
 )
-from firebridgelab._step import step_year
-from firebridgelab.buckets import simulate_buckets_deterministic
+from firebridgelab.engine.step import step_year
+from firebridgelab.engine.buckets import simulate_buckets_deterministic
 
 
 def _resurrect_scenario(**overrides):

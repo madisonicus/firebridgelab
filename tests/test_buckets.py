@@ -33,7 +33,7 @@ from dataclasses import replace
 
 import pytest
 
-import firebridgelab.buckets as buckets_module
+import firebridgelab.engine.buckets as buckets_module
 from firebridgelab import (
     SOURCING_MODE_BUCKETS,
     AssetClass,
@@ -49,13 +49,9 @@ from firebridgelab import (
     simulate_monte_carlo,
     solve_max_spend,
 )
-from firebridgelab.scenario import (
-    SPENDING_MODE_GUARDRAILS,
-    SPENDING_MODE_LIFECYCLE,
-    _DEFAULT_BOND_VOLATILITY,
-    _DEFAULT_EQUITY_VOLATILITY,
-)
-from firebridgelab.spending import BucketsGuardrailsNotComposable, BucketsNotSolvable
+from firebridgelab.spending.modes import SPENDING_MODE_GUARDRAILS, SPENDING_MODE_LIFECYCLE
+from firebridgelab.engine.allocation import _DEFAULT_BOND_VOLATILITY, _DEFAULT_EQUITY_VOLATILITY
+from firebridgelab.spending.base import BucketsGuardrailsNotComposable, BucketsNotSolvable
 from tests._canary import DET_FINAL_CANARY
 
 
@@ -178,7 +174,7 @@ def test_bucket_realized_spend_capped_at_fundable_after_depletion():
     ``avail_cash / (1 + r_cash/2) = $49,216.95`` — the value pinned below. Fully-
     depleted years with no GI record exactly $0. The portfolio path / depletion age
     are unchanged (reporting-only fix)."""
-    from firebridgelab.buckets import simulate_buckets_deterministic
+    from firebridgelab.engine.buckets import simulate_buckets_deterministic
 
     s = replace(default_scenario(), initial_portfolio=1_500_000.0, annual_spending=300_000.0)
     sb = _buckets(s, default_bucket_config())
@@ -215,7 +211,7 @@ def test_bucket_degenerate_realized_spend_matches_single_portfolio_to_the_cent()
     engine documents, sub-cent). We compare the DEPLETION-YEAR recorded spend (where
     the cap actually bites) on a small/high-spend scenario that depletes in both
     paths, then every year for good measure."""
-    from firebridgelab.buckets import simulate_buckets_deterministic
+    from firebridgelab.engine.buckets import simulate_buckets_deterministic
 
     s = replace(default_scenario(), initial_portfolio=1_500_000.0, annual_spending=300_000.0)
     single = simulate(s)  # single-portfolio path (records min(intended, max_fundable))
@@ -373,8 +369,8 @@ def test_gate_b_exact_zero_boundary_matches_step_year():
 
     A divergence here is the empirical-vs-structural gap the fix closes.
     """
-    from firebridgelab._step import step_year
-    from firebridgelab.buckets import _step_buckets
+    from firebridgelab.engine.step import step_year
+    from firebridgelab.engine.buckets import _step_buckets
 
     # No refill (cash_tgt_next = income_tgt_next = 0), income + growth empty, all
     # zero returns → _step_buckets reduces to step_year on the cash bucket alone.
@@ -446,8 +442,8 @@ def test_gate_c_cohort_level_growth_untouched_during_bridge():
     the assertion is per-cohort, not a summary: every cohort's first forced growth
     sale is None or >= the first GI age (60).
     """
-    from firebridgelab.buckets import simulate_buckets_cohort
-    from firebridgelab.historical import (
+    from firebridgelab.engine.buckets import simulate_buckets_cohort
+    from firebridgelab.engine.cohort_windows import (
         _bucket_window,
         _cohort_blended_returns,
         _period_from_series,
@@ -490,7 +486,7 @@ def test_gate_c2_growth_rises_with_gi_not_drained():
     95) is materially ABOVE the mid-bridge trough; (3) the post-67 share of the
     portfolio held in growth is high (growth ≈ portfolio − the shrunk safe targets).
     """
-    from firebridgelab.buckets import simulate_buckets_deterministic
+    from firebridgelab.engine.buckets import simulate_buckets_deterministic
 
     s = default_scenario()
     sb = _buckets(s, default_bucket_config())  # N1=2, N2=7
@@ -553,7 +549,7 @@ def test_gate_c2_release_only_adds_to_growth_never_down_year_sale_in_determinist
     growth). Growth therefore never decreases once the release regime begins, and no
     forced growth sale is ever recorded (no buffer exhaustion in deterministic).
     """
-    from firebridgelab.buckets import simulate_buckets_deterministic
+    from firebridgelab.engine.buckets import simulate_buckets_deterministic
 
     s = default_scenario()
     sb = _buckets(s, default_bucket_config())
@@ -568,7 +564,7 @@ def test_gate_c2_release_only_adds_to_growth_never_down_year_sale_in_determinist
 
 def _cohort_returns(scenario, start_year):
     """The per-bucket per-year real-return arrays for one start-year cohort."""
-    from firebridgelab.historical import (
+    from firebridgelab.engine.cohort_windows import (
         _bucket_window,
         _cohort_blended_returns,
         _period_from_series,
@@ -599,7 +595,7 @@ def _down_year_growth_outflows(
     (restored after). ``through_age`` (inclusive) limits the count to years up to
     that age. Returns ``(count, total_dollars_sold)``.
     """
-    from firebridgelab.buckets import simulate_buckets_cohort
+    from firebridgelab.engine.buckets import simulate_buckets_cohort
 
     bret = _cohort_returns(scenario, start_year)
     rg = bret["growth"]
@@ -653,7 +649,7 @@ def test_gate_d_one_sided_avoids_down_year_growth_sales():
     # Moderate buffer (N1=2, N2=5) — deep enough to ride the crash, shallow enough
     # that the symmetric rule's down-year sales bite. Earliest cohort (1928).
     sb = _buckets(s, replace(default_bucket_config(), n1=2, n2=5))
-    from firebridgelab.historical import _bucket_window
+    from firebridgelab.engine.cohort_windows import _bucket_window
 
     _bw, _sel, start_years, _sd = _bucket_window(sb)
     bad_year = start_years[0]
@@ -677,7 +673,7 @@ def test_gate_d_refill_knob_round_trips():
     assert buckets_module.SYMMETRIC_REFILL is False
     s = default_scenario()
     sb = _buckets(s, default_bucket_config())
-    from firebridgelab.historical import _bucket_window
+    from firebridgelab.engine.cohort_windows import _bucket_window
 
     _bw, _sel, start_years, _sd = _bucket_window(sb)
     _down_year_growth_outflows(sb, symmetric=True, start_year=start_years[0])
@@ -824,7 +820,7 @@ def test_gate_f_underfunded_cap_scales_safe_buckets_no_crash():
     buckets; the engine scales cash + income proportionally so growth lands at 0 and
     runs without crashing (bucket-strategy design underfunded case).
     """
-    from firebridgelab.buckets import _initial_balances, bucket_underfunded
+    from firebridgelab.engine.buckets import _initial_balances, bucket_underfunded
 
     s = replace(default_scenario(), initial_portfolio=100_000.0)
     underfunded = _buckets(s, replace(default_bucket_config(), n1=9, n2=20))
@@ -839,7 +835,7 @@ def test_gate_f_underfunded_cap_scales_safe_buckets_no_crash():
 
 def test_gate_f_well_funded_not_underfunded():
     """The default ($1.8M, 10yr × $110k bridge) is NOT underfunded — growth > 0."""
-    from firebridgelab.buckets import _initial_balances, bucket_underfunded
+    from firebridgelab.engine.buckets import _initial_balances, bucket_underfunded
 
     s = _buckets(default_scenario(), default_bucket_config())
     assert bucket_underfunded(s) is False
@@ -891,8 +887,8 @@ def test_worst_bucket_cohort_series_matches_summed_fan_per_age():
     that exact cohort reproduces the series age-for-age (no drift between the
     drill-down and the engine's per-cohort math).
     """
-    from firebridgelab.buckets import simulate_buckets_cohort
-    from firebridgelab.historical import (
+    from firebridgelab.engine.buckets import simulate_buckets_cohort
+    from firebridgelab.engine.cohort_windows import (
         _bucket_window,
         _cohort_blended_returns,
         _period_from_series,
@@ -957,8 +953,8 @@ def test_worst_bucket_cohort_falls_back_to_lowest_terminal_when_never_breached()
     (a short-horizon / large-GI household can avoid the artifact), so we exercise it
     head-on rather than via a contrived scenario.
     """
-    from firebridgelab.buckets import BucketTrajectory, BucketYear
-    from firebridgelab.historical import _select_worst_bucket_cohort
+    from firebridgelab.engine.buckets import BucketTrajectory, BucketYear
+    from firebridgelab.engine.cohort_aggregate import _select_worst_bucket_cohort
 
     s = default_scenario()
     ages = list(range(s.start_age, s.end_age + 1))
@@ -998,8 +994,8 @@ def test_worst_bucket_cohort_lowest_terminal_among_earliest_breach_cohorts():
     confirming the selection key (earliest forced sale, then lowest terminal) on a
     LIVE run, not just the synthetic fallback above.
     """
-    from firebridgelab.buckets import simulate_buckets_cohort
-    from firebridgelab.historical import (
+    from firebridgelab.engine.buckets import simulate_buckets_cohort
+    from firebridgelab.engine.cohort_windows import (
         _bucket_window,
         _cohort_blended_returns,
         _period_from_series,

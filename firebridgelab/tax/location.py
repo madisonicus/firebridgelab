@@ -1,0 +1,629 @@
+"""Tax-location decomposition + access-aware sourcing, now DRAGGED (tax-drag
+design td1 supersedes the tb1/ft1/ft2 display-only
+shadow whenever a tax-location split is supplied).
+
+THE BIG CHANGE FROM tb1/ft1/ft2: this decomposition used to be a "shadow" that
+ran ALONGSIDE the scalar engine and never perturbed it (no tax, no penalty
+drag). Under td1, when a split is supplied, this module's decomposition BECOMES
+the true portfolio math: the year's federal tax bill is drawn from the accounts
+like any other outflow (DECISION 1). No split ⇒ no accounts ⇒ no defensible tax
+⇒ the legacy pre-tax engine still runs byte-stable — the deterministic canary
+(``simulate(default_scenario()).final_portfolio == 8397280.186644783``) and
+every no-split test are untouched, because this module's new machinery is
+reached ONLY through ``simulate_path_decomposition``, which callers invoke ONLY
+when ``has_tax_split`` gates it.
+
+THE OPERAND ORDER, per year (DECISION 3 — read this before touching the loop):
+
+  1. Grow each account by ``r`` (``b + b*r`` — ``step_year``'s exact operand
+     order).
+  2. Source the flat net spending need ``net = spending*(1+r/2) - gi``,
+     access-aware, EXACTLY the tb1 cascade (``_source_net``) — unchanged.
+     SPENDING IS SENIOR TO THE TAX BILL (td-b, pinned): the spending draw
+     happens here, unconditionally, BEFORE the fixed point ever computes a
+     bill — so in a crossing year (accounts can cover spending or tax but not
+     both) spending takes its dollars first and the bill is JUNIOR, taking
+     what remains. This is not a new rule, it is the operand order steps 2 and
+     4 already encode — named explicitly because the REALIZED-spend recording
+     (see ``TaxLocationPath.realized_spend``) leans on it: the year the
+     accounts run dry, the recorded consumption caps at what the DRAGGED
+     balance could fund (``max_fundable_spend``), and the unpaid remainder of
+     that year's bill simply dies with the portfolio (the post-depletion
+     zero-tax convention below).
+  3+4. THE FIXED POINT (the module's most-likely-wrong spot — read twice).
+     Steps 3 (internal transfers: the voluntary bracket-fill lever, DECISION 5;
+     the RMD-excess movement, DECISION 4) and 4 (compute the tax bill and
+     source it as an ADDITIONAL draw) are COUPLED, not sequential: the lever
+     fill and the RMD excess both add ordinary income, which changes the bill,
+     which changes how much tax-funding draw is needed, which — post-59½ —
+     changes how much tax-deferred balance remains for the lever to claim. So
+     all of {T (the bill), the tax-funding draws, the lever fill, the RMD
+     excess} resolve TOGETHER via one scalar fixed point in ``T``:
+
+         T_(k+1) = tax(income(T_k)) [+ the 10% walled-year penalty]
+
+     seeded at ``T_0 = 0`` (which, on the FIRST pass, sources zero tax-funding
+     draw — exactly "the seed is the bill with no tax-funding draws" the design
+     specifies) and iterated until ``|T_(k+1) - T_k| < $0.01``, capped at 100
+     iterations (``FIXED_POINT_MAX_ITERATIONS`` — generous; the worst case
+     converges in well under 40). CONVERGENCE ARGUMENT (why this is safe to
+     assert, never silently cap): every marginal dollar of ``T`` sources at
+     most one marginal dollar of additional tax-funding draw, which adds at
+     most ``max_marginal_rate`` (< 1; worst case ~0.47 = 37% top ordinary
+     bracket + 10% walled-year penalty) of NEW tax next round. The map
+     ``T -> tax(income(T))`` is therefore a contraction with Lipschitz constant
+     <= 0.47 < 1, so ``|T_(k+1) - T_k| <= 0.47^k * |T_1 - T_0|`` shrinks
+     geometrically — a cap hit means the contraction bound was violated, i.e. a
+     BUG (a broken bracket table, a sourcing regression), not a legitimate
+     slow-converging case. Deterministic inputs ⇒ a deterministic iterate count
+     ⇒ byte-stable outputs (the no-split canary never reaches this code at
+     all, so it stays exactly as stable as before).
+
+     TRANSFER SETTLEMENT ORDER (load-bearing — this is what the "scarce-TD"
+     validation anchor pins): within one year, spending draws happen first
+     (step 2, unconditionally); tax-funding draws are sourced from the
+     POST-SPEND balances at each fixed-point iteration; the lever/RMD
+     TRANSFERS (moving GROSS dollars tax_deferred -> taxable) settle LAST, only
+     once the fixed point has converged. This order is not arbitrary: if the
+     transfer settled BEFORE tax-funding sourcing, a tax-funding draw in the
+     SAME year could pull the freshly-transferred, basis-less dollars back out
+     of taxable and tax them AGAIN as knob-rate LTCG — settling the transfer
+     last means this year's tax-funding draw can only ever see the OLD taxable
+     balance. PRIORITY under scarce tax-deferred (also load-bearing): the
+     lever is capped at the RESIDUAL tax-deferred balance AFTER the (candidate)
+     tax-funding draw has taken its share, every iteration — the bill is
+     non-optional, the lever is elective, so tax-funding always wins the
+     scarce dollar first.
+
+  5. The year's dragged canonical total: ``dragged_end = grown_start + gi -
+     spending*(1+r/2) - T``, floored at 0 with the SAME absorbing-depletion
+     override tb1/the scalar engines use. This REPLACES the old
+     pre-tax scalar as the value the three reported buckets telescope to
+     exactly (see ``simulate_path_decomposition``'s exact-sum reconstruction).
+     The OLD pre-tax scalar is NOT discarded — it keeps running in parallel,
+     completely untaxed, as ``pretax_total`` (a separate per-age series; see
+     "PAIRED PRE-TAX TOTAL" below). Depletion under drag: the year's total NEED
+     is spending-need + bill; the cascade takes what exists; if the accounts
+     run dry the path is depleted that year (same absorbing-floor semantics).
+     POST-DEPLETION CONVENTION: once ``dragged_end`` has hit 0 in a PRIOR year,
+     every SUBSEQUENT year records zero tax (and zero of every tax-derived
+     field) even though GI itself would be real-world taxable — "the model
+     simply stops charging a portfolio that no longer exists" (documented
+     simplification, not a truth). The year depletion FIRST occurs still
+     records its real, attempted bill (matching how a depleting year's
+     spending is recorded elsewhere in the engine) — only years where
+     depletion had ALREADY happened before this year's step get the zeroed
+     treatment (see the ``was_already_depleted`` branch below).
+
+ATTRIBUTION (DECISION 6 — the three-way split, telescoping a SINGLE income
+vector, never a second fixed point): once the year's fixed point has
+converged, let ``base`` = the final ordinary income minus the lever extra minus
+the RMD excess (the LTCG side is untouched by either transfer — both are
+ordinary-income events, an IRS distribution being an IRS distribution whether
+"actual" or "deemed"):
+
+    spending_tax = tax(base)              + penalty   (penalty is always
+                                                         spending-attributed:
+                                                         it is pre-59½-only,
+                                                         the lever/RMD windows
+                                                         are 60+, so they never
+                                                         co-occur with it)
+    voluntary_tax = tax(base + lever)      - tax(base)
+    forced_tax     = tax(base + lever + rmd) - tax(base + lever)
+
+By construction ``spending_tax + voluntary_tax + forced_tax`` telescopes to
+exactly ``tax(base + lever + rmd) + penalty`` = the SAME income vector's bill —
+so the identity holds to the ULP, not just "to the penny", for any income
+vector the fixed point converges to (three extra ``compute_federal_tax`` calls,
+done ONCE per year after convergence — cheap, closed-form). The penalty itself
+covers ALL walled-year tax-deferred draws, including ones the TAX BILL forces
+(new vs ft2 — under drag the bill itself can force a pre-59½ tax-deferred
+draw that wouldn't otherwise have happened).
+
+PAIRED PRE-TAX TOTAL: alongside the dragged total, this module keeps computing
+the OLD (ft2-era) untaxed scalar — same formula, same per-year spend/gi/r,
+just never touched by ``T`` — as ``TaxLocationPath.pretax_total``. It is its
+OWN parallel running balance with its OWN absorbing-depletion flag (a tax-free
+world can out-survive, or under-survive under a dynamic strategy, the dragged
+one). SIMPLIFICATION, documented: both totals are driven by the SAME per-year
+``spending`` value (computed once, off the DRAGGED begin-of-year balance, per
+DECISION 2 — "spending strategies keep reading the now-dragged balance"). For
+constant/lifecycle spending this is a no-op (spend doesn't depend on the
+balance). For a DYNAMIC strategy (guardrails etc.) this means ``pretax_total``
+answers "what would this exact, already-tax-reactive spending plan have cost
+with no tax at all" rather than "what would an INDEPENDENTLY-optimal tax-free
+plan have spent" — the latter needs a second, fully independent strategy
+instance reacting to its own (bigger, untaxed) balance, which is a heavier
+double-run left for the td-b "estate cost of taxes" readout (DECISION 9) to
+decide it needs. Not needed for any td-a invariant: the BINDS drag-direction
+test is scoped to STATIC spend, where the two are identical by construction.
+
+The 59½ boundary with integer ages: unchanged from tb1 — age <= 59 is walled,
+age >= 60 is penalty-free (``TAX_LOCATION_ACCESS_AGE`` / ``PRE_595_MAX_AGE``).
+The voluntary lever's window (DECISION 5) is ages 60-74 inclusive
+(``LEVER_MIN_AGE`` / ``LEVER_MAX_AGE``) — the penalty door through the last
+pre-RMD year; RMDs (``federal_tax_core.RMD_START_AGE`` = 75) take over
+immediately after, so the lever and the RMD excess never co-occur (DECISION 6).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from firebridgelab.tax.core import (
+    EARLY_WITHDRAWAL_PENALTY_RATE,
+    federal_tax_total,
+    standard_deduction,
+    n_65_plus_at_age,
+)
+from firebridgelab.tax.rmd import RMD_START_AGE, rmd_factor
+
+
+# The penalty-free access boundary on the INTEGER age axis. 59½ is the IRS rule;
+# on an integer annual axis we model the first FULL penalty-free year as age 60,
+# so age <= 59 is treated as pre-59½ / walled (conservative — 59½ lands mid the
+# year the retiree turns 59). Same convention as firebridgelab.scenario's
+# ALLOCATION_401K_ACCESS_AGE = 60; kept as its own named constant here so the
+# tax-location semantics are self-documenting.
+TAX_LOCATION_ACCESS_AGE = 60
+
+# The "is this age pre-59½ (walled)" cutoff used by the depletion metric: a
+# depletion is counted "pre-59½" iff it happens at an age <= this value (i.e.
+# strictly before the penalty-free door at age 60).
+PRE_595_MAX_AGE = TAX_LOCATION_ACCESS_AGE - 1  # 59
+
+# The voluntary post-59½ bracket-fill lever's window (td1 DECISION 5): ages
+# 60-74 inclusive — the penalty door through the last pre-RMD year. Fixed, not
+# user-configurable in td1. RMDs (federal_tax_core.RMD_START_AGE = 75) take
+# over the following year, so this window and the RMD window never overlap.
+LEVER_MIN_AGE = TAX_LOCATION_ACCESS_AGE  # 60
+LEVER_MAX_AGE = RMD_START_AGE - 1        # 74
+
+# The per-year tax fixed point (td1 DECISION 3): converge when the bill moves
+# less than a cent between iterations, capped at 100 iterations (generous — the
+# worst case converges in well under 40; a cap hit is asserted as a bug, never
+# silently absorbed). See the module docstring's convergence argument.
+FIXED_POINT_TOLERANCE = 0.01
+FIXED_POINT_MAX_ITERATIONS = 100
+
+# Within-dollar tolerance for the "three balances sum to initial_portfolio" check
+# (the design's "$1"). Real-dollar inputs, so $1 is a generous rounding cushion.
+SPLIT_SUM_TOLERANCE = 1.0
+
+
+def has_tax_split(scenario) -> bool:
+    """True iff a tax-location split is active on the scenario.
+
+    The feature is OFF when NO split field is supplied (all three ``None``) —
+    the canary path. If ANY of the three is supplied, the split is treated as
+    active (missing ones resolve to 0 in ``resolve_split``).
+    """
+    return any(
+        getattr(scenario, name) is not None
+        for name in ("taxable_balance", "tax_deferred_balance", "roth_balance")
+    )
+
+
+def resolve_split(scenario) -> tuple[float, float, float]:
+    """Resolve the three starting balances, validating the sum.
+
+    Returns ``(taxable, tax_deferred, roth)``. A missing (``None``) balance
+    resolves to 0.0 (per the design: "if any is provided, all three are treated
+    as provided, missing → 0"). Raises ``ValueError`` if the three do not sum to
+    ``initial_portfolio`` within ``SPLIT_SUM_TOLERANCE`` ($1).
+
+    Caller is responsible for only invoking this when ``has_tax_split`` is True.
+    """
+    taxable = scenario.taxable_balance or 0.0
+    tax_deferred = scenario.tax_deferred_balance or 0.0
+    roth = scenario.roth_balance or 0.0
+    total = taxable + tax_deferred + roth
+    if abs(total - scenario.initial_portfolio) > SPLIT_SUM_TOLERANCE:
+        raise ValueError(
+            "tax-location balances (taxable "
+            f"{taxable:,.2f} + tax_deferred {tax_deferred:,.2f} + roth "
+            f"{roth:,.2f} = {total:,.2f}) must sum to initial_portfolio "
+            f"({scenario.initial_portfolio:,.2f}) within "
+            f"${SPLIT_SUM_TOLERANCE:g}"
+        )
+    return float(taxable), float(tax_deferred), float(roth)
+
+
+def _pension_income_at_age(scenario, age: int) -> float:
+    """Pension half of ``firebridgelab.scenario.gi_at_age`` (fully ordinary income).
+    Delegates to the canonical ``firebridgelab.scenario.pension_income_at_age`` so the
+    tax split can never drift from the GI sum the rest of the engine reads."""
+    from firebridgelab.income.pension import pension_income_at_age
+
+    return pension_income_at_age(scenario, age)
+
+
+def _ss_income_at_age(scenario, age: int) -> float:
+    """Gross (pre-85%) Social Security half of ``gi_at_age``; the caller applies
+    the flat 85% inclusion. Delegates to ``firebridgelab.scenario.ss_income_at_age``."""
+    from firebridgelab.income.social_security import ss_income_at_age
+
+    return ss_income_at_age(scenario, age)
+
+
+def _filing_profile(scenario, age: int) -> tuple[int, bool]:
+    """``(n_65_plus, single)`` for a year: joint filing with both spouses aged
+    together, or — after ``survivor_age`` — a single filer with one 65+
+    addition."""
+    from firebridgelab.income.survivor import is_survivor_year
+
+    if is_survivor_year(scenario, age):
+        return (1 if age >= 65 else 0), True
+    return n_65_plus_at_age(age), False
+
+
+def _source_net(
+    taxable: float, tax_deferred: float, roth: float, net: float, penalty_free: bool
+) -> tuple[float, float, float, bool, float, float, float]:
+    """Draw ``net`` (>= 0) from the three GROWN balances, access-aware.
+
+    Returns the post-draw ``(taxable, tax_deferred, roth, forced_pre_595_draw,
+    taxable_take, tax_deferred_take, roth_take)`` where ``forced_pre_595_draw``
+    is True iff a pre-59½ draw had to dip into tax_deferred because taxable AND
+    roth were both exhausted (the bridge-failure event the feature is meant to
+    surface), and the three ``*_take`` values are exactly the natural
+    per-account amounts drawn this year — additive recording only, no change to
+    the sourcing/cascade arithmetic below.
+
+    ``net == 0`` is a legal, common call (the tax-drag fixed point's seed and
+    any year with no tax owed): the loop's ``remaining <= 0`` guard breaks
+    immediately, returning the INPUT balances unchanged with all takes 0.0 —
+    this is what lets the fixed point call this helper on every iteration
+    (including the T=0 seed) without a special case.
+
+    Sourcing order (tb1 DECISION 1, unchanged by drag):
+      - Pre-59½ (walled): taxable → roth; remainder forced from tax_deferred.
+      - At/after 59½: taxable → tax_deferred → roth.
+
+    Floor / cascade: each account floors at 0; any shortfall an account can't
+    cover cascades to the NEXT account in the order. Money is never dropped on
+    the floor — the total drawn equals ``min(net, taxable+tax_deferred+roth)``.
+
+    perf: the cascade is UNROLLED (plain locals + branches, no per-call
+    dict/tuple construction) — this runs once per fixed-point iteration plus
+    once per spending draw, ~4M calls in a split-MC 10k run. The arithmetic
+    per account is byte-identical to the old order-tuple loop (same
+    ``take = avail if avail < remaining else remaining`` cap, same
+    ``avail - take`` update, same early-out when ``remaining <= 0``, same
+    forced flag on a positive walled-year tax-deferred take); only the data
+    structures changed. Both orders share the taxable-first leg.
+    """
+    taxable_take = tax_deferred_take = roth_take = 0.0
+    forced = False
+    remaining = net
+
+    # Leg 1 (both orders): taxable.
+    if remaining > 0:
+        take = taxable if taxable < remaining else remaining
+        taxable = taxable - take
+        taxable_take = take
+        remaining -= take
+
+        if penalty_free:
+            # At/after 59½: taxable -> tax_deferred -> roth.
+            if remaining > 0:
+                take = tax_deferred if tax_deferred < remaining else remaining
+                tax_deferred = tax_deferred - take
+                tax_deferred_take = take
+                remaining -= take
+                if remaining > 0:
+                    take = roth if roth < remaining else remaining
+                    roth = roth - take
+                    roth_take = take
+        else:
+            # Pre-59½ (walled): taxable -> roth; remainder forced from
+            # tax_deferred.
+            if remaining > 0:
+                take = roth if roth < remaining else remaining
+                roth = roth - take
+                roth_take = take
+                remaining -= take
+                if remaining > 0:
+                    take = tax_deferred if tax_deferred < remaining else remaining
+                    tax_deferred = tax_deferred - take
+                    tax_deferred_take = take
+                    if take > 0:
+                        forced = True
+
+    return (
+        taxable,
+        tax_deferred,
+        roth,
+        forced,
+        taxable_take,
+        tax_deferred_take,
+        roth_take,
+    )
+
+
+@dataclass(frozen=True)
+class DraggedYearStep:
+    """One year's DRAGGED decomposition step — the td1 analogue of the plain
+    tuple tb1's ``step_buckets`` returned (a dataclass because drag adds many
+    more named outputs than a tuple should carry silently).
+
+    ``taxable`` / ``tax_deferred`` / ``roth`` are the NATURAL (pre-exact-sum-
+    reconstruction) end-of-year balances, AFTER the spending draw, the
+    tax-funding draw, and the lever/RMD transfer have all settled — the caller
+    (``simulate_path_decomposition``) reconciles their sum to the dragged
+    canonical total exactly (same discipline tb1 documented for
+    ``step_buckets``). ``tax`` is the converged fixed-point bill (includes the
+    penalty); ``spending_tax`` / ``voluntary_tax`` / ``forced_tax`` are its
+    exact three-way telescoping split (DECISION 6) and sum to ``tax`` exactly.
+    ``lever_transfer`` / ``rmd_excess`` are the two internal (sum-preserving)
+    transfers — at most one is ever nonzero in a given year (DECISION 6: the
+    lever window is 60-74, RMDs start at 75). ``taxable_draw`` /
+    ``tax_deferred_draw`` / ``roth_draw`` are the SPENDING-driven draws only
+    (unchanged meaning from tb1/ft1 — the tax-funding draws are NOT folded in,
+    so ``test_engine_draws_non_negative_and_reconcile_with_net_draw``-style
+    reconciliation to the spending ``net`` still holds byte-for-byte).
+    ``iterations`` is the fixed point's iterate count (diagnostic / test-only).
+    """
+
+    taxable: float
+    tax_deferred: float
+    roth: float
+    forced_pre_595_draw: bool
+    taxable_draw: float
+    tax_deferred_draw: float
+    roth_draw: float
+    tf_taxable_draw: float
+    tf_tax_deferred_draw: float
+    tf_roth_draw: float
+    lever_transfer: float
+    rmd_excess: float
+    ordinary_income: float
+    ltcg_income: float
+    tax: float
+    spending_tax: float
+    voluntary_tax: float
+    forced_tax: float
+    penalty: float
+    iterations: int
+
+
+def step_buckets_dragged(
+    taxable: float,
+    tax_deferred: float,
+    roth: float,
+    r: float,
+    gi: float,
+    spending: float,
+    penalty_free: bool,
+    *,
+    pension_ss_ordinary: float,
+    gains_fraction: float,
+    n_65_plus: int,
+    age: int,
+    single: bool = False,
+    bracket_fill_target: float | None,
+    prior_tax_deferred: float,
+) -> DraggedYearStep:
+    """One year of the DRAGGED access-aware decomposition (td1 DECISION 3-6).
+
+    Mirrors tb1's ``step_buckets`` for steps 1-2 (grow, then source the flat
+    spending need — byte-identical to before), then resolves the per-year
+    fixed point (steps 3-4, coupled: the lever fill, the RMD excess, and the
+    tax-funding draw all move together) and settles the internal transfers
+    LAST (see the module docstring's "TRANSFER SETTLEMENT ORDER").
+
+    SPENDING IS SENIOR TO THE TAX BILL (td-b, pinned — module docstring step
+    2): the spending draw (step 2) sources unconditionally BEFORE the fixed
+    point computes any bill, so in a crossing year the bill is JUNIOR — the
+    tax-funding cascade takes what remains after spending, and whatever part
+    of the bill the emptied accounts can't cover dies with the portfolio
+    (depletion, the absorbing floor). This is the operand order the code has
+    always had; named so the realized-spend recording can lean on it.
+
+    ``pension_ss_ordinary`` = pensions + 0.85 x SS already summed by the caller
+    (``_pension_income_at_age`` + 0.85 x ``_ss_income_at_age``) — passed in
+    rather than re-derived here so this function stays a plain numeric step,
+    independently unit-testable with hand-picked inputs (the design's
+    hand-computed anchors call this directly). ``prior_tax_deferred`` is the
+    PRIOR year's recorded (reconciled) tax-deferred balance — the RMD's
+    denominator input, per DECISION 4 ("Future RMDs shrink through the real
+    table" — this is what makes that true: each year's excess movement reduces
+    next year's ``prior_tax_deferred``). ``bracket_fill_target`` is ``None``
+    when the lever is off (every iteration then skips DECISION 5 entirely).
+    """
+    # 1. Grow each account (step_year's exact operand order: b + b*r).
+    taxable = taxable + taxable * r
+    tax_deferred = tax_deferred + tax_deferred * r
+    roth = roth + roth * r
+
+    # 2. Source the flat net spending need (tb1 cascade, byte-identical).
+    net = (spending - gi) * (1 + r / 2)
+    spend_forced = False
+    sp_taxable_draw = sp_tax_deferred_draw = sp_roth_draw = 0.0
+    if net <= 0:
+        # Income covered spending; the surplus is a contribution to taxable.
+        taxable = taxable + (-net)
+    else:
+        (
+            taxable,
+            tax_deferred,
+            roth,
+            spend_forced,
+            sp_taxable_draw,
+            sp_tax_deferred_draw,
+            sp_roth_draw,
+        ) = _source_net(taxable, tax_deferred, roth, net, penalty_free)
+    # Balances AFTER the spending draw, BEFORE any tax-funding draw — the pool
+    # every fixed-point iteration sources its CANDIDATE tax-funding draw from
+    # (never cumulatively; each iteration re-sources fresh from these same
+    # post-spend balances for its own candidate T).
+    taxable_after_spend = taxable
+    tax_deferred_after_spend = tax_deferred
+    roth_after_spend = roth
+
+    # 3+4. THE FIXED POINT — see the module docstring for the full argument.
+    lever_window = LEVER_MIN_AGE <= age <= LEVER_MAX_AGE
+    rmd_window = age >= RMD_START_AGE
+    deduction = standard_deduction(n_65_plus, single)
+
+    # perf, all byte-identical (see each site): ``max``/``min`` builtins
+    # became inline conditionals, ``compute_federal_tax(...).total`` became the
+    # allocation-free ``federal_tax_total`` (same ``_tax_components``
+    # arithmetic, no ``FederalTaxYear`` construction per iterate), the
+    # convergence test compares the signed delta against ±tolerance instead of
+    # calling ``abs()``, and the hot names are hoisted to locals — this loop
+    # body runs ~3.5M times in a split-MC 10k run.
+    _source = _source_net
+    _tax_total = federal_tax_total
+    _tol = FIXED_POINT_TOLERANCE
+    lever_on = lever_window and bracket_fill_target is not None
+
+    T = 0.0
+    converged = False
+    tf_forced = False
+    tf_taxable_draw = tf_tax_deferred_draw = tf_roth_draw = 0.0
+    lever_extra = rmd_excess = 0.0
+    ordinary_income = ltcg_income = penalty = 0.0
+    iterations = 0
+    for iterations in range(1, FIXED_POINT_MAX_ITERATIONS + 1):
+        (
+            _t_after_tf,
+            _td_after_tf,
+            _r_after_tf,
+            tf_forced,
+            tf_taxable_draw,
+            tf_tax_deferred_draw,
+            tf_roth_draw,
+        ) = _source(
+            taxable_after_spend,
+            tax_deferred_after_spend,
+            roth_after_spend,
+            T,
+            penalty_free,
+        )
+        total_td_draw = sp_tax_deferred_draw + tf_tax_deferred_draw
+        total_taxable_draw = sp_taxable_draw + tf_taxable_draw
+        # What's left in tax-deferred once the (candidate) tax-funding draw has
+        # taken its share — the pool the lever/RMD transfer can claim
+        # (DECISION 3's scarce-TD priority: the bill is satisfied FIRST).
+        residual_tax_deferred = tax_deferred_after_spend - tf_tax_deferred_draw
+
+        lever_extra = 0.0
+        if lever_on:
+            target = bracket_fill_target + deduction - (
+                pension_ss_ordinary + total_td_draw
+            )
+            if target < 0.0:
+                target = 0.0
+            cap = residual_tax_deferred if residual_tax_deferred > 0.0 else 0.0
+            lever_extra = target if target < cap else cap
+
+        rmd_excess = 0.0
+        if rmd_window:
+            rmd = prior_tax_deferred / rmd_factor(age)
+            excess = rmd - total_td_draw
+            if excess < 0.0:
+                excess = 0.0
+            # Defensive cap (never transfer more than exists) — not expected
+            # to bind in practice since growth generally keeps the current
+            # balance >= the RMD, but guards a pathological crash-year fixture.
+            cap = residual_tax_deferred if residual_tax_deferred > 0.0 else 0.0
+            rmd_excess = excess if excess < cap else cap
+
+        ordinary_income = pension_ss_ordinary + total_td_draw + lever_extra + rmd_excess
+        ltcg_income = total_taxable_draw * gains_fraction
+        penalty = EARLY_WITHDRAWAL_PENALTY_RATE * total_td_draw if not penalty_free else 0.0
+
+        T_next = _tax_total(ordinary_income, ltcg_income, n_65_plus, single) + penalty
+
+        delta = T_next - T
+        if -_tol < delta < _tol:
+            T = T_next
+            converged = True
+            break
+        T = T_next
+
+    if not converged:
+        raise RuntimeError(
+            f"tax-drag fixed point failed to converge in "
+            f"{FIXED_POINT_MAX_ITERATIONS} iterations at age {age} (last bill "
+            f"${T:,.2f}) — the map is a monotone contraction with Lipschitz "
+            f"constant <= ~0.47 and should converge in well under 40 "
+            f"iterations, so a cap hit here is a BUG (a broken bracket table "
+            f"or a sourcing regression), never a legitimate slow case. See "
+            f"the module docstring's convergence argument."
+        )
+
+    # Attribution (DECISION 6): telescoping three-way split of THIS SAME final
+    # income vector — never a re-run of the fixed point with a component
+    # dropped (that would resolve DIFFERENT tax-funding draws and the exact
+    # `==` identity below would fail by cents).
+    #
+    # td-b PERFORMANCE (MC 10k timing gate): ``compute_federal_tax(x + 0.0,
+    # ...)`` is EXACTLY ``compute_federal_tax(x, ...)`` — adding a literal
+    # 0.0 changes no float bit — so when ``lever_extra`` (or ``rmd_excess``)
+    # is exactly 0.0, calling again with it added is a byte-identical, purely
+    # wasted call. Skipping it is not an approximation: DECISION 6 already
+    # guarantees the two never co-occur, so at most one of the two guards
+    # below is ever "false" in the SAME year, and every skip reuses the
+    # PRECISE already-computed value rather than recomputing it.
+    base_ordinary = ordinary_income - lever_extra - rmd_excess
+    tax_base = _tax_total(base_ordinary, ltcg_income, n_65_plus, single)
+    if lever_extra != 0.0:
+        tax_base_lever = _tax_total(
+            base_ordinary + lever_extra, ltcg_income, n_65_plus, single
+        )
+    else:
+        tax_base_lever = tax_base
+    if rmd_excess != 0.0:
+        tax_base_lever_rmd = _tax_total(
+            base_ordinary + lever_extra + rmd_excess, ltcg_income, n_65_plus, single
+        )
+    else:
+        tax_base_lever_rmd = tax_base_lever
+    spending_tax = tax_base + penalty
+    voluntary_tax = tax_base_lever - tax_base
+    forced_tax = tax_base_lever_rmd - tax_base_lever
+    tax_total = spending_tax + voluntary_tax + forced_tax
+
+    # Apply the tax-funding draws, THEN settle the transfers (load-bearing
+    # order — module docstring "TRANSFER SETTLEMENT ORDER"): the lever/RMD
+    # transfer moves gross, tax_deferred -> taxable, AFTER tax-funding has
+    # already sourced from the PRE-transfer taxable balance.
+    taxable = taxable_after_spend - tf_taxable_draw
+    tax_deferred = tax_deferred_after_spend - tf_tax_deferred_draw
+    roth = roth_after_spend - tf_roth_draw
+    transfer = lever_extra + rmd_excess
+    tax_deferred -= transfer
+    taxable += transfer
+
+    # Defensive float-noise floor (same discipline as tb1's step_buckets).
+    if taxable < 0:
+        taxable = 0.0
+    if tax_deferred < 0:
+        tax_deferred = 0.0
+    if roth < 0:
+        roth = 0.0
+
+    return DraggedYearStep(
+        taxable=taxable,
+        tax_deferred=tax_deferred,
+        roth=roth,
+        forced_pre_595_draw=spend_forced or tf_forced,
+        taxable_draw=sp_taxable_draw,
+        tax_deferred_draw=sp_tax_deferred_draw,
+        roth_draw=sp_roth_draw,
+        tf_taxable_draw=tf_taxable_draw,
+        tf_tax_deferred_draw=tf_tax_deferred_draw,
+        tf_roth_draw=tf_roth_draw,
+        lever_transfer=lever_extra,
+        rmd_excess=rmd_excess,
+        ordinary_income=ordinary_income,
+        ltcg_income=ltcg_income,
+        tax=tax_total,
+        spending_tax=spending_tax,
+        voluntary_tax=voluntary_tax,
+        forced_tax=forced_tax,
+        penalty=penalty,
+        iterations=iterations,
+    )

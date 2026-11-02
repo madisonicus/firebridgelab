@@ -36,19 +36,14 @@ from dataclasses import replace
 import pytest
 
 from firebridgelab import default_scenario, simulate
-from firebridgelab._step import max_fundable_spend
-from firebridgelab.finance import compute_npv_gaps_by_age, npv_gaps_at_age
-from firebridgelab.scenario import (
-    AssetClass,
-    SPENDING_MODE_AMORTIZATION,
-    Scenario,
-    gi_at_age,
-)
-from firebridgelab.spending import (
-    AmortizationFrontierStrategy,
-    _npv_escalated_gaps_at_age,
-    make_strategy,
-)
+from firebridgelab.engine.step import max_fundable_spend
+from firebridgelab.spending.npv import compute_npv_gaps_by_age, npv_gaps_at_age
+from firebridgelab.engine.allocation import AssetClass
+from firebridgelab.spending.modes import SPENDING_MODE_AMORTIZATION
+from firebridgelab.engine.scenario import Scenario
+from firebridgelab.income.guaranteed import gi_at_age
+from firebridgelab.spending.rules.amortization import AmortizationFrontierStrategy, _npv_escalated_gaps_at_age
+from firebridgelab.spending.registry import make_strategy
 
 
 def _amort_scenario(**overrides) -> Scenario:

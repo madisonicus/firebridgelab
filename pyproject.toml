@@ -44,7 +44,7 @@ notebooks = [
 ]
 
 [project.scripts]
-firebridgelab-fetch-data = "firebridgelab.fetch:main"
+firebridgelab-fetch-data = "firebridgelab.returns.fetch:main"
 
 [project.urls]
 Homepage = "https://github.com/madisonicus/firebridgelab"
@@ -53,6 +53,9 @@ Issues = "https://github.com/madisonicus/firebridgelab/issues"
 
 [tool.setuptools.packages.find]
 include = ["firebridgelab", "firebridgelab.*"]
+
+[tool.setuptools.package-data]
+"firebridgelab.tax" = ["data/*.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

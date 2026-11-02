@@ -13,7 +13,7 @@ registry holds only API-presentation properties.
 
 from dataclasses import dataclass
 
-from firebridgelab.scenario import (
+from firebridgelab.spending.modes import (
     SPENDING_MODE_AMORTIZATION,
     SPENDING_MODE_CONSTANT,
     SPENDING_MODE_FR_GUARDRAIL,

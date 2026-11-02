@@ -13,21 +13,20 @@ from fastapi.testclient import TestClient
 
 from api.main import app
 from firebridgelab import default_scenario
-from firebridgelab.federal_tax import (
+from firebridgelab.tax.core import (
     EARLY_WITHDRAWAL_PENALTY_RATE,
     NIIT_RATE,
     NIIT_THRESHOLD_MFJ,
     STANDARD_DEDUCTION_MFJ,
     ADDITIONAL_DEDUCTION_65_PLUS,
-    aggregate_tax_overlay,
     compute_federal_tax,
-    compute_tax_overlay,
 )
-from firebridgelab.historical import simulate_historical
-from firebridgelab.monte_carlo import simulate_monte_carlo
-from firebridgelab.scenario import ScenarioValidationError, validate_scenario
-from firebridgelab.simulate import simulate
-from firebridgelab.tax_location import TaxLocationPath, simulate_tax_location_deterministic
+from firebridgelab.tax.overlay import aggregate_tax_overlay, compute_tax_overlay
+from firebridgelab.engine.historical import simulate_historical
+from firebridgelab.engine.monte_carlo import simulate_monte_carlo
+from firebridgelab.engine.validation import ScenarioValidationError, validate_scenario
+from firebridgelab.engine.deterministic import simulate
+from firebridgelab.tax.location_path import TaxLocationPath, simulate_tax_location_deterministic
 
 client = TestClient(app)
 
@@ -313,7 +312,8 @@ def test_engine_draws_non_negative_and_reconcile_with_net_draw():
     on a funded split and checks: every recorded draw is >= 0, and at each age
     the three draws sum to the SAME net-draw the tb1 module itself computes
     (``spending*(1+r/2) - gi``, when positive) within float tolerance."""
-    from firebridgelab.scenario import blended_real_return_at_age, gi_at_age
+    from firebridgelab.engine.allocation import blended_real_return_at_age
+    from firebridgelab.income.guaranteed import gi_at_age
 
     base = default_scenario()
     s = replace(
@@ -715,7 +715,7 @@ def test_federal_tax_total_equals_compute_federal_tax_total_everywhere():
     arithmetic, and this test is the permanent enforcement that they can
     never drift.
     """
-    from firebridgelab.federal_tax_core import federal_tax_total
+    from firebridgelab.tax.core import federal_tax_total
 
     ordinary_grid = [
         0.0, 1.0, 31_234.56, 32_200.0, 35_500.0, 24_800.0, 57_000.0,

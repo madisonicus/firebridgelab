@@ -25,18 +25,20 @@ from firebridgelab import (
     simulate,
     simulate_historical,
 )
-from firebridgelab.historical import (
+from firebridgelab.returns.series import (
     HIST_SERIES_REGISTRY,
     HISTORICAL_SELECTION_EPSILON,
-    _apply_window_floor,
-    _is_legacy_shiller_only,
-    cohort_return_sequences,
     common_overlap_start_years,
     historical_series_by_id,
     selected_series_for,
 )
-from firebridgelab.sim_core import _simulate_cohort
-from firebridgelab.shiller import load_shiller
+from firebridgelab.engine.cohort_windows import (
+    _apply_window_floor,
+    _is_legacy_shiller_only,
+    cohort_return_sequences,
+)
+from firebridgelab.engine.sim_core import _simulate_cohort
+from firebridgelab.returns.shiller import load_shiller
 
 
 def _reit_scenario(reit_weight=0.20, equity=0.50, bonds=0.30):
@@ -489,13 +491,10 @@ def test_multiclass_weights_renormalize_over_selected():
 # Adjustment-event visibility (variable-spending design slice 2)               #
 # --------------------------------------------------------------------------- #
 
-from firebridgelab.historical import (  # noqa: E402  (grouped with the slice-2 tests)
-    AdjustmentEvent,
-    _compute_worst_cohort,
-    _gi_step_label,
-)
-from firebridgelab.sim_core import _compute_adjustment_stats  # noqa: E402
-from firebridgelab.scenario import SPENDING_MODE_GUARDRAILS  # noqa: E402
+from firebridgelab.engine.cohort_aggregate import _compute_worst_cohort, _gi_step_label  # noqa: E402
+from firebridgelab.spending.base import AdjustmentEvent  # noqa: E402
+from firebridgelab.engine.sim_core import _compute_adjustment_stats  # noqa: E402
+from firebridgelab.spending.modes import SPENDING_MODE_GUARDRAILS  # noqa: E402
 
 
 def _ev(age, action, spend, begin=1_000_000.0, gi=0.0, gi_stepped_up=False):
@@ -727,7 +726,7 @@ def test_constant_lifecycle_carry_no_spending_fan():
     distribution to plot — the spend_* fields stay None (the API omits the
     spending fan; back-compatible).
     """
-    from firebridgelab.scenario import SPENDING_MODE_LIFECYCLE
+    from firebridgelab.spending.modes import SPENDING_MODE_LIFECYCLE
 
     const = simulate_historical(default_scenario())
     assert const.spend_median is None
@@ -747,7 +746,7 @@ def test_guardrail_spending_fan_present_and_monotone():
     Mirrors the portfolio fan: same length as ``ages``, and at every age
     spend_p10 <= spend_p25 <= spend_median <= spend_p75 <= spend_p90.
     """
-    from firebridgelab.scenario import SPENDING_MODE_GUARDRAILS
+    from firebridgelab.spending.modes import SPENDING_MODE_GUARDRAILS
 
     scenario = replace(
         default_scenario(),
@@ -782,7 +781,7 @@ def test_guardrail_year_one_no_trip():
     so the funded rate equals initial_rate (in-band) → no trip → every cohort
     spends the start spend. So the spending fan is a point at age 50.
     """
-    from firebridgelab.scenario import SPENDING_MODE_GUARDRAILS
+    from firebridgelab.spending.modes import SPENDING_MODE_GUARDRAILS
 
     scenario = replace(
         default_scenario(),
@@ -811,8 +810,8 @@ def test_realized_spend_capped_at_fundable_after_depletion():
     (24k, 33k, 66k, 98,240); a no-GI bridge depletion (next test) drives the
     recorded spend to ~$0.
     """
-    from firebridgelab.scenario import gi_at_age
-    from firebridgelab._step import max_fundable_spend
+    from firebridgelab.income.guaranteed import gi_at_age
+    from firebridgelab.engine.step import max_fundable_spend
 
     scenario = replace(
         default_scenario(),
@@ -1034,7 +1033,7 @@ def test_window_floor_applies_in_buckets_mode():
     The user hit this with a buckets scenario vs a single 60/40. A bucket scenario
     using a short-history class is clamped exactly like the single path.
     """
-    from firebridgelab.scenario import default_bucket_config
+    from firebridgelab.engine.scenario import default_bucket_config
 
     bsc = replace(
         default_scenario(),

@@ -36,30 +36,29 @@ from fastapi.testclient import TestClient
 
 from api.main import app
 from firebridgelab import default_scenario
-from firebridgelab.federal_tax_core import compute_federal_tax
-from firebridgelab.historical import simulate_historical
-from firebridgelab.monte_carlo import simulate_monte_carlo
-from firebridgelab.scenario import (
-    ScenarioValidationError,
-    blended_real_return_at_age,
-    validate_scenario,
-)
-from firebridgelab.simulate import simulate
-from firebridgelab.spending import make_strategy
-from firebridgelab.tax_location import (
+from firebridgelab.tax.core import compute_federal_tax
+from firebridgelab.engine.historical import simulate_historical
+from firebridgelab.engine.monte_carlo import simulate_monte_carlo
+from firebridgelab.engine.validation import ScenarioValidationError, validate_scenario
+from firebridgelab.engine.allocation import blended_real_return_at_age
+from firebridgelab.engine.deterministic import simulate
+from firebridgelab.spending.registry import make_strategy
+from firebridgelab.tax.location import (
     FIXED_POINT_MAX_ITERATIONS,
     LEVER_MAX_AGE,
     LEVER_MIN_AGE,
     PRE_595_MAX_AGE,
-    RMD_START_AGE,
     TAX_LOCATION_ACCESS_AGE,
-    aggregate_estate_cost,
     has_tax_split,
     resolve_split,
+    step_buckets_dragged,
+)
+from firebridgelab.tax.rmd import RMD_START_AGE
+from firebridgelab.tax.location_risk import aggregate_estate_cost
+from firebridgelab.tax.location_path import (
     simulate_dragged_depletion_only,
     simulate_path_decomposition,
     simulate_tax_location_deterministic,
-    step_buckets_dragged,
 )
 from tests._canary import DET_FINAL_CANARY
 
@@ -102,7 +101,8 @@ def test_has_tax_split_off_by_default():
 
 def _dragged_recurrence_check(s, path) -> None:
     """Assert the buckets-sum year-over-year recurrence holds EXACTLY."""
-    from firebridgelab.scenario import blended_real_return_at_age, gi_at_age
+    from firebridgelab.engine.allocation import blended_real_return_at_age
+    from firebridgelab.income.guaranteed import gi_at_age
 
     prev = s.initial_portfolio
     for i, age in enumerate(path.ages):
@@ -156,8 +156,10 @@ def test_stochastic_reconciliation_within_tolerance():
     reconciles to the SAME recurrence within a sub-cent tolerance (the 1-ULP
     float re-association artifact tb1 documented — now telescoping to the
     DRAGGED total instead of the retired untaxed-scalar comparison)."""
-    from firebridgelab import historical as H
-    from firebridgelab.scenario import gi_at_age
+    from firebridgelab.engine.cohort_windows import _cohort_blended_returns
+    from firebridgelab.returns.series import renormalized_weights
+    from firebridgelab.returns.shiller import load_shiller
+    from firebridgelab.income.guaranteed import gi_at_age
 
     base = default_scenario()
     s = replace(
@@ -166,13 +168,13 @@ def test_stochastic_reconciliation_within_tolerance():
         tax_deferred_balance=504_000.0,
         roth_balance=216_000.0,
     )
-    data = H.load_shiller()
+    data = load_shiller()
     n_steps = s.end_age - s.start_age + 1
-    weights = H.renormalized_weights(s)
+    weights = renormalized_weights(s)
     worst = 0.0
     for sy in data.all_starting_years(n_steps):
         period = data.returns_for_period(sy, n_steps)
-        returns = H._cohort_blended_returns(weights, period)
+        returns = _cohort_blended_returns(weights, period)
         path = simulate_path_decomposition(s, returns, make_strategy(s))
         prev = s.initial_portfolio
         for i, age in enumerate(path.ages):
@@ -338,8 +340,10 @@ def test_total_fan_matches_dragged_total_consistency():
     """
     import numpy as np
 
-    from firebridgelab import historical as H
-    from firebridgelab.spending import make_strategy
+    from firebridgelab.engine.cohort_windows import _cohort_blended_returns
+    from firebridgelab.returns.series import renormalized_weights
+    from firebridgelab.returns.shiller import load_shiller
+    from firebridgelab.spending.registry import make_strategy
 
     s = replace(
         default_scenario(),
@@ -376,13 +380,13 @@ def test_total_fan_matches_dragged_total_consistency():
 
     # (2) Aggregator self-consistency: independently recompute the raw
     # per-cohort dragged totals and confirm the percentiles match exactly.
-    data = H.load_shiller()
+    data = load_shiller()
     n_steps = s.end_age - s.start_age + 1
-    weights = H.renormalized_weights(s)
+    weights = renormalized_weights(s)
     paths = []
     for sy in data.all_starting_years(n_steps):
         period = data.returns_for_period(sy, n_steps)
-        returns = H._cohort_blended_returns(weights, period)
+        returns = _cohort_blended_returns(weights, period)
         paths.append(simulate_path_decomposition(s, returns, make_strategy(s)))
     total_matrix = np.array(
         [[p.taxable[i] + p.tax_deferred[i] + p.roth[i] for i in range(n_steps)] for p in paths]
@@ -754,7 +758,7 @@ def test_fixed_point_convergence_assertion_exists(monkeypatch):
     """The convergence assertion is REAL, not decorative: force the iteration
     cap down to 0 (impossible to converge) and confirm ``step_buckets_dragged``
     raises rather than silently returning a not-yet-converged bill."""
-    import firebridgelab.tax_location as tax_location
+    import firebridgelab.tax.location as tax_location
 
     monkeypatch.setattr(tax_location, "FIXED_POINT_MAX_ITERATIONS", 0)
     with pytest.raises(RuntimeError, match="failed to converge"):
@@ -1402,7 +1406,8 @@ def test_realized_spend_caps_at_affordable_post_depletion_guardrails():
     convention in the crossing year: spending sources first (fully funded and
     recorded in full), the tax bill is junior and is what triggers depletion.
     """
-    from firebridgelab.scenario import blended_real_return_at_age, gi_at_age
+    from firebridgelab.engine.allocation import blended_real_return_at_age
+    from firebridgelab.income.guaranteed import gi_at_age
 
     s = _depleting_guardrails_split()
     path = simulate_tax_location_deterministic(s)
@@ -1488,7 +1493,7 @@ def test_overlay_effective_rate_reads_realized_on_real_depleting_run():
     less spend). (``gross_outflow``'s equivalent post-depletion honesty
     property — reading realized, not intended, consumption — is pinned
     separately below.)"""
-    from firebridgelab.federal_tax import compute_tax_overlay
+    from firebridgelab.tax.overlay import compute_tax_overlay
 
     s = _depleting_guardrails_split()
     path = simulate_tax_location_deterministic(s)
@@ -1644,8 +1649,8 @@ def test_dragged_depletion_only_carries_the_same_drift():
     engine but not the solver would bisect a different (flat-spend, richer)
     world than the one rendered. Pinned by depletion-age agreement on a drift
     scenario that genuinely depletes under drag."""
-    from firebridgelab.spending import make_strategy
-    from firebridgelab.tax_location import deterministic_blended_returns
+    from firebridgelab.spending.registry import make_strategy
+    from firebridgelab.tax.location_path import deterministic_blended_returns
 
     # The seam-pin fixture with a 2% drift depletes under drag at 89 (drift raises
     # late-life spend enough to sink the dragged world). Raised from the shared

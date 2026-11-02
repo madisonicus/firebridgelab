@@ -27,17 +27,19 @@ from firebridgelab import (
     simulate,
     simulate_monte_carlo,
 )
-from firebridgelab.monte_carlo import (
+from firebridgelab.engine.monte_carlo import (
     DEFAULT_N_TRIALS,
     DEFAULT_SEED,
-    _assemble_correlation_matrix,
-    _blended_trial_returns,
     _monte_carlo_evaluator,
-    _nearest_psd,
-    _sample_class_returns,
     simulate_monte_carlo as _simulate_mc,
 )
-from firebridgelab.historical import SERIES_FOR_CLASS, mapped_series_for
+from firebridgelab.returns.sampling import (
+    _assemble_correlation_matrix,
+    _blended_trial_returns,
+    _nearest_psd,
+    _sample_class_returns,
+)
+from firebridgelab.returns.series import SERIES_FOR_CLASS, mapped_series_for
 from tests._canary import DET_YEAR0_CANARY
 
 
@@ -446,7 +448,7 @@ def test_four_class_no_matrix_uses_estimated_default():
     estimated default in rather than raising (slice-0 placeholder) or broadcasting
     the scalar.
     """
-    from firebridgelab.correlation import estimate_correlation_matrix
+    from firebridgelab.returns.correlation import estimate_correlation_matrix
 
     s = _four_class_scenario()
     n_years = s.end_age - s.start_age + 1
@@ -501,7 +503,7 @@ def test_simulate_monte_carlo_raises_on_non_psd_estimate(monkeypatch):
     SIMULATION ITSELF raises — proving the gate is wired into production, not only
     exercised in the correlation test file.
     """
-    import firebridgelab.correlation as corr
+    import firebridgelab.returns.correlation as corr
 
     # Badly non-PSD 4x4 (the 4-class scenario maps exactly 4 series). The
     # +0.95/-0.95 ring forces a large negative eigenvalue, so the PSD projection is
@@ -597,7 +599,7 @@ def test_malformed_explicit_matrix_raises_for_422():
 # Variable-spending design slice 3 — guardrail support in Monte Carlo          #
 # --------------------------------------------------------------------------- #
 
-from firebridgelab.scenario import SPENDING_MODE_GUARDRAILS  # noqa: E402
+from firebridgelab.spending.modes import SPENDING_MODE_GUARDRAILS  # noqa: E402
 
 
 def _mc_guardrail_scenario(**overrides):
@@ -619,7 +621,7 @@ def test_mc_constant_lifecycle_carry_no_spend_fan_or_stats():
     identical across trials, so there is no spending distribution and no adjustments
     — both stay None (the payload omits them; the default MC run is unaffected).
     """
-    from firebridgelab.scenario import SPENDING_MODE_LIFECYCLE
+    from firebridgelab.spending.modes import SPENDING_MODE_LIFECYCLE
 
     const = simulate_monte_carlo(default_scenario())
     assert const.spend_median is None
@@ -750,7 +752,7 @@ def test_split_parallel_pool_matches_serial_byte_for_byte(monkeypatch):
     import dataclasses
     import json
 
-    import firebridgelab.monte_carlo as mc
+    import firebridgelab.engine.monte_carlo as mc
 
     if mc.SPLIT_PARALLEL_MAX_WORKERS <= 1:
         pytest.skip(
