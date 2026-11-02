@@ -299,6 +299,9 @@ of sampling noise at 10,000 trials.
   and the portfolio ends at zero ([validation.md](validation.md#closed-form)).
   Guaranteed income above the spend is not borrowed against: a year in which
   income covers the spend adds nothing to the plan.
+  The plan assumes the household's full spend in every remaining year; it does
+  not anticipate a survivor case's lower spending, so with `survivor_age` set
+  the portfolio ends above zero.
 
 ## What is not modelled
 
