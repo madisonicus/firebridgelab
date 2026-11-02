@@ -1,4 +1,11 @@
-"""income.pension (split from the flat layout)."""
+"""Pension income in real dollars.
+
+Amounts are entered in today's dollars, or, with ``pension_nominal_until_start``, as
+the nominal check at commencement (deflated at ``assumed_inflation``). The real path
+after commencement depends on the COLA (``full`` keeps it level; ``fers_diet`` applies
+the FERS rule of 5 U.S.C. 8462), the stress-only ``pension_real_drift``, and the
+survivor fraction after the first death.
+"""
 
 from __future__ import annotations
 

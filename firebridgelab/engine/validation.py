@@ -1,4 +1,10 @@
-"""engine.validation (split from the flat layout)."""
+"""Scenario construction invariants: ``validate_scenario`` and its error type.
+
+Checks a ``Scenario``'s modes, magnitudes, ages, allocation, rails, strategy
+configuration and tax split, raising ``ScenarioValidationError`` (a
+``ValueError``) on the first violation with a message naming the field. Also
+holds ``validate_glidepath_class_consistency``.
+"""
 
 from __future__ import annotations
 
@@ -51,24 +57,18 @@ class ScenarioValidationError(ValueError):
 def validate_scenario(scenario: Scenario) -> None:
     """Validate a Scenario's construction invariants; raise on the first failure.
 
-    Turns the previously-IMPLICIT preconditions the engine relies on into ONE
-    explicit, testable seam. A malformed scenario used to crash DEEP and opaquely
-    (``scenario.buckets.n1`` ``AttributeError`` when buckets is ``None`` in buckets
-    mode; a glidepath with too few phases silently clamping; the tax split sum only
-    checked inside ``tax_location.resolve_split``). This raises a single
-    ``ScenarioValidationError`` naming the offending field on the FIRST violated
-    invariant instead.
+    Makes the preconditions the engine relies on explicit, so a malformed
+    scenario fails here with a ``ScenarioValidationError`` naming the offending
+    field instead of crashing deep and opaquely (e.g. an ``AttributeError`` on
+    ``scenario.buckets.n1`` when buckets is ``None`` in buckets mode).
 
-    Pure (no I/O). Lives in the low scenario layer and uses only this module's
-    derived helpers plus a function-local import of the tax-split sum rule (to
-    reuse its single source of truth without a module-top cycle). It does NOT
-    import higher engine layers.
+    Pure (no I/O). Uses a function-local import of the tax-split sum rule
+    (``tax.location.resolve_split``) to reuse its single source of truth. It
+    does NOT import higher engine layers.
 
-    Behavior-preserving: ``validate_scenario(default_scenario())`` passes, and so
-    does every scenario the existing suite constructs. At the API boundary it runs
-    AFTER the existing ``_validate_*`` checks, so it only converts
-    previously-uncaught DEEP crashes into clean errors; inputs the API already
-    rejects keep their existing message.
+    ``validate_scenario(default_scenario())`` passes. At the API boundary it runs
+    AFTER the API's own ``_validate_*`` checks, so inputs the API already rejects
+    keep their API message.
     """
     # --- Recognized mode constants -------------------------------------------
     if scenario.spending_mode not in registered_modes():
@@ -142,7 +142,7 @@ def validate_scenario(scenario: Scenario) -> None:
             f"spending_ceiling ({scenario.spending_ceiling})"
         )
 
-    # --- Real-drift knobs (stress-test design slice 4) ------------------------
+    # --- Real-drift knobs ---------------------------------------------------
     # Sanity bounds on the per-year real-drift rates: a plausible annual real
     # erosion/growth rate, not garbage. ±50% bounds the COLA-freeze / cost-of-
     # living drift well outside any real stress (the shipped stresses use 0.025
@@ -168,7 +168,7 @@ def validate_scenario(scenario: Scenario) -> None:
 
     # --- Bucket sourcing -----------------------------------------------------
     # buckets mode reads scenario.buckets.{n1,n2,...} unconditionally; a None
-    # config is the opaque deep AttributeError this seam replaces.
+    # config would otherwise be an opaque deep AttributeError.
     if scenario.sourcing_mode == SOURCING_MODE_BUCKETS:
         if scenario.buckets is None:
             raise ScenarioValidationError(
@@ -187,7 +187,7 @@ def validate_scenario(scenario: Scenario) -> None:
     # (see allocation_at_age), so the phase COUNT is intentionally NOT validated
     # here — a short list is a legal run. Only two things are enforced: the list
     # must be PRESENT + NON-EMPTY (a MISSING / EMPTY phase_allocations under
-    # glidepath mode is the silent degrade-to-constant the seam rejects), and no
+    # glidepath mode would silently degrade to constant), and no
     # individual phase may be empty (an empty phase tuple crashes the engine with
     # "no asset class maps to a known historical series").
     if scenario.allocation_mode == ALLOCATION_MODE_GLIDEPATH:
@@ -206,9 +206,8 @@ def validate_scenario(scenario: Scenario) -> None:
     # --- Tax-location split --------------------------------------------------
     # When ANY of the three tax-location balances is supplied, all three are
     # treated as supplied (missing → 0) and must sum to initial_portfolio within
-    # tolerance. Reuse the canonical sum rule from firebridgelab.tax_location via a
-    # function-local import (tax_location imports scenario only lazily, so there
-    # is no module-top cycle); this keeps the $1 tolerance single-sourced.
+    # tolerance. Reuse the canonical sum rule from tax.location via a
+    # function-local import; this keeps the $1 tolerance single-sourced.
     from firebridgelab.tax.location import has_tax_split, resolve_split
 
     if has_tax_split(scenario):
@@ -217,18 +216,17 @@ def validate_scenario(scenario: Scenario) -> None:
         except ValueError as exc:
             raise ScenarioValidationError(str(exc)) from exc
 
-    # --- Taxable-gains fraction (federal-tax overlay design ft1) --------------
+    # --- Taxable-gains fraction ---------------------------------------------
     if not (0.0 <= scenario.taxable_gains_fraction <= 1.0):
         raise ScenarioValidationError(
             "taxable_gains_fraction must be between 0 and 1 (got "
             f"{scenario.taxable_gains_fraction})"
         )
 
-    # --- Bracket-fill lever target (tax-drag design td1, DECISION 5) ----------
-    # None = lever off, always valid. When set, bounded 0..5,000,000 (the
-    # design's own range — a UI dollar field with presets at the real bracket
-    # tops, not a rate, so the bound is a plausible dollar-income sanity check,
-    # not a percentage).
+    # --- Bracket-fill lever target ------------------------------------------
+    # None = lever off, always valid. When set, bounded 0..5,000,000: a dollar
+    # income target (not a rate), so the bound is a plausible dollar-income
+    # sanity check, not a percentage.
     if scenario.bracket_fill_target is not None and not (
         0.0 <= scenario.bracket_fill_target <= 5_000_000.0
     ):
@@ -236,7 +234,7 @@ def validate_scenario(scenario: Scenario) -> None:
             "bracket_fill_target must be between 0 and 5,000,000 (got "
             f"{scenario.bracket_fill_target})"
         )
-    # --- Review 2026-10-11 knobs ---------------------------------------------
+    # --- Fee, MC distribution, pension inflation, survivor ------------------
     if not (0.0 <= scenario.annual_fee <= 0.03):
         raise ScenarioValidationError(
             f"annual_fee must be between 0 and 0.03 (got {scenario.annual_fee})"
@@ -277,16 +275,16 @@ def validate_scenario(scenario: Scenario) -> None:
 
 
 def validate_glidepath_class_consistency(scenario: Scenario) -> None:
-    """Enforce the v1 glidepath contract: per-class return ASSUMPTIONS are global.
+    """Enforce the glidepath contract: per-class return ASSUMPTIONS are global.
 
     A glidepath changes WEIGHTS across phases; the per-class ``real_return`` and
     ``volatility`` are a property of the class, not of the phase. If the SAME class
     id carries DIFFERING ``real_return`` or ``volatility`` across phases, the engines
     silently disagree: the deterministic path reads each phase's own ``real_return``
-    (``blended_real_return_at_age``), while the Monte Carlo sampler dedups the union
-    of phase classes by id (first occurrence wins — one vol per sampled series), so
-    the two would describe DIFFERENT portfolios with no error. Rather than blend
-    silently, reject the inconsistency loudly.
+    (``engine.allocation.blended_real_return_at_age``), while the Monte Carlo sampler
+    dedups the union of phase classes by id (first occurrence wins — one vol per sampled
+    series), so the two would describe DIFFERENT portfolios with no error. Rather than
+    blend silently, reject the inconsistency loudly.
 
     Raises ``ValueError`` naming the offending class. A no-op under ``constant``
     mode, when ``phase_allocations`` is empty, or when every phase agrees on each

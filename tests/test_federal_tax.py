@@ -146,7 +146,7 @@ def test_65_plus_deduction_kicks_in():
 #
 # Under tax-drag design td1, ``compute_tax_overlay`` no longer derives income /
 # tax / attribution from draws — that machinery moved to
-# ``firebridgelab.tax_location.step_buckets_dragged`` (the fixed point needs the
+# ``firebridgelab.tax.location.step_buckets_dragged`` (the fixed point needs the
 # account balances, which live there). The hand-computed composition/penalty/
 # RMD/attribution anchors that used to live HERE now live in
 # ``tests/test_tax_location.py`` (``test_hand_anchor_*`` and

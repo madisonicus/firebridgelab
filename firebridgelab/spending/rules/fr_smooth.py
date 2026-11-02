@@ -1,4 +1,11 @@
-"""spending.rules.fr_smooth (split from the flat layout)."""
+"""The ``fr_smooth`` spending mode: funded-ratio partial adjustment.
+
+FR = 1 means the 3-year smoothed portfolio exactly funds the baseline
+``annual_spending`` stream (net of GI). Each year the untapered base moves a
+damped fraction (alpha) of the way toward full funding, then takes the same
+go-go/slow-go/no-go taper and floor/ceiling clamp as ``guardrails``.
+Path-dependent and view-only (the max-spend solver is fenced).
+"""
 
 from __future__ import annotations
 
@@ -11,18 +18,18 @@ from firebridgelab.spending.registry import register
 
 
 # Default smoothness knob for the funded-ratio partial-adjustment strategy
-# (fr-smooth). Each year the untapered base moves a fraction ``alpha`` of the way
+# (fr_smooth). Each year the untapered base moves a fraction ``alpha`` of the way
 # toward full funding: ``base *= (1 + alpha * (fr - 1))``. alpha = 1 would snap
 # the base straight to the funded level each year (jumpy); alpha = 0 would freeze
 # it (constant-equivalent). 0.5 damps the adjustment to roughly half-speed — the
-# "smooth" in fr-smooth. Baked preset in v1 (NOT user-editable; the α input is a
-# later slice). A module constant so a unit test can read the same value.
+# "smooth" in fr_smooth. Not user-editable. A module constant so a unit test can
+# read the same value.
 _FR_SMOOTH_ALPHA: float = 0.5
 
 
 @register(SPENDING_MODE_FR_SMOOTH)
 class FundedRatioSmoothStrategy(FundedRatioStrategyBase):
-    """Funded-ratio PARTIAL-ADJUSTMENT spending strategy (FR feature slice 2).
+    """Funded-ratio PARTIAL-ADJUSTMENT spending strategy.
 
     Mirrors ``GuardrailStrategy``'s pinned nudge→taper→clamp order so the two are
     directly A/B-comparable on the spending fan — the ONLY difference is the
@@ -42,7 +49,7 @@ class FundedRatioSmoothStrategy(FundedRatioStrategyBase):
 
     Per-year ``_decide`` (the executable form of the pinned order):
 
-      1. PARTIAL-ADJUSTMENT (the design's recurrence)::
+      1. PARTIAL-ADJUSTMENT::
 
              base_spend = base_spend * (1 + alpha * (fr - 1))
 
@@ -65,7 +72,7 @@ class FundedRatioSmoothStrategy(FundedRatioStrategyBase):
     The ``(1 + alpha*(fr-1))`` factor with alpha = 0.5 and fr ≥ 0 is ≥ 0.5 > 0, so
     a positive base stays strictly positive on every adjusting year.
 
-    Adjustment-stats readout (design decision — option (a)): fr-smooth emits one
+    Adjustment-stats readout: fr_smooth emits one
     ``AdjustmentEvent`` per year so the EXISTING cost-of-flexibility readout +
     worst-cohort drill-down work unchanged. The ``action`` label is the SIGN of the
     FR-driven change to the untapered base this year — ``"raise"`` if the base went
@@ -85,9 +92,9 @@ class FundedRatioSmoothStrategy(FundedRatioStrategyBase):
         super().__init__(scenario, npv_target_real=scenario.annual_spending)
         # Carried UNtapered base, seeded at the baseline (the go-go-peak level).
         self.base_spend: float = scenario.annual_spending
-        # Adjustment-event log (option (a)) + prior-GI tracking for GI-driven-raise
-        # labeling — same shape/discipline as GuardrailStrategy. Purely descriptive:
-        # recording never alters the returned spend, so the canary holds.
+        # Adjustment-event log + prior-GI tracking for GI-driven-raise labeling —
+        # same shape/discipline as GuardrailStrategy. Purely descriptive:
+        # recording never alters the returned spend.
         self.events: list[AdjustmentEvent] = []
         self._prev_gi: float | None = None
 

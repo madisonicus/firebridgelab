@@ -1,4 +1,4 @@
-"""Tests for the synthetic-cohort stress engine (firebridgelab.stress, slice 1).
+"""Tests for the synthetic-cohort stress engine (firebridgelab.analysis.stress, slice 1).
 
 Pins the slice-1 stress test (stress-test design §Slicing) end to end at the
 engine layer:

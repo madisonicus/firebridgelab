@@ -8,7 +8,7 @@ Usage:
     firebridgelab-fetch-data --no-build # download only
     firebridgelab-fetch-data --dir PATH # use PATH instead of the default
 
-The default directory is ``firebridgelab.paths.data_dir()``: the
+The default directory is ``returns.paths.data_dir()``: the
 FIREBRIDGELAB_DATA environment variable, else ``data/cache/`` in a source
 checkout, else ``~/.cache/firebridgelab``.
 
@@ -78,7 +78,7 @@ Optional data (not redistributable; fetch it yourself if you want these classes)
   (classes intl_developed, emerging_markets, commodities, tips): simulated
   total-return series from testfol.io (tickers EFASIM, VWOSIM, GSGSIM, TIPSIM).
   Review testfol.io's terms first. The exact request the builder expects is
-  _TESTFOL_FETCH_CMD in firebridgelab/data_build.py; save each response
+  _TESTFOL_FETCH_CMD in firebridgelab/returns/data_build.py; save each response
   as testfol_raw_<TICKER>.json in the data directory.
 
 Then re-run: firebridgelab-fetch-data

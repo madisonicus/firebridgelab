@@ -1,4 +1,16 @@
-"""spending.rules.amortization (split from the flat layout)."""
+"""The ``amortization`` spending mode: the amortization frontier.
+
+The lone DEPLETE-AWARE rule (the others are sustain-and-preserve). It runs the
+funded-ratio machinery BACKWARDS: each year it solves for the constant-real total
+spend ``L`` such that the portfolio exactly funds the remaining GI-netted gap
+stream, discounted at ``amortization_real_return`` over the hard plan horizon
+``end_age`` (the ``L`` at which the funded ratio == 1). Because future GI is
+netted inside the solve, ``L`` front-loads consumption into the pre-SS bridge
+years. It is the upper boundary of the spending envelope — "the most you could
+responsibly pull each year if you amortize to zero by the plan horizon" — and is
+deliberately UNCLAMPED: the floor/ceiling rails are chart reference lines only.
+View-only: the frontier IS the spend, so the max-spend solver is fenced.
+"""
 
 from __future__ import annotations
 
@@ -55,7 +67,7 @@ def _npv_escalated_gaps_at_age(
                    max(0, l_base·(1+drift)^(t-start_age) - GI(t))
                    / (1 + discount_rate)^(t-age)
 
-    The drift-aware sibling of ``firebridgelab.finance.npv_gaps_at_age`` (which this
+    The drift-aware sibling of ``spending.npv.npv_gaps_at_age`` (which this
     reproduces exactly at ``drift == 0``): an INDEPENDENT brute-force reference
     (per-year ``gi_at_age`` calls, no precomputed tables) for the analytic
     drift-aware solve, used by ``_solve_l_bisect_drift`` and the equivalence
@@ -81,8 +93,8 @@ def _npv_escalated_gaps_at_age(
 
 @register(SPENDING_MODE_AMORTIZATION)
 class AmortizationFrontierStrategy(SpendingStrategy):
-    """The AMORTIZATION FRONTIER — the lone DEPLETE-AWARE spending strategy
-    (amortization-frontier design). The funded-ratio machinery run BACKWARDS.
+    """The AMORTIZATION FRONTIER — the lone DEPLETE-AWARE spending strategy.
+    The funded-ratio machinery run BACKWARDS.
 
     Each year, given the begin-of-year portfolio ``P_a``, solve for the constant-real
     total spend ``L`` such that the portfolio EXACTLY funds the remaining GI-netted
@@ -103,21 +115,19 @@ class AmortizationFrontierStrategy(SpendingStrategy):
     solve then amortizes the ESCALATED spend path instead — ``L·(1+d)^(t-start_age)``
     (anchored at the simulation start, matching the loop's exponent) net of the
     NON-drifting GI stream — keeping the benchmark self-consistent under drift.
-    ``d == 0`` takes the exact pre-drift-aware code path (canaries byte-identical).
+    ``d == 0`` takes the no-drift code path unchanged.
 
-    GI-aware consumption smoothing (design decision 2): because future GI is netted
+    GI-aware consumption smoothing: because future GI is netted
     INSIDE the solve, ``L`` front-loads consumption into the pre-SS bridge years (the
     portfolio is drawn down harder early BECAUSE it knows SS is coming, and a GI step
     raises ``L`` for free — the gap shrinks when a stream turns on). This is NOT myopic
-    VPW (``GI(a) + P_a / annuity_factor``), which would starve the bridge / go-go years
-    — the rejected alternative.
+    VPW (``GI(a) + P_a / annuity_factor``), which would starve the bridge / go-go years.
 
-    DESIGN — subclasses ``SpendingStrategy`` directly, NOT ``FundedRatioStrategyBase``
-    (design decision 5 / the implementation choice): the FR spine exists to support the
-    six SUSTAIN-AND-PRESERVE variants — it builds ONE fixed-target NPV table at
-    construction, maintains a 3-year SMOOTHED portfolio + crash/hysteresis carried
-    state, and every concrete variant applies the activity TAPER and the
-    floor/ceiling CLAMP. The frontier deliberately rejects ALL of that:
+    Subclasses ``SpendingStrategy`` directly, NOT ``FundedRatioStrategyBase``: the FR
+    spine exists to support the SUSTAIN-AND-PRESERVE variants — it builds ONE
+    fixed-target NPV table at construction, maintains a 3-year SMOOTHED portfolio +
+    crash/hysteresis carried state, and the concrete variants clamp their spend.
+    The frontier deliberately rejects ALL of that:
 
       - it RE-SOLVES for a NEW target ``L`` each year (the FR base bakes a single
         target once), so the prebuilt table doesn't fit;
@@ -131,18 +141,16 @@ class AmortizationFrontierStrategy(SpendingStrategy):
         generalize here — the role differs (a deplete-aware ceiling, not a
         sustain-and-preserve anchor). Inheriting the base would mean overriding or
         bypassing more than it reuses, so a direct subclass with its own per-year
-        solve is the honest, lower-coupling design.
+        solve is the lower-coupling design.
 
     Like the FR strategies it carries an ``AdjustmentEvent`` log + tracks GI steps, so
-    it rides the EXISTING ``collects_spends`` fan / drill-down path with no engine-side
-    changes (Deterministic → one recomputed line; Historical / MC → a fan per
-    cohort/trial). The ``action`` label is the honest sign of the year-over-year change
-    in the solved ``L`` (raise / cut / hold) — a real per-year fact, not a fabricated
-    band trip.
+    it rides the ``collects_spends`` fan / drill-down path (Deterministic → one
+    recomputed line; Historical / MC → a fan per cohort/trial). The ``action`` label
+    is the sign of the year-over-year change in the solved ``L`` (raise / cut / hold).
 
     Degenerate handling: ``P_a <= 0`` → return ``gi_at_age(scenario, a)`` (you can only
     spend your guaranteed income once the portfolio is gone). The engine's realized-
-    spend machinery (``_step.max_fundable_spend``, applied by every engine loop) then
+    spend machinery (``engine.step.max_fundable_spend``, applied by every engine loop) then
     clamps the RECORDED spend to what's actually fundable in broke years — for
     ``P_a == 0`` that caps recorded spend at ``gi`` — so the recorded fan
     stays honest without this strategy fighting it.
@@ -161,38 +169,34 @@ class AmortizationFrontierStrategy(SpendingStrategy):
     collects_spends: bool = True
 
     def __init__(self, scenario: Scenario) -> None:
-        # The planning real return the gap stream is discounted at (design decision 4).
+        # The planning real return the gap stream is discounted at.
         self.r = float(scenario.amortization_real_return)
         # Adjustment-event log + prior-state tracking (same shape/discipline as the
         # FR strategies). Purely descriptive — recording never alters the returned
-        # spend. ``_prev_spend`` drives the honest raise/cut/hold action label;
+        # spend. ``_prev_spend`` drives the raise/cut/hold action label;
         # ``_prev_gi`` flags a GI-step year (the solved L rises when a stream lands
         # because the netted gap stream shrinks).
         self.events: list[AdjustmentEvent] = []
         self._prev_spend: float | None = None
         self._prev_gi: float | None = None
 
-        # ----------------------------------------------------------------- #
-        # PERFORMANCE PRECOMPUTE (exact, results-preserving).               #
-        #                                                                   #
-        # GI(t) and the discount weights w(t) depend ONLY on the scenario + #
-        # r, not on the portfolio path — so they are identical across every #
-        # trial, every year, and (formerly) every bisection step. Compute   #
-        # them ONCE here and turn the per-year solve into an O(#GI-steps)    #
-        # analytic segment walk (``_solve_l_segments``) instead of a nested  #
-        # bisection that re-looped the horizon ~40x per year (the ~400x MC   #
-        # hot spot). Bisection is retained as ``_solve_l_bisect`` for the    #
-        # defensive fallback (below) and as the equivalence-test reference.  #
-        #                                                                   #
-        # Weights are anchored at ``start_age`` (w(start)=1) rather than at  #
-        # absolute t, so magnitudes stay near 1 and never underflow over a   #
-        # 40+ year horizon; the common (1+r)^start_age factor cancels in     #
-        # every L ratio, so the anchor choice does not change any result.    #
-        # ----------------------------------------------------------------- #
+        # Performance precompute (exact, results-preserving). GI(t) and the
+        # discount weights w(t) depend ONLY on the scenario + r, not on the
+        # portfolio path — so they are identical across every trial and every
+        # year. Compute them ONCE here and turn the per-year solve into an
+        # O(#GI-steps) analytic segment walk (``_solve_l_segments``) instead of a
+        # nested bisection that re-loops the horizon ~40x per year (a Monte Carlo
+        # hot spot). Bisection is retained as ``_solve_l_bisect`` for the
+        # defensive fallback and as the equivalence-test reference.
+        #
+        # Weights are anchored at ``start_age`` (w(start)=1) rather than at
+        # absolute t, so magnitudes stay near 1 and never underflow over a 40+
+        # year horizon; the common (1+r)^start_age factor cancels in every L
+        # ratio, so the anchor choice does not change any result.
         self._start_age = int(scenario.start_age)
         self._end_age = int(scenario.end_age)
         n = self._end_age - self._start_age + 1
-        # Per-age GI(t), one ``gi_at_age`` call per age (was once per solve-step).
+        # Per-age GI(t), one ``gi_at_age`` call per age.
         self._gi = [gi_at_age(scenario, self._start_age + i) for i in range(n)]
         # Absolute discount weights w(t) = (1+r)^-(t-start_age), indexed by offset.
         disc = 1.0 + self.r
@@ -223,36 +227,28 @@ class AmortizationFrontierStrategy(SpendingStrategy):
             self._gi[i + 1] >= self._gi[i] - 1e-9 for i in range(n - 1)
         )
 
-        # ----------------------------------------------------------------- #
-        # SPENDING-REAL-DRIFT AWARENESS.                         #
-        #                                                                   #
-        # The engine loops multiply the strategy's year-t output by         #
-        # ``(1 + spending_real_drift) ** (t - start_age)`` AFTER the solve  #
-        # (simulate.py / sim_core.py). A drift-blind constant-real solve     #
-        # therefore violates its own premise under d > 0: the escalated     #
-        # path overspends the balance and depletes YEARS before end_age     #
-        # (sustained_cost_drift reproduced the default frontier dying at ~81/87   #
-        # instead of riding to ~0 at 95). When d != 0 the per-year solve    #
-        # must find the L whose ESCALATED spend path                        #
-        # ``L · (1+d)^(t - start_age)`` — anchored at the SIMULATION start, #
-        # matching the loop's exponent, NOT at the re-solve age (the        #
-        # off-by-one that silently reintroduces the bug) — net of the       #
-        # NON-drifting GI stream, exactly amortizes the balance to 0 at     #
-        # end_age. Precompute (path-independent, once per run):             #
-        #   _esc[i]    = (1+d)^i                  spend escalation factors  #
-        #   _v[i]      = _esc[i] * w[i]           the spend leg's compound  #
-        #                = ((1+d)/(1+r))^i        discount weights          #
-        #   _gtilde[i] = GI(i) / _esc[i]          per-offset ACTIVE         #
-        #                                          threshold: offset i has  #
-        #                                          a positive gap iff       #
-        #                                          L > _gtilde[i]           #
-        #   _gtilde_order = offsets sorted ascending by _gtilde — the order #
-        #                   offsets JOIN the active set as L rises (under   #
-        #                   drift the active set is no longer a prefix in   #
-        #                   t, but it is always a prefix in this order).    #
-        # d == 0 builds none of this and takes the EXACT pre-drift-aware code path  #
-        # in ``_solve_l`` — every no-drift canary stays byte-identical.     #
-        # ----------------------------------------------------------------- #
+        # Spending-real-drift awareness. The engine loops multiply the strategy's
+        # year-t output by ``(1 + spending_real_drift) ** (t - start_age)`` AFTER
+        # the solve (``engine.deterministic`` / ``engine.sim_core``). A drift-blind
+        # constant-real solve therefore violates its own premise under d > 0: the
+        # escalated path overspends the balance and depletes YEARS before end_age.
+        # When d != 0 the per-year solve must find the L whose ESCALATED spend
+        # path ``L · (1+d)^(t - start_age)`` — anchored at the SIMULATION start,
+        # matching the loop's exponent, NOT at the re-solve age — net of the
+        # NON-drifting GI stream, exactly amortizes the balance to 0 at end_age.
+        # Precompute (path-independent, once per run):
+        #   _esc[i]    = (1+d)^i                 spend escalation factors
+        #   _v[i]      = _esc[i] * w[i]          the spend leg's compound
+        #              = ((1+d)/(1+r))^i         discount weights
+        #   _gtilde[i] = GI(i) / _esc[i]         per-offset ACTIVE threshold:
+        #                                        offset i has a positive gap
+        #                                        iff L > _gtilde[i]
+        #   _gtilde_order = offsets sorted ascending by _gtilde — the order
+        #                   offsets JOIN the active set as L rises (under drift
+        #                   the active set is no longer a prefix in t, but it is
+        #                   always a prefix in this order).
+        # d == 0 builds none of this and ``_solve_l`` takes the no-drift path, so
+        # results without drift are unchanged by the drift support.
         self.d = float(scenario.spending_real_drift)
         if self.d != 0.0:
             growth = 1.0 + self.d
@@ -286,8 +282,7 @@ class AmortizationFrontierStrategy(SpendingStrategy):
         (``_solve_l_segments_drift`` analytic / ``_solve_l_bisect_drift``
         reference — same fast-path-with-fallback shape, same guard). Both return
         ``L`` with ``_npv_escalated_gaps_at_age(scenario, age, L, r, d) ==
-        begin_year_portfolio`` to the cent. ``d == 0`` takes the exact pre-drift-aware
-        path below — no-drift canaries byte-identical.
+        begin_year_portfolio`` to the cent. ``d == 0`` takes the no-drift path below.
         """
         if self.d != 0.0:
             if self._gi_nondecreasing:
@@ -413,7 +408,7 @@ class AmortizationFrontierStrategy(SpendingStrategy):
     def _solve_l_bisect(
         self, scenario: Scenario, age: int, begin_year_portfolio: float
     ) -> float:
-        """Bisection REFERENCE solve (the original algorithm) — defensive fallback for
+        """Bisection REFERENCE solve — defensive fallback for
         the analytic path and the equivalence-test oracle.
 
         Returns ``L`` such that ``npv_gaps_at_age(scenario, age, L, r) ==
@@ -525,7 +520,7 @@ class AmortizationFrontierStrategy(SpendingStrategy):
         else:
             spend = self._solve_l(scenario, age, begin_year_portfolio)
 
-        # Honest year-over-year action label (no taper, no clamp, no band — the
+        # Year-over-year action label (no taper, no clamp, no band — the
         # frontier IS the spend). First year has no prior → "hold".
         if self._prev_spend is None or abs(spend - self._prev_spend) <= 1e-6:
             action = "hold"

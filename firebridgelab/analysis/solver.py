@@ -9,24 +9,22 @@ The solver is a **search, not a spending strategy**. It binary-searches a
 single scalar — ``annual_spending`` — which ``spending_for_age`` already
 interprets as the flat spend (constant mode) or the **go-go peak** the tapered
 curve hangs from (lifecycle mode). So the solver is **shape-agnostic**: it never
-knows or cares about the spending shape (the design notes
-§"Core concept").
+knows or cares about the spending shape.
 
 Held fixed during a solve: portfolio, allocation, GI streams, ages, spending
 *shape* (mode + multipliers + phase ages), confidence target. Solved: the single
 ``annual_spending`` level dial.
 
-Survival (locked MVP definition)
---------------------------------
+Survival
+--------
 Per cohort, survival = the portfolio never hits zero before ``end_age`` (the
 engine's existing depletion: ``depleted_age is None``). Confidence = success
 rate = ``1 - depletion_count / cohort_count``. This is conservative and labeled
-— it ignores that GI keeps flowing after the portfolio drains (the income-floor
-redefinition is a separate backlog card, deliberately not smuggled in here).
+— it ignores that GI keeps flowing after the portfolio drains.
 
 Why bisection is valid (monotonicity)
 --------------------------------------
-``end = portfolio*(1+r) + (GI - spending)*(1+r/2)``; the spend coefficient
+``end = portfolio + portfolio*r + (GI - spending)*(1+r/2)``; the spend coefficient
 ``(1 + r/2) > 0`` for all admissible ``r > -1`` and GI is spend-independent, so
 ``dend/dspend <= 0`` for every cohort-year. Lifecycle phase multipliers (>= 0)
 preserve it. So ``success_fraction`` is weakly non-increasing in spend — a clean
@@ -36,11 +34,15 @@ must re-derive this or bisection breaks silently** (the property test guards it)
 Performance
 -----------
 ``evaluate()`` runs a LEAN, depletion-only inner loop: it reuses the SAME
-per-cohort math as ``historical._simulate_cohort`` (so the math can't drift) but
+per-cohort math as ``engine.sim_core._simulate_cohort`` (so the math can't drift) but
 counts only depletions — it never builds the percentile fan ``simulate_historical``
 does. The cohorts' blended-return arrays are spend-independent, so the historical
 solve precomputes them once and re-runs only the cheap loop per probe (~10-15
 probes). Sub-second.
+
+Fences: buckets sourcing, path-dependent spending strategies, and a tax-location
+split in Monte Carlo mode are not solvable (see ``solve_max_spend``). With a split
+in Historical or Deterministic mode the solve runs the DRAGGED (after-tax) path.
 """
 
 from __future__ import annotations
@@ -68,14 +70,14 @@ from firebridgelab.tax.location_path import (
 )
 
 
-# tax-drag design td1, DECISION 8: the MC solve fence message (pinned so the API
-# and the tests both read the exact same sentence, never a paraphrase).
+# The tax-drag MC solve fence message (pinned so the API and the tests both read
+# the exact same sentence, never a paraphrase).
 TAX_DRAG_MC_FENCE_MESSAGE = (
     "max-spend solve is not yet available with tax drag in Monte Carlo mode"
 )
 
-# Solver modes mirror the projection modes (firebridgelab.simulate vs firebridgelab.historical
-# vs firebridgelab.monte_carlo).
+# Solver modes mirror the projection modes (engine.deterministic vs
+# engine.historical vs engine.monte_carlo).
 MODE_DETERMINISTIC = "deterministic"
 MODE_HISTORICAL = "historical"
 MODE_MONTE_CARLO = "monte_carlo"
@@ -105,7 +107,7 @@ _DISPLAY_ROUNDING = 1_000.0
 # non-monotonic in the spend dial and the solver would return a confidently-wrong
 # number. The two public entry points ask the constructed strategy whether it's
 # solvable and raise ``SpendingStrategyNotSolvable`` BEFORE any bisection runs —
-# the strategy owns the fence and the reason text, so the solver no longer needs
+# the strategy owns the fence and the reason text, so the solver does not need
 # to know which spending modes are view-only.
 
 
@@ -165,9 +167,8 @@ def _historical_evaluator(scenario: Scenario, data: ShillerData | None = None):
 
 
 def _historical_evaluator_dragged(scenario: Scenario, data: ShillerData | None = None):
-    """The DRAGGED analogue of ``_historical_evaluator`` (tax-drag design td1,
-    DECISION 8): survival = the DRAGGED path never depletes, not the pre-tax
-    scalar.
+    """The DRAGGED analogue of ``_historical_evaluator``: survival = the DRAGGED
+    (after-tax) path never depletes, not the pre-tax scalar.
 
     Same precompute-once shape: the cohorts' blended-return arrays are
     spend-independent, built ONCE via ``cohort_return_sequences`` — the exact
@@ -219,16 +220,15 @@ def evaluate(scenario: Scenario, mode: str) -> float:
     scenario's spending strategy is path-dependent (currently guardrails — view-
     only): the monotonicity that makes the spend search valid does not hold there.
     Raises ``BucketsNotSolvable`` (also a ``ValueError`` subclass) when
-    ``sourcing_mode == "buckets"`` — the bucket sourcing is view-only in slice 1a
-    (fenced like guardrails), so the solver never runs over it.
+    ``sourcing_mode == "buckets"`` — the bucket sourcing is view-only (fenced like
+    guardrails), so the solver never runs over it.
 
-    Tax-drag (design td1, DECISION 8): when a tax-location split is supplied
+    Tax drag: when a tax-location split is supplied
     (single sourcing — buckets already fenced above), ``historical`` and
     ``deterministic`` ride the DRAGGED engine (survival = the dragged path
     never depletes). ``monte_carlo`` + a split raises
     ``TaxDragMonteCarloNotSolvable`` (a ``ValueError`` subclass) BEFORE any
-    evaluation — the MC dragged solve is a later card (see that exception's
-    docstring).
+    evaluation (see that exception's docstring).
     """
     if scenario.sourcing_mode == SOURCING_MODE_BUCKETS:
         raise BucketsNotSolvable(
@@ -302,16 +302,16 @@ def solve_max_spend(
 
     Also raises ``BucketsNotSolvable`` (a ``ValueError`` subclass), BEFORE any
     bisection, when ``sourcing_mode == "buckets"`` — the bucket sourcing is fenced
-    from the solver in slice 1a (view-only), mirroring the guardrails fence.
+    from the solver (view-only), mirroring the guardrails fence.
 
-    Tax-drag (design td1, DECISION 8): with a split supplied (single sourcing),
+    Tax drag: with a split supplied (single sourcing),
     ``historical`` and ``deterministic`` ride the DRAGGED engine — the solved
     number becomes after-tax honest, via the lean dragged evaluators
     (``_historical_evaluator_dragged`` / ``simulate_dragged_depletion_only``).
     ``monte_carlo`` + a split raises ``TaxDragMonteCarloNotSolvable`` (a
     ``ValueError`` subclass) BEFORE any bisection — ~15 probes x 10k dragged
-    trials (each a per-year fixed point, not a cheap scalar step) is a
-    minutes-scale solve, deferred to a follow-up card.
+    trials (each a per-year fixed point, not a cheap scalar step) would be a
+    minutes-scale solve.
     """
     if scenario.sourcing_mode == SOURCING_MODE_BUCKETS:
         raise BucketsNotSolvable(

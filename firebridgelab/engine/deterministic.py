@@ -1,18 +1,19 @@
-"""Deterministic year-by-year projection.
+"""Deterministic year-by-year projection (``simulate``).
 
-Constant real return, constant real spending, and four per-person
-inflation-adjusted GI streams (two pensions + two Social Security streams) that
-activate at fixed ages. No randomness, no historical sequence, no
-alternative strategies.
+One constant real return per allocation (per phase under a glidepath), the
+spending strategy selected by ``spending_mode``, and the four per-person GI streams
+(two pensions + two Social Security) that activate at fixed ages. No randomness and
+no historical sequence. ``sourcing_mode == "buckets"`` routes to the 3-bucket
+mechanic in ``engine.buckets`` and returns the same ``Trajectory`` shape. All values
+are real (today's) dollars.
 
 Real-return assumption
 ----------------------
-The portfolio's real return is the weighted blend of the allocation's
-asset-class real returns (see firebridgelab.scenario.blended_real_return). The
-default scenario is 60/40 Equity/Bonds @ 7%/2% real → 0.60·0.07 + 0.40·0.02 =
-5.0% real for a 60/40 US stocks/bonds portfolio. This is in the middle of the
-commonly-cited range for historical 60/40 real returns and is the number a
-working advisor would pick as a single-point deterministic assumption:
+The year's return is the annually-rebalanced compound return of the allocation
+(``engine.allocation.blended_real_return_at_age``), net of ``annual_fee``. The
+default 60/40 class knobs are 7%/2% real, a plain blend of
+0.60·0.07 + 0.40·0.02 = 5.0% real (``blended_real_return``), in the middle of the
+commonly-cited range for historical 60/40 real returns:
 
   - Vanguard's "Principles for Investing Success" cites ~5% real for a
     balanced US portfolio over the long historical record.
@@ -21,10 +22,7 @@ working advisor would pick as a single-point deterministic assumption:
   - Bengen's original 4% SWR work assumed comparable real returns
     (~5.0% stocks, ~2.5% bonds → blend near 4%).
 
-5.0% is defensible, mainstream, and easy to explain. A user who wants
-to dial it down to 4.0% to be conservative edits the class returns —
-conservatism is a user knob, not a structural
-default.
+Conservatism is a user knob (edit the class returns), not a structural default.
 """
 
 from __future__ import annotations
@@ -76,28 +74,26 @@ def simulate(
 
         end = start + start*r + (GI - spending) * (1 + r/2)
 
-    See design.md §Slice 1 Method for the rationale (locked 2026-05-24).
-    GI is treated as received at year-start. End-of-year balance is floored
-    at zero; the first age that hits the floor is recorded as depletion.
+    Spending and GI are both mid-year flows (``engine.step.step_year``).
+    End-of-year balance is floored at zero; the first age that hits the floor
+    is recorded as depletion.
 
     Spending comes from a ``SpendingStrategy`` constructed ONCE before the year
-    loop (variable-spending design). When ``strategy`` is None one is built from
+    loop (ADR 0006). When ``strategy`` is None one is built from
     ``scenario.spending_mode`` (``make_strategy``): for ``constant`` / ``lifecycle``
-    that is the byte-stable wrapper over ``spending_for_age``, so this path is
-    unchanged for those modes (the canary holds); for ``guardrails`` it is the
+    that is a wrapper over ``spending_for_age``; for ``guardrails`` it is the
     stateful GK rule that reads the begin-of-year portfolio. The optional
     ``strategy`` arg lets a caller inject a pre-built strategy (parity with the
     cohort/trial loops); the solver, which never runs guardrail mode, passes none.
 
-    Buckets (bucket-strategy design): when ``sourcing_mode == "buckets"`` the
+    Buckets: when ``sourcing_mode == "buckets"`` the
     deterministic projection routes to the 3-bucket mechanic and returns the SAME
     ``Trajectory`` shape — each ``YearPoint``'s ``end_portfolio`` is the SUMMED
     bucket balance (cash + income + growth) that year, so the existing deterministic
     chart renders unchanged. In Deterministic mode every year is an up year (no down
     years), so the one-sided "ride" branch never fires and the buffer is never
     tested — surface that caveat in the UI (point the user to Historical / MC). The
-    single-bucket degenerate config reproduces the single-balance terminal byte-for-
-    byte (Gate B).
+    single-bucket degenerate config reproduces the single-balance terminal exactly.
     """
     if scenario.sourcing_mode == SOURCING_MODE_BUCKETS:
         return _simulate_buckets_as_trajectory(scenario)
@@ -111,29 +107,27 @@ def simulate(
 
     for age in range(scenario.start_age, scenario.end_age + 1):
         start_portfolio = portfolio
-        # Per-age return resolution (glidepath design "Engine hook"): the return
-        # moved INSIDE the loop. Under constant allocation_mode this returns the
-        # SAME constant blend for every age (so the canary is byte-for-byte
-        # unchanged); under glidepath it returns the active phase's blend.
+        # Per-age return resolution: under constant allocation_mode this returns
+        # the SAME value for every age; under glidepath it returns the active
+        # phase's blend.
         r = net_return(blended_real_return_at_age(scenario, age), scenario.annual_fee)
 
         # growth computed inline for YearPoint; step_year recomputes the same
-        # product — same operands, byte-identical, intentional.
+        # product from the same operands, so the two agree exactly.
         growth = start_portfolio * r
 
         # Guaranteed income is the sum of the four named streams that are
-        # active at this age (age >= the stream's start age). The canonical
-        # four-stream sum lives in firebridgelab.scenario.gi_at_age — same accumulation
-        # order (person_a_pension, person_b_pension, person_a_ss, person_b_ss), so byte-identical.
+        # active at this age (age >= the stream's start age), from the canonical
+        # sum in ``income.guaranteed.gi_at_age``.
         gi = gi_at_age(scenario, age)
 
         # Spending comes from the strategy. begin_year_portfolio is the balance
         # BEFORE this year's growth/withdrawal (start_portfolio) — the denominator
-        # the guardrail rate uses. constant/lifecycle ignore it (byte-stable).
+        # the guardrail rate uses. constant/lifecycle ignore it.
         spending = strategy.spend_for_year(scenario, age, start_portfolio, gi)
-        # Cost-of-living real drift (stress-test design slice 4): a post-strategy
-        # multiplier on the funded spend, composing with ANY strategy. Default
-        # spending_real_drift 0.0 ⇒ (1+0)**k == 1.0 ⇒ byte-identical (canary holds).
+        # Cost-of-living real drift: a post-strategy multiplier on the funded
+        # spend, composing with ANY strategy. Default spending_real_drift 0.0
+        # makes it exactly 1.0.
         spending *= spending_multiplier(scenario, age)
 
         # Realized-spend cap: the strategy returns the INTENDED spend, but a
@@ -142,14 +136,14 @@ def simulate(
         # the end balance to exactly 0 (``max_fundable_spend``); in a non-depleting
         # year intended <= max_fundable so realized == intended (a no-op). This is a
         # REPORTING value only — the portfolio is STILL stepped with ``spending``
-        # (the intended request) so end_portfolio AND the depletion flag are byte-
-        # identical to before (the flag fires on end < 0; max_fundable would land
-        # exactly ON 0 and NOT flag, so it must not be the value stepped). The
+        # (the intended request) so end_portfolio AND the depletion flag are
+        # unaffected (the flag fires on end < 0; max_fundable would land exactly
+        # ON 0 and NOT flag, so it must not be the value stepped). The
         # strategy keeps its own intended base, so there is no feedback loop.
         realized_spend = min(spending, max_fundable_spend(start_portfolio, r, gi))
 
         # Midpoint convention: half the year's spending earns a half-year
-        # of growth before being consumed. See design.md for rationale. Stepped with
+        # of growth before being consumed (ADR 0002). Stepped with
         # the INTENDED spend to preserve the depletion flag (see above).
         already_depleted = depleted_age is not None
         end_portfolio, depleted_this_year = step_year(
@@ -161,10 +155,10 @@ def simulate(
         # — a GI stream starting later must not resurrect it (``step_year`` is
         # memoryless: ``0 + 0 + (gi − spend)·(1+r/2)`` goes positive once GI exceeds
         # the funded gap). Mirrors the same override in the shared cohort loop
-        # (``sim_core._simulate_cohort``) so the three return modes can't drift.
-        # ``realized_spend`` above already caps at the GI-funded ``gi``;
+        # (``engine.sim_core._simulate_cohort``) so the three return modes can't
+        # drift. ``realized_spend`` above already caps at the GI-funded ``gi``;
         # ``depleted_age`` (first crossing) is set before this and never moves.
-        # Byte-identical for non-recovering paths — the default canary holds.
+        # No effect on paths that never recover.
         if already_depleted:
             end_portfolio = 0.0
 
@@ -191,15 +185,13 @@ def simulate(
 def _simulate_buckets_as_trajectory(scenario: Scenario) -> Trajectory:
     """Run the deterministic 3-bucket sim, projected onto the single ``Trajectory``.
 
-    bucket-strategy design slice 1a (thin wiring): the deterministic bucket run
-    renders on the EXISTING portfolio line — one ``YearPoint`` per age whose
-    ``end_portfolio`` is the SUMMED bucket balance, ``start_portfolio`` the prior
-    year's summed end (``initial_portfolio`` for year 0), ``guaranteed_income`` and
-    ``spending`` the same flows the bucket sim recorded. ``growth`` is the net
-    market move backed out of the accounting identity (``end − start + spending −
-    GI``) so the tooltip stays self-consistent — it is the combined growth across
-    buckets, not a single blended rate (there isn't one in buckets mode). No new
-    chart, no bucket lines (that's slice 1b).
+    The deterministic bucket run renders on the single portfolio line — one
+    ``YearPoint`` per age whose ``end_portfolio`` is the SUMMED bucket balance,
+    ``start_portfolio`` the prior year's summed end (``initial_portfolio`` for year 0),
+    ``guaranteed_income`` and ``spending`` the same flows the bucket sim recorded.
+    ``growth`` is the net market move backed out of the accounting identity (``end −
+    start + spending − GI``) so the tooltip stays self-consistent — it is the combined
+    growth across buckets, not a single blended rate (there isn't one in buckets mode).
     """
     from firebridgelab.engine.buckets import simulate_buckets_deterministic
 

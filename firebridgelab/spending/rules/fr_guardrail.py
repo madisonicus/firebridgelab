@@ -1,4 +1,11 @@
-"""spending.rules.fr_guardrail (split from the flat layout)."""
+"""The ``fr_guardrail`` spending mode: a band rule on the funded ratio.
+
+A close sibling of ``fr_smooth`` that swaps the damped partial adjustment for a
+DISCRETE band trip on the funded ratio: hold while funding stays within ±20% of
+fully funded, a ±10% nudge to the untapered base past either band, then the same
+activity taper and floor/ceiling clamp as ``guardrails``. Path-dependent and
+view-only (the max-spend solver is fenced). Bands and step are fixed presets.
+"""
 
 from __future__ import annotations
 
@@ -10,13 +17,12 @@ from firebridgelab.spending.modes import SPENDING_MODE_FR_GUARDRAIL
 from firebridgelab.spending.registry import register
 
 
-# Baked band-strategy preset for the funded-ratio GUARDRAIL strategy (fr-guardrail,
-# FR feature slice 3). The FR analogue of the GUARD/ADJUST guardrails defaults, but
-# the band is on the funded ratio itself rather than the withdrawal rate: hold while
-# funding stays within ±20% of fully-funded (FR in [0.80, 1.20]); a ±10% nudge to the
-# untapered base past either band. FR > 1.20 (over-funded) → raise; FR < 0.80
-# (under-funded) → cut. Baked preset in v1 (NOT user-editable; a band/step input is a
-# later slice). Module constants so a unit test can read the same values.
+# Baked band-strategy preset for the funded-ratio GUARDRAIL strategy. The FR
+# analogue of the GUARD/ADJUST guardrails defaults, but the band is on the funded
+# ratio itself rather than the withdrawal rate: hold while funding stays within ±20%
+# of fully-funded (FR in [0.80, 1.20]); a ±10% nudge to the untapered base past
+# either band. FR > 1.20 (over-funded) → raise; FR < 0.80 (under-funded) → cut. Not
+# user-editable. Module constants so a unit test can read the same values.
 _FR_GR_UPPER: float = 1.20   # FR above this → raise the base
 _FR_GR_LOWER: float = 0.80   # FR below this → cut the base
 _FR_GR_STEP: float = 0.10    # per-trip proportional adjustment to the untapered base
@@ -24,7 +30,7 @@ _FR_GR_STEP: float = 0.10    # per-trip proportional adjustment to the untapered
 
 @register(SPENDING_MODE_FR_GUARDRAIL)
 class FundedRatioGuardrailStrategy(FundedRatioStrategyBase):
-    """Funded-ratio BAND (guardrail) spending strategy (FR feature slice 3).
+    """Funded-ratio BAND (guardrail) spending strategy.
 
     A close sibling of ``FundedRatioSmoothStrategy``: same spine (3-year smoothed
     portfolio, NPV-of-the-baseline-stream denominator), same NPV target
@@ -42,10 +48,9 @@ class FundedRatioGuardrailStrategy(FundedRatioStrategyBase):
       - else (FR within ±20% of full) → hold, action ``"hold"``.
 
     Baked preset: ``_FR_GR_UPPER`` = 1.20, ``_FR_GR_LOWER`` = 0.80,
-    ``_FR_GR_STEP`` = 0.10 (no user inputs in v1). The new base PERSISTS as the
+    ``_FR_GR_STEP`` = 0.10 (no user inputs). The new base PERSISTS as the
     carried state. This variant has a genuine discrete cut/raise/hold each year, so
-    the ``AdjustmentEvent`` vocabulary fits it natively (no honest-labeling
-    gymnastics — the band literally trips or it doesn't).
+    the ``AdjustmentEvent`` vocabulary fits it natively.
 
     Degenerate handling (identical to fr-smooth / guardrails): a non-positive
     ``begin_year_portfolio`` SKIPS the adjustment for the year (the base is held;
@@ -62,7 +67,7 @@ class FundedRatioGuardrailStrategy(FundedRatioStrategyBase):
         self.base_spend: float = scenario.annual_spending
         # Adjustment-event log + prior-GI tracking (same shape/discipline as
         # GuardrailStrategy / FundedRatioSmoothStrategy). Purely descriptive:
-        # recording never alters the returned spend, so the canary holds.
+        # recording never alters the returned spend.
         self.events: list[AdjustmentEvent] = []
         self._prev_gi: float | None = None
 

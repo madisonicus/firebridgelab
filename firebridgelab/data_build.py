@@ -33,3 +33,6 @@ __all__ = [
     "build_us_reit",
     "main",
 ]
+
+if __name__ == "__main__":
+    main()

@@ -2,7 +2,7 @@
 // (web/app.js GlidepathView) against the engine's EXPECTED output.
 //
 // web/app.js GlidepathView.{boundaries,phaseLabels,phaseEvent} are a hand-written
-// mirror of firebridgelab.scenario.glidepath_boundaries + the phase-label derivation.
+// mirror of firebridgelab.engine.allocation.glidepath_boundaries + the phase-label derivation.
 // They agree today; nothing else pins them together, so this test catches the JS
 // mirror drifting from the engine. The engine output itself is verified separately
 // in pytest (tests/test_glidepath.py) — here we HARDCODE the engine's expected

@@ -1671,7 +1671,7 @@ def test_classes_is_equity_is_single_source_of_truth():
 
     This is the sole consistency check (replacing the deleted JS drift test): every
     class carries the flag, and the set of ``is_equity is True`` ids equals
-    ``firebridgelab.buckets.EQUITY_CLASS_IDS`` EXACTLY — so the browser can drop its
+    ``firebridgelab.engine.buckets.EQUITY_CLASS_IDS`` EXACTLY — so the browser can drop its
     hand-kept replica and read the classification from the API instead.
     """
     from firebridgelab.engine.buckets import EQUITY_CLASS_IDS
@@ -1693,12 +1693,12 @@ def test_default_scenario_volatility_matches_published_classes():
     publishes for that class (regression).
 
     Before the fix, `_DEFAULT_EQUITY_VOLATILITY` / `_DEFAULT_BOND_VOLATILITY`
-    (firebridgelab/scenario.py) were hand-ROUNDED copies of the same series stdev that
+    (firebridgelab/engine/scenario.py) were hand-ROUNDED copies of the same series stdev that
     `_class_menu_entries()` computed independently for `/api/classes` — so a
     vol-less parsed allocation (which resolves to the exact published figure)
     silently diverged from the default scenario's own Monte Carlo run by
     ~2e-4 per class. Both paths — and `default_bucket_config()` — now go
-    through the single `firebridgelab.scenario._legacy_default_volatility()` helper,
+    through the single `firebridgelab.engine.allocation._legacy_default_volatility()` helper,
     so this equality holds by construction, not by coincidence; a future
     re-rounding of the fallback constants can't reintroduce the drift.
     """
@@ -2696,7 +2696,7 @@ def test_stress_get_matches_post():
 
 
 def test_stress_family_b_split_matches_engine_via_api():
-    """End-to-end (firebridgelab.stress td-c fix, exercised through the API): a
+    """End-to-end (firebridgelab.analysis.stress td-c fix, exercised through the API): a
     Family-B stress (a scenario perturbation, e.g. ss_haircut_23) with a split
     supplied now pays real tax — the same td1 HARD CONSTRAINT Family A already
     honored (test_stress.py pins the engine-level property directly). Here we

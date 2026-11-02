@@ -13,7 +13,7 @@
 //
 // The EQUITY classification is now INJECTED as data (a Set passed into the mapping),
 // NOT embedded in GlidePresets. The single source of truth is
-// firebridgelab.buckets.EQUITY_CLASS_IDS, published per-class via /api/classes' `is_equity`
+// firebridgelab.engine.buckets.EQUITY_CLASS_IDS, published per-class via /api/classes' `is_equity`
 // flag and consumed by the client (equityClassIds()) — the server-side pytest
 // (test_api.py) is now the sole consistency check against the engine set. These tests
 // supply the classification as a TEST-LOCAL fixture (EQUITY_IDS below) so they
@@ -103,7 +103,7 @@ test("GlidePresets is exposed and init() is skipped without a DOM", () => {
 
 test("GlidePresets does NOT embed an equity list — classification is injected", () => {
   const GP = loadGlidePresets();
-  // The hardcoded JS replica of firebridgelab.buckets.EQUITY_CLASS_IDS is GONE: equity is
+  // The hardcoded JS replica of firebridgelab.engine.buckets.EQUITY_CLASS_IDS is GONE: equity is
   // now supplied as data (a Set) per /api/classes' is_equity. Guard against a
   // re-hardcode regression.
   assert.equal(GP.EQUITY_CLASS_IDS, undefined);

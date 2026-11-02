@@ -20,7 +20,7 @@ Per person, the UI now takes a **full-retirement-age (FRA) benefit amount** + a 
 — and feeds the *unchanged* amount-driven engine (`ss_amount` = derived effective, `ss_start_age` =
 claim age).
 
-`ss_factor` is the exact SSA rule (`firebridgelab/ss_claim.py`, verified against 20 CFR §404.410, §404.313,
+`ss_factor` is the exact SSA rule (`firebridgelab/income/social_security.py`, verified against 20 CFR §404.410, §404.313,
 SSA Handbook §724): early reduction = **5/9 of 1%/mo for the first 36 months** before FRA then
 **5/12 of 1%/mo beyond 36**; delayed credit = **2/3 of 1%/mo (8%/yr)**, capped at 70. For FRA 67 this
 reproduces 62→0.70, 67→1.00, 70→1.24 — matching SSA's published factors.
@@ -35,7 +35,7 @@ deep-tuning variable); pension start ages stay ordinary age inputs (no slider).
 
 - **ADR 0005's engine contract is preserved**, not overturned: the engine still receives a dollar
   amount + a start age and never derives anything. The factor math lives in one place
-  (`firebridgelab/ss_claim.py`), exercised by the API; the browser mirrors it (`web/ss_claim.js`) only for
+  (`firebridgelab/income/social_security.py`), exercised by the API; the browser mirrors it (`web/ss_claim.js`) only for
   the live readout, with a node parity test (`test_ss_claim_parity.mjs`) pinning JS == Python at all
   nine ages to guard drift. Glidepath phase boundaries already derive from `ss_start_age`, so the
   slider shifts the glide for free.

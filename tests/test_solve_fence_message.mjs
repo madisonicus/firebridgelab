@@ -1,5 +1,5 @@
 // test_solve_fence_message.mjs — pin that a typed engine fence (BucketsNotSolvable
-// today; the tax-drag design td1 MC+split solve fence — firebridgelab/solver.py's
+// today; the tax-drag design td1 MC+split solve fence — firebridgelab/analysis/solver.py's
 // "max-spend solve is not yet available with tax drag in Monte Carlo mode" —
 // tomorrow) surfaces through the web layer as a normal user-facing notice, never
 // a raw HTTP/error dump.

@@ -107,7 +107,7 @@ const GROUP_CONTAINER = {
 // mode only — shown as a PERCENT 17.4, stored as a fraction 0.174). The POST body
 // emits id/weight/real_return/volatility per class so the MC sampler uses the
 // live values; Deterministic/Historical ignore volatility.
-// `is_equity` is SOURCED from /api/classes (firebridgelab.buckets.EQUITY_CLASS_IDS, the
+// `is_equity` is SOURCED from /api/classes (firebridgelab.engine.buckets.EQUITY_CLASS_IDS, the
 // single source of truth) via loadClassMenu; the fallback seed below carries the
 // two legacy classes' flags so a degraded load (API unreachable) still classifies
 // equity correctly for the glide presets.
@@ -807,7 +807,7 @@ function giStreams(scenario) {
 
 // Guaranteed income at a given age = sum of the four per-person streams active at
 // that age (a stream is active once age >= its start). Deterministic — the SAME
-// summation the engine does per year (firebridgelab.simulate / firebridgelab.scenario.gi_at_age)
+// summation the engine does per year (firebridgelab.engine.deterministic / firebridgelab.income.guaranteed.gi_at_age)
 // — so the front-end can show GI at a hovered age in the fan tooltips without the
 // API adding a `gi_by_age` array to the payload. Reads the streams off the echoed
 // `scenario` the fan payload already carries (amounts + start ages). Returns 0 for
@@ -823,7 +823,7 @@ function guaranteedIncomeAtAge(scenario, age) {
   return gi;
 }
 
-// The activity-taper multiplier at an age, mirroring firebridgelab.scenario.activity_
+// The activity-taper multiplier at an age, mirroring firebridgelab.spending.lifecycle.activity_
 // multiplier: go-go (< slow_go_start_age) ×1, slow-go ×slow_go_multiplier, no-go
 // ×no_go_multiplier. Reads the (echoed) phase fields off the scenario, falling
 // back to the v1 research defaults when a field is absent. Used to show
@@ -842,7 +842,7 @@ function activityMultiplierAtAge(scenario, age) {
 }
 
 // Spending at an age for the constant/lifecycle modes (a pure function of age),
-// mirroring firebridgelab.scenario.spending_for_age. Guardrails has its own per-age
+// mirroring firebridgelab.spending.lifecycle.spending_for_age. Guardrails has its own per-age
 // spending fan, so this is only the fallback the portfolio-fan tooltip uses when
 // no spending fan rides along (constant/lifecycle). Returns null for a missing
 // scenario.
@@ -1733,7 +1733,7 @@ function blendedRealReturn(col) {
 // EXPLICIT CORRELATION MATRIX (asset-class design carry-forward #11): this UI does
 // NOT send an explicit N×N `correlations` matrix for multi-class MC. For N>2 the
 // engine builds the per-pair/max-overlap ESTIMATED DEFAULT matrix itself
-// (firebridgelab.correlation, D6) — the recommended v1 path; the single scalar
+// (firebridgelab.returns.correlation, D6) — the recommended v1 path; the single scalar
 // `correlation` knob is the N≤2 fast-path only and the engine ignores it for N>2.
 // So there is no allocation-order → mapped-subset reindex to do on the client
 // (the 66-pair editor is explicitly deferred). If a future slice adds an explicit
@@ -2434,7 +2434,7 @@ function readAgeInput(name, fallback) {
   return fallback;
 }
 
-// GlidepathView: the PURE client-side mirror of firebridgelab.scenario.glidepath_boundaries
+// GlidepathView: the PURE client-side mirror of firebridgelab.engine.allocation.glidepath_boundaries
 // / the phase-label derivation. Split out as parameterized functions (taking ages
 // explicitly, never reading the DOM) so a node:vm test can pin them against the
 // engine's expected output without a browser — same testability structure as
@@ -2510,7 +2510,7 @@ window.GlidepathView = GlidepathView;
 // multi-class mix exactly.
 //
 // EQUITY classification is NOT embedded here — it is INJECTED as data. The single
-// source of truth is firebridgelab.buckets.EQUITY_CLASS_IDS, published per-class via
+// source of truth is firebridgelab.engine.buckets.EQUITY_CLASS_IDS, published per-class via
 // /api/classes (the `is_equity` flag), loaded into ASSET_CLASSES and passed in as an
 // `equityIds` Set (see equityClassIds()). The mapping is classification-agnostic: it
 // asks "is this class id equity?" of the supplied set, so "equity%" reads identically
@@ -3951,7 +3951,7 @@ function applyGlidePreset(index) {
   const classIds = ASSET_CLASSES.map((c) => c.id);
   const n = glidepathBoundaries().length;
   // Equity classification is DATA from the loaded class menu (/api/classes'
-  // `is_equity`, which the API sources from firebridgelab.buckets.EQUITY_CLASS_IDS) — not
+  // `is_equity`, which the API sources from firebridgelab.engine.buckets.EQUITY_CLASS_IDS) — not
   // a hardcoded list. The preset mapping receives it as input.
   const equityIds = equityClassIds();
 

@@ -16,7 +16,7 @@ matching the message text. The engine owns the typed signals:
   buckets-sourcing scenario (view-only).
 - ``BucketsGuardrailsNotComposable`` (``firebridgelab.spending``) — dynamic spending +
   bucket sourcing don't compose yet.
-- ``CorrelationNotEstimable`` (``firebridgelab.correlation``) — the D6 Frobenius gate in
+- ``CorrelationNotEstimable`` (``firebridgelab.returns.correlation``) — the D6 Frobenius gate in
   ``estimate_with_gate``: too many classes with too little overlapping history
   to estimate honest cross-class correlations (broad-MC non-PSD).
 - ``NoReplayableWindow`` (``firebridgelab.historical``) — the selected classes share no
@@ -26,7 +26,7 @@ matching the message text. The engine owns the typed signals:
   (the dragged MC solve is a later card). Unlike the other mapped cases this
   one passes the ENGINE'S OWN message through verbatim (``str(exc)``) rather
   than a rewritten sentence — the fence message
-  (``firebridgelab.solver.TAX_DRAG_MC_FENCE_MESSAGE``) is already the exact
+  (``firebridgelab.analysis.solver.TAX_DRAG_MC_FENCE_MESSAGE``) is already the exact
   user-facing text both the engine and the API test against, so a paraphrase
   here would just be a second copy to keep in sync.
 

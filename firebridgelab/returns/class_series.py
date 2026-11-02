@@ -1,27 +1,27 @@
 """Offline loader for the staged asset-class annual REAL return series.
 
-Slice 1 of the asset-class substrate. The legacy two series (``us_equity`` /
-``us_bonds``) come from Shiller (``firebridgelab/shiller.py``); the NEW classes'
-series are pre-processed by ``firebridgelab/data_build.py`` from free
-sources (Damodaran, Ken French, FRED, FTSE Nareit) into a single cached CSV
-(``asset_class_series.csv`` in the data directory; see ``firebridgelab.paths``) of annual REAL total returns. This
-module reads that CSV offline — same discipline as ``shiller.py`` (NO network
-download at runtime; re-run the builder by hand to refresh).
+The two Shiller series (``us_equity`` / ``us_bonds``) come from
+``returns.shiller``; the other classes' series are pre-processed by
+``returns.data_build`` from free sources (Damodaran, Ken French, FRED, FTSE
+Nareit, testfol.io) into a single cached CSV (``asset_class_series.csv`` in the
+data directory; see ``returns.paths``) of annual REAL total returns. This
+module reads that CSV offline — same discipline as ``returns.shiller`` (NO
+network download at runtime; re-run the builder to refresh).
 
 Each row is ``series_id,year,real_return`` (real_return a fraction). The series
-are ANNUAL (matching the engine's cohort granularity — D1) and already REAL
+are ANNUAL (matching the engine's cohort granularity) and already REAL
 (CPI-deflated by the builder), so they drop straight into the real-terms
 engine.
 
 Public surface:
   - ``ClassSeries`` — one series' parallel year / real-return arrays plus its
-    geometric-mean / stdev moments (the Deterministic and MC defaults — D2).
+    geometric-mean / stdev moments (the Deterministic and MC defaults).
   - ``load_class_series()`` — parse the cached CSV into ``{series_id:
     ClassSeries}`` (memoized).
   - ``NEW_CLASS_SERIES`` — the staged series ids carried in the CSV (the
-    subset of ``ALL_NEW_CLASS_SERIES`` present; optional classes may be absent) (used by the
-    class-menu seeding in ``firebridgelab/scenario.py`` and the registry in
-    ``firebridgelab/historical.py``).
+    subset of ``ALL_NEW_CLASS_SERIES`` present; optional classes may be
+    absent), used by the class menu in ``engine.allocation`` and the series
+    registries in ``returns.series``.
 """
 
 from __future__ import annotations
@@ -37,26 +37,24 @@ from firebridgelab.returns.paths import data_dir, missing_data_message
 # Cached staged data file. Read offline; produced once by the builder.
 CACHE_FILE = data_dir() / "asset_class_series.csv"
 
-# The series ids the staged CSV carries. class id == series id for all of these
-# (D5). Display labels live with the class menu, not here. This single tuple is
-# the registration point that fans out through the engine: it builds
+# The series ids the staged CSV carries. class id == series id for all of these.
+# Display labels live with the class menu, not here. This single tuple is the
+# registration point that fans out through the engine: it builds
 # SERIES_REGISTRY_NEW / SERIES_FOR_CLASS / MC_SERIES_REGISTRY /
-# HIST_SERIES_REGISTRY (firebridgelab.historical) and CLASS_MENU (firebridgelab.scenario), and
-# every id here is loaded by real_return_series_by_series_id (firebridgelab.correlation)
+# HIST_SERIES_REGISTRY (returns.series) and CLASS_MENU (engine.allocation), and
+# every id here is loaded by real_return_series_by_series_id (returns.correlation)
 # straight from the staged CSV. Adding a class = staging its CSV rows + one entry
-# here (+ its display label in scenario._NEW_CLASS_LABELS).
+# here (+ its display label in engine.allocation._NEW_CLASS_LABELS).
 #
-# Slice 1 staged the first five (long-history free sources); slice 4a adds the
-# remaining five canonical classes (gold / intl-developed / emerging-markets /
-# commodities / TIPS) so the full 12-class menu has data.
+# With the two Shiller series these make the 12-class menu.
 ALL_NEW_CLASS_SERIES: tuple[str, ...] = (
-    # slice 1
+    # long-history free sources
     "us_small_value",
     "lt_treasury",
     "it_treasury",
     "st_treasury",
     "us_reit",
-    # slice 4a
+    # shorter histories: Damodaran gold, testfol.io simulations
     "gold",
     "intl_developed",
     "emerging_markets",
@@ -82,7 +80,7 @@ class ClassSeries:
     ``years[i]`` is the calendar year whose real return is ``real_return[i]``
     (the return earned over that year). Arrays are parallel and ascending.
 
-    The three moments back the three engine modes (D2): ``geometric_mean`` is
+    The three moments back the three engine modes: ``geometric_mean`` is
     the Deterministic default (the constant rate reproducing realized
     cumulative growth — NOT the arithmetic average, which would overstate
     compounding); ``stdev`` is the annual real-return standard deviation used
@@ -111,8 +109,8 @@ class ClassSeries:
         """Constant rate g with (1+g)^N == prod(1+r_t) over the full window.
 
         The Deterministic-mode default. By construction this reproduces the
-        realized cumulative growth of the series (the closed-form self-check
-        the slice-1 gate asserts).
+        realized cumulative growth of the series (a closed-form self-check
+        the tests assert).
         """
         growth = float(np.prod(1.0 + self.real_return))
         return growth ** (1.0 / self.n) - 1.0

@@ -415,7 +415,7 @@ def test_more_than_two_classes_with_explicit_matrix_is_used():
 # ---------- Slice 2: estimated default matrix + multi-class MC ----------
 #
 # For N > 2 with NO explicit matrix the sampler builds the per-pair/max-overlap
-# estimated default (firebridgelab.correlation), projects it to PSD, and runs the fan.
+# estimated default (firebridgelab.returns.correlation), projects it to PSD, and runs the fan.
 # A malformed explicit matrix raises ValueError (the API routes it to 422).
 
 
@@ -444,7 +444,7 @@ def test_four_class_no_matrix_uses_estimated_default():
     """N > 2, no explicit matrix → the sampler builds the per-pair estimated 4x4.
 
     The assembled (pre-PSD) matrix for the four mapped series matches what
-    firebridgelab.correlation estimates directly — confirming the sampler wires the
+    firebridgelab.returns.correlation estimates directly — confirming the sampler wires the
     estimated default in rather than raising (slice-0 placeholder) or broadcasting
     the scalar.
     """

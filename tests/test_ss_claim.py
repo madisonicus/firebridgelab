@@ -1,4 +1,4 @@
-"""Tests for the SS claim-age actuarial helper (firebridgelab.ss_claim).
+"""Tests for the SS claim-age actuarial helper (firebridgelab.income.social_security).
 
 Pins the ``ss_factor`` table for FRA 67 against the EXACT SSA values (the
 acceptance contract — these match SSA's published reduction/credit factors): whole-percent

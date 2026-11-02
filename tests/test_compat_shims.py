@@ -1,4 +1,4 @@
-"""The pre-0.2 flat module paths still import and re-export the same objects."""
+"""The old flat module paths still import and re-export the same objects."""
 
 import importlib
 

@@ -14,7 +14,7 @@ end = start*(1 + r) + gi - spending*(1 + r/2)        # equivalent, but drifts su
 
 ## Decision
 
-`firebridgelab/_step.py` defines `step_year` as the **single** implementation, fixed on the first form
+`firebridgelab/engine/step.py` defines `step_year` as the **single** implementation, fixed on the first form
 (`start + start*r + ...`). All three modes call it; no mode re-expresses the arithmetic inline.
 
 ## Consequences

@@ -1,4 +1,10 @@
-"""spending.lifecycle (split from the flat layout)."""
+"""Pure age-based spending shapes and the multipliers the engines apply.
+
+``spending_for_age`` serves the ``constant`` and ``lifecycle`` modes;
+``activity_multiplier`` is the go-go/slow-go/no-go taper the dynamic rules
+compose with their own adjustment; ``spending_multiplier`` is the
+post-strategy cost-of-living drift and survivor scaling.
+"""
 
 from __future__ import annotations
 
@@ -26,13 +32,11 @@ def activity_multiplier(scenario: Scenario, age: int) -> float:
     The pure age→multiplier curve underneath ``lifecycle`` spending: go-go (below
     ``slow_go_start_age``) → 1.00, slow-go (``slow_go_start_age``..``no_go_start_age``-1)
     → ``slow_go_multiplier``, no-go (``no_go_start_age``+) → ``no_go_multiplier``.
-    With the v1 defaults: ≤74 → ×1.00, 75-84 → ×0.85, ≥85 → ×0.75.
+    With the defaults: ≤74 → ×1.00, 75-84 → ×0.85, ≥85 → ×0.75.
 
-    Factored out so the ``guardrails`` strategy can COMPOSE the same activity taper
-    with its dynamic nudge (variable-spending design nudge→taper→clamp order: the
-    taper is a post-multiplier on the nudged base). ``spending_for_age`` reads the
-    SAME factor, so the lifecycle math is unchanged (byte-for-byte — the inline
-    branch it replaced computed the identical multiplier).
+    Factored out so the dynamic strategies can COMPOSE the same activity taper
+    with their own adjustment (nudge→taper→clamp: the taper is a post-multiplier
+    on the nudged base). ``spending_for_age`` reads the SAME factor.
     """
     if age >= scenario.no_go_start_age:
         return scenario.no_go_multiplier
@@ -44,16 +48,14 @@ def activity_multiplier(scenario: Scenario, age: int) -> float:
 def spending_for_age(scenario: Scenario, age: int) -> float:
     """Real annual spending at a given age — the pure (path-independent) shapes.
 
-    The deterministic and historical/MC engines call this (via the strategy
-    wrapper in firebridgelab.spending) for the ``constant`` and ``lifecycle`` modes, so
-    the spending math can't drift between modes (same discipline as the
-    midpoint-convention equivalence test). It is a PURE function of age — it does
-    NOT serve the path-dependent ``guardrails`` mode (that's GuardrailStrategy).
+    The deterministic and historical/MC engines call this (via ``PureAgeStrategy``
+    in ``spending.rules.constant``) for the ``constant`` and ``lifecycle`` modes, so
+    the spending math can't drift between engines. It is a PURE function of age —
+    it does NOT serve the path-dependent modes (those are stateful strategies).
 
-    - ``constant`` mode → returns ``scenario.annual_spending`` unchanged (today's
-      behavior, byte-for-byte).
+    - ``constant`` mode → returns ``scenario.annual_spending`` unchanged.
     - ``lifecycle`` mode → ``annual_spending`` is the GO-GO (peak) level scaled by
-      the ``activity_multiplier`` taper. With the v1 defaults: go-go ≤74 → ×1.00,
+      the ``activity_multiplier`` taper. With the defaults: go-go ≤74 → ×1.00,
       slow-go 75-84 → ×0.85, no-go ≥85 → ×0.75.
 
     Any non-lifecycle mode (including ``guardrails``, whose dollar path comes from

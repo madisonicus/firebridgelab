@@ -1,14 +1,12 @@
 """Builder: raw free-source files → staged annual REAL return series.
 
 Run by ``firebridgelab-fetch-data`` after the download, or directly with
-``python -m firebridgelab.data_build``.
+``python -m firebridgelab.returns.data_build``.
 
-Slice 1 of the asset-class substrate. Mirrors the offline-cache discipline of
-``firebridgelab/shiller.py``: the raw vendor files live in the data directory
-(``firebridgelab.paths.data_dir()``) and are
-processed ONCE, here, into a single canonical CSV
-(``asset_class_series.csv``) that the runtime loader
-(``firebridgelab/class_series.py``) reads offline. There is deliberately NO network
+Mirrors the offline-cache discipline of ``returns.shiller``: the raw vendor
+files live in the data directory (``returns.paths.data_dir()``) and are
+processed ONCE, here, into a single canonical CSV (``asset_class_series.csv``)
+that the runtime loader (``returns.class_series``) reads offline. There is deliberately NO network
 download at runtime — re-run this script by hand to refresh the staged data.
 
 Every series is an **annual REAL** total return (nominal sources deflated by
@@ -16,41 +14,41 @@ the same annual CPI, FRED CPIAUCNS, taken from Damodaran's "Inflation Rate"
 sheet — the engine has no separate annual CPI series to reuse, so this one
 deflator is used consistently across all new series).
 
-Series produced (class id == series id for all of these — see D5):
+Series produced (class id == series id for all of these):
 
-Slice 1 (long-history free sources):
+Long-history free sources:
   - ``st_treasury``    Damodaran 3-month T.Bill (nominal), 1928+        [cash class]
   - ``lt_treasury``    Damodaran 10-yr T.Bond total return, 1928+
   - ``us_small_value`` Ken French 6 Size×B/M, SMALL HiBM, value-weighted
                        annual, 1927+
   - ``it_treasury``    FRED GS5 5-yr constant-maturity yield, duration-
-                       constructed total return (same method shiller.py uses
+                       constructed total return (same method returns.shiller uses
                        for the 10-yr bond), 1953+
   - ``us_reit``        FTSE Nareit All-Equity REITs total-return index,
                        Dec-to-Dec, 1972+
 
-Slice 4a (the remaining five classes):
+Shorter-history sources:
   - ``gold``           Damodaran ``histretSP`` gold column (col 7), 1972+
                        (pre-1971 returns are a $35-peg artifact — excluded).
-                       Same already-cached raw file slice 1 reads.
+                       Same raw file as the Damodaran series above.
   - ``intl_developed`` MSCI EAFE Gross-TR proxy (testfol.io ``EFASIM`` sim),
                        1970+ — annual total returns, dividends reinvested.
   - ``emerging_markets`` FTSE Emerging-Markets index proxy (testfol.io
                        ``VWOSIM`` sim, Vanguard FTSE EM), first FULL year 1995.
   - ``commodities``    S&P GSCI total-return proxy (testfol.io ``GSGSIM`` sim),
                        first FULL year 1980 (the longer-history GSCI choice;
-                       BCOM has no free annual splice — see design FYI #3).
+                       BCOM has no free annual splice).
   - ``tips``           Bloomberg US-TIPS proxy (testfol.io ``TIPSIM`` sim,
                        iShares TIP), first FULL year 2001 (the 1997 Bloomberg
-                       index has no free annual feed — see design FYI #1).
+                       index has no free annual feed).
 
 The four testfol.io series are fetched ONCE via the public backtest API and
 their raw JSON responses cached as ``testfol_raw_<TICKER>.json`` in the data directory;
 this builder reads those cached files offline (no network at build time — same
-discipline as ``shiller.py`` / the slice-1 sources). testfol "sim" tickers are
-dividend-reinvested total-return splices that extend an ETF/fund past its
-inception; the design treats them as a cross-check oracle and explicitly permits
-a fund/proxy for these hard-to-source classes (D5). Each was spot-checked
+discipline as ``returns.shiller`` / the other sources). testfol "sim" tickers
+are dividend-reinvested total-return splices that extend an ETF/fund past its
+inception; a fund/proxy is accepted for these hard-to-source classes. Each was
+spot-checked
 against published index returns (e.g. EAFE/EM/GSCI/TIP 2021–2023) before
 staging — see the validation notes in ``tests/test_class_series.py``. To
 re-fetch, see ``_TESTFOL_FETCH_CMD`` below.
@@ -77,9 +75,9 @@ from firebridgelab.returns.paths import data_dir
 CACHE = data_dir()
 OUT = CACHE / "asset_class_series.csv"
 
-# Same duration convention shiller.py uses to turn a constant-maturity yield
-# into a price return. The intermediate (5-yr) Treasury gets ~4.5 yrs; the
-# 10-yr uses 7.0 in shiller.py. ~4.5 is the conventional 5-yr CMT duration.
+# Same duration convention returns.shiller uses to turn a constant-maturity
+# yield into a price return. The intermediate (5-yr) Treasury gets ~4.5 yrs; the
+# 10-yr uses 7.0 in returns.shiller. ~4.5 is the conventional 5-yr CMT duration.
 _IT_TREASURY_DURATION = 4.5
 
 
@@ -177,11 +175,11 @@ def build_it_treasury(cpi: dict[int, float]) -> dict[int, float]:
     """Intermediate (5-yr) Treasury REAL total return, FRED GS5 constructed.
 
     FRED gives the 5-yr constant-maturity *yield* monthly. We take each year's
-    January yield (matching shiller.py's Jan-to-Jan annual convention) and
+    January yield (matching returns.shiller's Jan-to-Jan annual convention) and
     build a duration-adjusted nominal total return:
         nominal = y0 + DURATION * (y0 - y1)
     (coupon income y0 plus a price gain/loss as the yield moves), then deflate
-    by that year's CPI. Same construction shiller.py uses for the 10-yr bond.
+    by that year's CPI. Same construction returns.shiller uses for the 10-yr bond.
     GS5 begins 1953-04, so the first full Jan-to-Jan year is 1954.
     """
     jan_yield: dict[int, float] = {}
@@ -224,7 +222,7 @@ _TESTFOL_FETCH_CMD = (
 )
 
 # class id → (testfol sim ticker, human-readable proxy description). class id ==
-# series id for all four (D5). The ticker names the cached raw JSON file.
+# series id for all four. The ticker names the cached raw JSON file.
 _TESTFOL_SERIES: dict[str, tuple[str, str]] = {
     "intl_developed": ("EFASIM", "MSCI EAFE gross-TR proxy"),
     "emerging_markets": ("VWOSIM", "Vanguard FTSE Emerging Markets index proxy"),
@@ -237,9 +235,9 @@ def build_gold(cpi: dict[int, float]) -> dict[int, float]:
     """Gold REAL annual total return, Damodaran 'Returns by year' col 7, 1972+.
 
     Pre-1971 gold returns reflect the fixed $35/oz Bretton-Woods peg (near-zero,
-    structurally meaningless — design FYI #2), so the series starts 1972 (the
-    first full post-decoupling year). The same already-cached ``histretSP.xls``
-    slice 1 reads; col 7 is the 'Gold*' nominal annual return, deflated by the
+    structurally meaningless), so the series starts 1972 (the first full
+    post-decoupling year). The same cached ``histretSP.xls`` the other
+    Damodaran series read; col 7 is the 'Gold*' nominal annual return, deflated by the
     year's CPI like the other Damodaran columns.
     """
     nominal = _damodaran_nominal(7)
@@ -323,13 +321,13 @@ def main(cache: Path | None = None) -> None:
     OUT = CACHE / "asset_class_series.csv"
     cpi = _load_cpi()
     builders = {
-        # slice 1 — long-history free sources
+        # long-history free sources
         "st_treasury": build_st_treasury,
         "lt_treasury": build_lt_treasury,
         "us_small_value": build_us_small_value,
         "it_treasury": build_it_treasury,
         "us_reit": build_us_reit,
-        # slice 4a — the remaining five classes
+        # shorter-history sources
         "gold": build_gold,
         "intl_developed": lambda c: _build_testfol_real("EFASIM", c),
         "emerging_markets": lambda c: _build_testfol_real("VWOSIM", c),

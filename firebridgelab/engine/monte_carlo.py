@@ -1,69 +1,31 @@
 """Monte Carlo simulation (Monte Carlo mode) — Historical's parametric twin.
 
 Where Historical mode *replays* actual 1871-2025 return sequences, Monte Carlo
-mode *samples* them: each asset class draws its annual real return from a
-``Normal(mean, vol)``, classes are correlated via a correlation matrix, and the
-blended sequence runs through the *identical* midpoint-withdrawal sim
-(``_simulate_cohort``) Historical and Deterministic use. The only thing that
-changes vs Historical is how the year-by-year returns are generated; GI streams,
-spending shape, and the floor-at-zero are all unchanged. See
-the design notes.
+mode *samples* them, then runs each sampled sequence (a **trial**, the analogue of
+a Historical **cohort**) through the *identical* per-year sim
+(``engine.sim_core._simulate_cohort``, or ``engine.buckets.simulate_buckets_cohort``
+in buckets mode). GI streams, spending shape and the floor-at-zero are unchanged;
+only the return generation differs. ``simulate_monte_carlo`` returns the SAME
+aggregate shape as ``HistoricalResult``, so the API's fan payload and the
+front-end fan renderer are reused.
 
-This returns the SAME aggregate shape as ``HistoricalResult`` (a Monte Carlo
-**trial** is the analogue of a Historical **cohort**), so the API's
-Historical-shaped fan payload and the front-end fan renderer are reused verbatim.
+Sampling lives in ``returns.sampling``:
 
-Compound -> arithmetic uplift (Decision #2)
--------------------------------------------
-The editable return knob is the **compound** (geometric) real return — what the
-Deterministic engine compounds. A Normal sampler needs the **arithmetic** mean,
-so we convert per class: ``mean = compound + vol**2 / 2`` (the standard
-variance-drag adjustment). We sample arithmetic-Normal returns with the displayed
-stdev (vol). Because terminal wealth is right-skewed, this makes the MC **median**
-sit a few percent ABOVE the Deterministic terminal value — that is expected and
-correct. A median *below* Deterministic is the failure signature of a skipped
-uplift (gate #1 in the brief asserts the sign).
+- Each class draws an annual real return around an **arithmetic** mean
+  ``compound + vol**2 / 2`` (the standard variance-drag uplift from the editable
+  compound knob), so the MC **median** terminal sits a few percent ABOVE the
+  Deterministic one. A median *below* Deterministic is the failure signature of a
+  skipped uplift.
+- Classes are correlated through a nearest-PSD-projected, Cholesky-factored
+  correlation matrix: the scalar ``scenario.correlation`` for N <= 2, else an
+  explicit ``scenario.correlations`` or an estimated default. Draws are Normal,
+  or Student-t with ``scenario.mc_t_df`` (same mean, vol and correlation; fatter
+  tails) when ``mc_distribution == "student_t"``.
+- Mapped classes blend with the same renormalized per-series weights Historical
+  uses; if no class maps, that's an error.
 
-Correlation -> nearest-PSD -> Cholesky (Decision #1, #4; asset-class design)
----------------------------------------------------------------------------
-The correlation matrix over the mapped series is assembled, projected to the
-nearest positive-semidefinite matrix, then Cholesky-factored; the factor ``L``
-correlates independent standard normals.
-
-Two assembly paths (asset-class design, round-2 fix N1):
-  - **N <= 2**: the scalar ``scenario.correlation`` fast-path — the single
-    equity-bond scalar broadcast onto the 1x1 / 2x2 matrix. This is the ONLY
-    place the scalar is used.
-  - **N > 2**: either an explicit ``scenario.correlations`` matrix (ordered,
-    aligned to allocation order) is used after validation, OR — when none is
-    supplied — the per-pair/max-overlap **estimated default** matrix over the
-    mapped series is built by ``firebridgelab.correlation`` (slice 2 D6). The scalar is
-    NEVER broadcast onto a >2 matrix (a uniform off-diagonal is a silent wrong
-    default). A malformed explicit matrix raises ValueError (→ 422 at the API).
-
-Every matrix — scalar-built or explicit — passes a nearest-PSD projection
-(``_nearest_psd``: clip negative eigenvalues to a pinned 1e-8 floor, renormalize
-to unit diagonal) BEFORE Cholesky. For a valid 2x2 it's a no-op. The valid
-scalar-correlation range is [-0.99, +0.99] (exactly +/-1 is rank-deficient —
-guarded at the API).
-
-Shared sampler (Decision #4)
-----------------------------
-``_sample_class_returns`` builds the ``(n_trials, n_years, n_classes)`` draw in
-ONE fixed order/shape from ``np.random.default_rng(seed)``. Both the display path
-(``simulate_monte_carlo``) and build 2's lean solver evaluator
-(``_monte_carlo_evaluator``) call it with the same seed/count/shape, so their
-draws are bit-identical — the same "can't drift" discipline as the shared
-``_simulate_cohort``.
-
-Series mapping + renormalization (mirrors Historical's Decision 3)
-------------------------------------------------------------------
-We sample one return series per *mapped* asset class (a class whose name binds to
-a known historical series via ``SERIES_FOR_CLASS``), using that class's vol and
-compound return, then blend with ``renormalized_weights`` — the exact same
-renormalized per-series weights Historical blends. Unmapped classes' weight is
-renormalized out, so a future unmapped class can't leak into the blend. If no
-class maps, that's an error (same as Historical).
+The display path and the solver's evaluator (``_monte_carlo_evaluator``) share one
+sampler with the same seed and trial count, so their draws are bit-identical.
 """
 
 from __future__ import annotations
@@ -98,11 +60,11 @@ from firebridgelab.tax.overlay import aggregate_tax_overlay, compute_tax_overlay
 
 
 # Fixed default seed so a given scenario samples the SAME draws every run (no
-# flicker between a display run and a later solve — see Decision #4). The display
+# flicker between a display run and a later solve). The display
 # path and the solver pass this same seed so their draws are bit-identical.
 DEFAULT_SEED = 12345
 
-# Default trial count (Decision #4): 10k is advisor-grade and smooths the
+# Default trial count: 10k is advisor-grade and smooths the
 # solver's confidence dial. Same count + seed for display and solver.
 DEFAULT_N_TRIALS = 10_000
 
@@ -119,9 +81,8 @@ DEFAULT_N_TRIALS = 10_000
 # to the serial run — equivalence is structural, and pinned by
 # ``tests/test_monte_carlo.py``'s parallel-vs-serial equality test.
 #
-# Worker count: the box has 4 cores and runs live services — cap at
-# ``os.cpu_count() - 1`` (never saturate the box). Spawn-safety: the code runs
-# inside uvicorn, so the pool uses the ``spawn`` start method explicitly
+# Worker count: cap at ``os.cpu_count() - 1`` so the API server keeps a core.
+# Spawn-safety: the code runs inside uvicorn, so the pool uses the ``spawn`` start method explicitly
 # (fork under a threaded server is unsafe), the worker is a MODULE-LEVEL
 # function with picklable args (Scenario is a frozen dataclass of plain
 # fields; the chunk is an ndarray slice), and the pool is created per-request
@@ -129,7 +90,7 @@ DEFAULT_N_TRIALS = 10_000
 # effects, no leaked processes.
 SPLIT_PARALLEL_MAX_WORKERS = max(1, (os.cpu_count() or 1) - 1)
 
-# Below this trial count the serial path runs inline: 3 spawned interpreters
+# Below this trial count the serial path runs inline: spawned interpreters
 # each re-import the engine (~1s of fixed overhead) — a loss for the small
 # fixture-sized runs the test suite does by the hundreds, a rounding error for
 # the 10k display run the parallelism exists for.
@@ -140,7 +101,7 @@ SPLIT_PARALLEL_MIN_TRIALS = 512
 class MonteCarloResult:
     """Aggregate of a Monte Carlo run across all trials.
 
-    Mirrors ``historical.HistoricalResult`` field-for-field so the API's
+    Mirrors ``engine.cohort_aggregate.HistoricalResult`` field-for-field so the API's
     Historical-shaped fan payload and the front-end fan renderer are reused
     unchanged — only the cohort/trial naming differs. ``trial_count`` is the
     number of sampled return paths (the MC analogue of Historical's
@@ -165,59 +126,56 @@ class MonteCarloResult:
     depletion_count: int
     earliest_depletion_age: int | None
 
-    # Spending fan (variable-spending design slice 3 — the MC twin of the Historical
-    # spending fan). Under constant/lifecycle spending is identical across every
-    # trial, so there is no spending distribution to plot and these stay None (the
-    # payload omits the spending fan — back-compatible). Under ``guardrails``
-    # spending VARIES across trials (a bad sampled sequence cuts, a good one
-    # raises), so these carry the per-age percentile fan of the WITHDRAWN spend,
-    # mirroring the portfolio fan field-for-field: ``spend_*[k]`` is the percentile
-    # spend at ``ages[k]``, so at every age
-    # ``spend_p10 <= spend_p25 <= spend_median <= spend_p75 <= spend_p90``.
+    # Spending fan (the MC twin of the Historical spending fan). Under
+    # constant/lifecycle spending is identical across every trial, so there is no
+    # spending distribution to plot and these stay None (the payload omits the
+    # spending fan). Under a dynamic strategy (e.g. ``guardrails``) spending VARIES
+    # across trials (a bad sampled sequence cuts, a good one raises), so these carry the
+    # per-age percentile fan of the WITHDRAWN spend, mirroring the portfolio fan
+    # field-for-field: ``spend_*[k]`` is the percentile spend at ``ages[k]``, so at
+    # every age ``spend_p10 <= spend_p25 <= spend_median <= spend_p75 <= spend_p90``.
     spend_median: list[float] | None = None
     spend_p10: list[float] | None = None
     spend_p25: list[float] | None = None
     spend_p75: list[float] | None = None
     spend_p90: list[float] | None = None
 
-    # Aggregate adjustment-event stats (variable-spending design slice 3). Guardrails
-    # only — the cost-of-flexibility readout (``adjustment_stats``), aggregated
+    # Aggregate adjustment-event stats. Dynamic strategies only — the
+    # cost-of-flexibility readout (``adjustment_stats``), aggregated
     # across the synthetic trials with the SAME ``_compute_adjustment_stats`` the
     # Historical engine uses (so the two stat readouts can't drift). None under
     # constant/lifecycle (no adjustments to surface; the payload omits it).
     #
     # NOTE: there is NO ``worst_cohort`` analogue for MC. MC trials are synthetic
     # (no calendar year), so the Historical worst-cohort "1969 cohort" narrative
-    # does NOT translate — the design pins MC to the fan + aggregate stats and omits
-    # the worst-trial drill-down to keep the read clean.
+    # does NOT translate — MC shows the fan + aggregate stats and omits the
+    # worst-trial drill-down to keep the read clean.
     adjustment_stats: "AdjustmentStats | None" = None
 
-    # Buffer-survival stats (bucket-strategy design "Output"). Buckets sourcing only
+    # Buffer-survival stats. Buckets sourcing only
     # — the MC twin of Historical's buffer-survival readout, aggregated across the
     # synthetic trials with the SAME ``compute_buffer_survival`` the Historical
     # engine uses (so the two readouts can't drift). None under single sourcing.
     buffer_survival: "BufferSurvivalStats | None" = None
 
-    # Tax-location risk (tax-buckets design tb1) — the MC twin of Historical's
+    # Tax-location risk — the MC twin of Historical's
     # tax_location_risk. Populated ONLY when a tax-location split is supplied AND
     # sourcing is single (the shadow decomposition ran across trials, aggregated
     # with the SAME ``aggregate_tax_location_risk`` Historical uses); None
-    # otherwise, so the payload omits the tax_location_risk block (back-compatible).
+    # otherwise, so the payload omits the tax_location_risk block.
     tax_location_risk: "object | None" = None
 
-    # Federal-tax overlay (federal-tax overlay design ft1) — the MC twin of
-    # Historical's ``federal_tax``. Populated under the SAME gate as
-    # ``tax_location_risk`` (split supplied + single sourcing); None otherwise
-    # (payload omits the block). Additive defaulted field; held as the
-    # firebridgelab.federal_tax ``FederalTaxOverlayAggregate``.
+    # Federal-tax overlay — the MC twin of Historical's ``federal_tax``. Populated
+    # under the SAME gate as ``tax_location_risk`` (split supplied + single
+    # sourcing); None otherwise (payload omits the block). Held as the
+    # ``tax.overlay.FederalTaxOverlayAggregate``.
     federal_tax: "object | None" = None
 
-    # Estate cost of taxes (tax-drag design td1, DECISION 9) — the MC twin of
-    # Historical's ``estate_cost``. Populated under the SAME gate; None
-    # otherwise. Additive defaulted field; held as the firebridgelab.tax_location
-    # ``EstateCostOfTaxes``. See ``historical.HistoricalResult.estate_cost``'s
-    # docstring for the pairing discipline (median of per-trial differences,
-    # paired with the dragged-vs-pretax success-rate delta).
+    # Estate cost of taxes — the MC twin of Historical's ``estate_cost``.
+    # Populated under the SAME gate; None otherwise. Held as the
+    # ``tax.location_risk.EstateCostOfTaxes``. See the
+    # ``HistoricalResult.estate_cost`` comment for the pairing discipline (median of
+    # per-trial differences, paired with the dragged-vs-pretax success-rate delta).
     estate_cost: "object | None" = None
 
 
@@ -234,15 +192,14 @@ def _trial_trajectories(
     trials, each calling the vectorized-enough per-trial sim — 10k x 43 x 2 is
     trivial.
 
-    When ``collect_spends`` is True (guardrails — variable-spending design slice 3)
-    a ``SpendingStrategy`` is built explicitly per trial (BEFORE its year loop, so
+    When ``collect_spends`` is True (a strategy that collects spends) a
+    ``SpendingStrategy`` is built explicitly per trial (BEFORE its year loop, so
     each trial resets the guardrail's carried state), and its per-year withdrawn
     spend + ``AdjustmentEvent`` log are captured: ``spends[t][k]`` is the spend at
     age step ``k`` of trial ``t`` (feeds the spend fan) and ``events[t]`` is that
     trial's adjustment-event log (feeds ``adjustment_stats``). Otherwise both are
-    None and the per-trial spend/events are discarded — the constant/lifecycle path
-    stays byte-stable (it builds the same byte-stable ``PureAgeStrategy`` either
-    way, so the trajectory is identical whether or not events are collected).
+    None and the per-trial spend/events are discarded (the trajectory is identical
+    whether or not events are collected).
     """
     trajectories = np.empty(blended.shape, dtype=float)
     spends: list[list[float]] | None = [] if collect_spends else None
@@ -274,14 +231,13 @@ def _split_trials_chunk(
     IDENTICAL per-trial code by construction.
 
     MODULE-LEVEL and picklable-args-only on purpose (spawn-safety in uvicorn —
-    see the SPLIT_PARALLEL_* constants' comment). Per trial, exactly what the
-    pre-memoization inline loop did:
+    see the SPLIT_PARALLEL_* constants' comment). Per trial:
 
       1. The DRAGGED decomposition (a fresh strategy reading the dragged, TAXED
          balance) — the trial's fan/spend/attribution contribution.
       2. The INDEPENDENT pre-tax counterfactual (``_simulate_cohort``, a
-         SEPARATE fresh strategy reading the UNTAXED balance) — the DECISION 9
-         estate-cost pairing only.
+         SEPARATE fresh strategy reading the UNTAXED balance) — the estate-cost
+         pairing only.
 
     Returns one ``(tax_path, events, pretax_terminal, pretax_success)`` tuple
     per trial, in chunk order. Everything else the caller needs (the dragged
@@ -322,10 +278,9 @@ def _split_trial_trajectories(scenario: Scenario, blended: np.ndarray) -> tuple[
     list[bool],
     list[bool],
 ]:
-    """The split-mode analogue of ``_trial_trajectories`` (td-b fan re-point,
-    DECISION 1 + DECISION 9): each trial runs TWO independent sims over the
-    SAME ``blended[t]`` return sequence — "each is the honest run of its own
-    world" (DECISION 9). See ``_split_trials_chunk`` for the per-trial pair.
+    """The split-mode analogue of ``_trial_trajectories``: each trial runs TWO
+    independent sims over the SAME ``blended[t]`` return sequence — each is the
+    honest run of its own world. See ``_split_trials_chunk`` for the per-trial pair.
 
     For large runs the per-trial work is chunked across a spawn-safe
     process pool (the SAME ``_split_trials_chunk`` the serial path runs,
@@ -348,7 +303,7 @@ def _split_trial_trajectories(scenario: Scenario, blended: np.ndarray) -> tuple[
         per_trial = _split_trials_chunk(scenario, blended)
     else:
         # Contiguous chunks (first chunks get the remainder), one per worker —
-        # 3 fat submissions instead of 10k tiny ones keeps IPC negligible.
+        # a few fat submissions instead of 10k tiny ones keeps IPC negligible.
         base, rem = divmod(n_trials, workers)
         bounds = [0]
         for w in range(workers):
@@ -382,7 +337,7 @@ def _split_trial_trajectories(scenario: Scenario, blended: np.ndarray) -> tuple[
         ]
         matrix[t] = dragged_row
         # Spend fan / adjustment stats read the REALIZED (fundable-capped)
-        # consumption — same discipline as historical._split_cohort_step and
+        # consumption — same discipline as cohort_aggregate._split_cohort_step and
         # the non-split loops (see TaxLocationPath.realized_spend; recording
         # the intended spend overstated post-depletion consumption).
         spends.append(list(tax_path.realized_spend))
@@ -409,13 +364,13 @@ def _simulate_monte_carlo_buckets(
 ) -> MonteCarloResult:
     """3-bucket Monte Carlo — sample once, run the shared bucket sim per trial.
 
-    bucket-strategy design: sample the union of bucket classes (correlated, seeded),
-    blend each bucket per trial, then run each trial's per-bucket return sequence
-    through the SAME ``buckets.simulate_buckets_cohort`` Historical uses (so the
+    Sample the union of bucket classes (correlated, seeded), blend each bucket per
+    trial, then run each trial's per-bucket return sequence through the SAME
+    ``engine.buckets.simulate_buckets_cohort`` Historical uses (so the
     mechanic can't drift). Aggregates to the portfolio fan + depletion exactly like
     the single-balance MC path, plus the buffer-survival readout.
 
-    Spending is constant / lifecycle only (guardrails fenced at the API), so there
+    Spending is constant / lifecycle only (the dynamic modes are fenced), so there
     is no spend fan / adjustment stats — the bucket value is the buffer-survival
     metric.
     """
@@ -430,10 +385,10 @@ def _simulate_monte_carlo_buckets(
     # year the PRE-floor summed balance went strictly < 0), NOT re-derived from the
     # post-floor summed ``matrix == 0.0`` like the single-balance MC path. The two
     # agree for every trial EXCEPT one whose first zero-crossing lands EXACTLY on
-    # 0.0: the post-floor ``== 0.0`` test would count it, but step_year (and now the
+    # 0.0: the post-floor ``== 0.0`` test would count it, but step_year (and the
     # bucket per-cohort flag) does not. Reading depleted_age here keeps the bucket MC
-    # depletion count consistent with the corrected per-cohort rule at that boundary
-    # — the structural Gate-B identity. (The matrix is still summed for the fan.)
+    # depletion count consistent with the per-cohort rule at that boundary (the
+    # single-bucket identity). (The matrix is still summed for the fan.)
     depletion_ages: list[int] = []
     for t in range(n_trials):
         per_trial = {bid: arr[t] for bid, arr in bucket_returns.items()}
@@ -485,16 +440,15 @@ def simulate_monte_carlo(
     engine samples parametrically and does not read the Shiller series), so the
     API can call both engines through the same signature.
 
-    Buckets (bucket-strategy design): when ``sourcing_mode == "buckets"`` the run
+    Buckets: when ``sourcing_mode == "buckets"`` the run
     routes to the dedicated 3-bucket trial path (``_simulate_monte_carlo_buckets``)
     — same fan + depletion aggregation, plus the buffer-survival readout. The
     bucket allocations supersede the single/glidepath allocation, so the bucket
     branch is checked FIRST.
     """
     if scenario.sourcing_mode == SOURCING_MODE_BUCKETS:
-        # Tax-location split (tax-buckets design tb1) is SINGLE-mode only — NO-OP'd
-        # under buckets sourcing (the 3×3 tax-location × cash/income/growth product
-        # is a deferred later card). Logged so the mode interaction is visible.
+        # The tax-location split is SINGLE-mode only — ignored under buckets
+        # sourcing. Logged so the mode interaction is visible.
         if has_tax_split(scenario):
             logging.getLogger(__name__).info(
                 "tax-location split supplied with sourcing_mode=buckets; "
@@ -505,28 +459,23 @@ def simulate_monte_carlo(
     n_years = scenario.end_age - scenario.start_age + 1
 
     blended = _blended_trial_returns(scenario, n_trials, n_years, seed)
-    # Collect per-trial spends + adjustment events ONLY for collecting strategies
-    # (guardrails today, the funded-ratio variants when they land), where spending
-    # varies across trials and a spend fan / adjustment stats exist (variable-
-    # spending design slice 3). The strategy-level ``collects_spends`` predicate
-    # replaces the old ``spending_mode == guardrails`` gate — same value today
-    # (only GuardrailStrategy collects among reachable modes), so byte-stable.
-    # Constant/lifecycle take the lean path (no collection) and stay byte-stable.
+    # Collect per-trial spends + adjustment events ONLY for strategies whose
+    # ``collects_spends`` is set, where spending varies across trials and a spend
+    # fan / adjustment stats exist. Constant/lifecycle take the lean path (no
+    # collection).
     collects_spends = make_strategy(scenario).collects_spends
 
     tax_location_risk = None
     federal_tax = None
     estate_cost = None
     if has_tax_split(scenario):
-        # td-b fan re-point (DECISION 1): the DRAGGED decomposition drives the
-        # fan / spend fan / adjustment stats / depletion for split scenarios
-        # (the ``matrix`` this returns IS the dragged total, a drop-in for
-        # ``_trial_trajectories``'s pre-tax matrix below). ``tax_paths`` also
-        # feeds ``tax_location_risk`` / ``federal_tax`` (unchanged from td-a —
-        # this REPLACES the old separate per-trial list comprehension, so the
-        # dragged decomposition is computed ONCE per trial, not twice). The
-        # pre-tax counterfactual (DECISION 9) rides inside the same per-trial
-        # loop and feeds ``estate_cost`` only.
+        # The DRAGGED decomposition drives the fan / spend fan / adjustment
+        # stats / depletion for split scenarios (the ``matrix`` this returns IS
+        # the dragged total, a drop-in for ``_trial_trajectories``'s pre-tax
+        # matrix below). ``tax_paths`` also feeds ``tax_location_risk`` /
+        # ``federal_tax``, so the dragged decomposition is computed ONCE per
+        # trial. The pre-tax counterfactual rides inside the same per-trial loop
+        # and feeds ``estate_cost`` only.
         (
             matrix,
             trial_spends,
@@ -566,12 +515,12 @@ def simulate_monte_carlo(
     # across trials.
     depletion_count, earliest_depletion_age = _depletion_stats(matrix, ages)
 
-    # Spending fan + adjustment stats — guardrails only (variable-spending design
-    # slice 3). The SAME percentile machinery as the portfolio fan over the
-    # (trials, n_years) spend matrix, and the SAME _compute_adjustment_stats the
-    # Historical engine uses (so the two stat readouts can't drift). NO worst-trial
-    # drill-down: MC trials are synthetic (no calendar year), so the worst-cohort
-    # narrative does not translate — the design pins MC to fan + aggregate stats.
+    # Spending fan + adjustment stats — collecting strategies only. The SAME percentile
+    # machinery as the portfolio fan over the (trials, n_years) spend matrix, and the
+    # SAME _compute_adjustment_stats the Historical engine uses (so the two stat
+    # readouts can't drift). NO worst-trial drill-down: MC trials are synthetic (no
+    # calendar year), so the worst-cohort narrative does not translate — MC shows the
+    # fan + aggregate stats only.
     spend_fan: dict[str, list[float] | None] = {
         "spend_median": None,
         "spend_p10": None,
@@ -642,17 +591,17 @@ def _monte_carlo_evaluator(
     seed: int = DEFAULT_SEED,
     data: ShillerData | None = None,
 ):
-    """Build a fast survival-fraction function over a spend (build-2 solver hook).
+    """Build a fast survival-fraction function over a spend (the solver hook).
 
-    Mirrors ``solver._historical_evaluator``: the trials' blended-return arrays
+    Mirrors ``analysis.solver._historical_evaluator``: the trials' blended-return arrays
     are spend-independent, so we sample them ONCE here (via the SAME shared
     sampler the display path uses, with the SAME seed/count — bit-identical
     draws), then the returned ``evaluate(spend)`` re-runs only the lean
     depletion-only sim per probe. Returns ``(evaluate, trial_count)``.
 
     Short-circuits before any percentile/fan work — depletion count only — same
-    lean discipline as the solver's historical evaluator. Build 1 ships this so
-    build 2's solver can call it unchanged; the display path does not use it.
+    lean discipline as the solver's historical evaluator. The display path does
+    not use it.
 
     Raises ``ValueError`` (via the shared sampler) on a scenario whose allocation
     maps no known series — the API routes that to a 422.

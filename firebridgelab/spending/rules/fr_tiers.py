@@ -1,4 +1,13 @@
-"""spending.rules.fr_tiers (split from the flat layout)."""
+"""The ``fr_tiers`` spending mode: the funded-ratio tier ladder.
+
+A port of the legacy ``TierLadderPolicy`` "christmas tree": a funded-ratio band
+ladder with hysteresis, a crash brake and a hard floor, where the tier AMOUNTS
+encode the go-go/slow-go/later phase shape ($160k go-go MAX → $85k FLOOR). It
+applies no activity taper and ignores the ``spending_floor`` / ``spending_ceiling``
+rails; its clamps are tier-based (crash → BELT, hard floor → FLOOR). Its NPV
+target is the MAX go-go tier amount, not ``annual_spending``. Path-dependent and
+view-only (the max-spend solver is fenced); the ladder is a fixed preset.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +19,7 @@ from firebridgelab.spending.registry import register
 
 
 # --------------------------------------------------------------------------- #
-# Funded-ratio TIER LADDER preset (fr-tiers, FR feature slice 4 — the capstone).#
+# Funded-ratio TIER LADDER preset (fr-tiers).                                 #
 # --------------------------------------------------------------------------- #
 #
 # A FAITHFUL port of the legacy ``TierLadderPolicy`` "christmas tree": a funded-
@@ -32,10 +41,10 @@ from firebridgelab.spending.registry import register
 #     diagnostic warning that fires if the configured target is below the highest
 #     tier amount, so that regression can never land silently.
 #
-# Baked preset config (see ``test_tier_ladder.py``) — v1 presets, NOT user-editable:
+# Baked preset config (see ``test_tier_ladder.py``) — NOT user-editable:
 #   go_go (ages ≤ 65):  MAX≥1.50 $160k · BONUS≥1.25 $145k · FULL≥1.00 $130k ·
 #                       BELT≥0.85 $118k · FLOOR≥0.00 $85k
-#   slow_go (66–74):    MAX≥1.50 $130k · BONUS≥1.25 $85k · FULL≥0.85 $110k ·
+#   slow_go (66–74):    MAX≥1.50 $130k · BONUS≥1.25 $121k · FULL≥0.85 $110k ·
 #                       BELT≥0.70 $98k · FLOOR≥0.00 $85k
 #   later (≥ 75):       flat $85k
 # phase boundaries: go_go_end=65, slow_go_end=74. hysteresis band ±0.05.
@@ -77,7 +86,7 @@ def _fr_tier_floor_threshold(age: int, gi_at_age: float) -> float:
     ``max(250_000, 3 × max(85_000 − GI, 0))`` — a $250k minimum, or 3× the
     annual gap below the $85k FLOOR-tier target, whichever is larger. When the
     SMOOTHED portfolio falls below this, the hard-floor clamp pulls spend down to
-    the FLOOR tier. Faithful to the archived ``floor_threshold_fn`` built in
+    the FLOOR tier. Matches the legacy ``floor_threshold_fn`` built in
     ``test_tier_ladder.py`` (floor_minimum=$250k, multiplier=3.0).
     """
     annual_gap = max(_FR_TIER_FLOOR_TARGET - gi_at_age, 0.0)
@@ -86,7 +95,7 @@ def _fr_tier_floor_threshold(age: int, gi_at_age: float) -> float:
 
 @register(SPENDING_MODE_FR_TIERS)
 class FundedRatioTierStrategy(FundedRatioStrategyBase):
-    """Funded-ratio TIER LADDER spending strategy (FR feature slice 4 — capstone).
+    """Funded-ratio TIER LADDER spending strategy.
 
     A FAITHFUL port of the legacy ``TierLadderPolicy`` "christmas tree": a funded-
     ratio band ladder with hysteresis, a crash brake, and a hard floor. The tier
@@ -99,18 +108,17 @@ class FundedRatioTierStrategy(FundedRatioStrategyBase):
 
     NPV target = the MAX go-go tier amount (``_FR_TIER_NPV_TARGET`` = $160k), passed
     to the base so the FR denominator is the highest scheduled spend (NOT the floor).
-    The constructor carries the archived diagnostic: if the configured NPV target is
+    The constructor carries a diagnostic: if the configured NPV target is
     below the highest tier amount, that is the classic floor-vs-target bug, so it
     ``warnings.warn``s — the guard against a silent regression.
 
     The per-year tier decision is factored into a PURE method ``_tier_decision``
     that takes controlled inputs (age, fr, smoothed, prev_portfolio, prev_state, gi)
     and returns ``(amount, state_name)``. ``_decide`` wires the spine's carried state
-    into it. This pure method is what the golden tests drive with the exact inputs
-    the archived ``PolicyContext`` tests used, asserting IDENTICAL outputs — the
-    mechanism that proves bit-for-bit parity with the oracle.
+    into it. The golden tests drive this pure method with the inputs the legacy
+    ``PolicyContext`` tests used and assert identical outputs.
 
-    The archived ``compute()`` pipeline, ported IN ORDER:
+    The legacy ``compute()`` pipeline, ported IN ORDER:
       1. Phase routing — go_go (age ≤ 65) / slow_go (66–74) / later (≥ 75, flat).
       2. Unbanded tier lookup — scan tiers sorted DESC by fr_min, pick the first
          whose ``fr_min ≤ FR`` (FR uses the SMOOTHED portfolio).
@@ -122,17 +130,17 @@ class FundedRatioTierStrategy(FundedRatioStrategyBase):
       5. Hard floor — the SMOOTHED portfolio < the dynamic floor threshold AND
          current spend > the FLOOR amount → clamp FLOOR, "FLOOR (absolute)".
 
-    First-call (year-0) behavior reproduces the archived ``initial_decision``: on
+    First-call (year-0) behavior reproduces the legacy ``initial_decision``: on
     the first ``spend_for_year`` call ``smoothed == begin_year_portfolio`` (no
     history yet), ``prev_state`` is None (no hysteresis hold), and ``prev_portfolio``
     is None (no crash signal) — so ``_tier_decision`` collapses to a plain unbanded
-    lookup on the raw initial portfolio's FR, exactly as the archived anchor did.
+    lookup on the raw initial portfolio's FR.
     """
 
     # Normalized tier ladders: ``[{name, fr_min, amount}]`` sorted DESC by fr_min.
-    # Built once at class scope from the baked preset (the archived
-    # ``_normalize_tiers`` discipline; the preset is already sorted, but we sort
-    # defensively so the contract holds if the preset is ever reordered).
+    # Built once at class scope from the baked preset (the preset is already
+    # sorted, but we sort defensively so the contract holds if the preset is ever
+    # reordered).
     _GO_GO = sorted(
         [{"name": n, "fr_min": f, "amount": a} for (n, f, a) in _FR_TIER_GO_GO_TIERS],
         key=lambda t: t["fr_min"], reverse=True,
@@ -146,7 +154,7 @@ class FundedRatioTierStrategy(FundedRatioStrategyBase):
         # NPV target = the MAX go-go tier amount ($160k) — the load-bearing invariant.
         super().__init__(scenario, npv_target_real=_FR_TIER_NPV_TARGET)
 
-        # Diagnostic guard (ported from the archived constructor): the NPV target
+        # Diagnostic guard: the NPV target
         # must be ≥ the highest tier amount across both phases. If it's lower, the
         # caller has almost certainly conflated the floor-protection threshold with
         # the NPV target (the classic floor-vs-target bug) — warn so it can never
@@ -168,7 +176,7 @@ class FundedRatioTierStrategy(FundedRatioStrategyBase):
 
         # Adjustment-event log + prior-GI tracking (same shape/discipline as the
         # sibling FR strategies). Purely descriptive — recording never alters the
-        # returned spend, so the canary holds.
+        # returned spend.
         self.events: list[AdjustmentEvent] = []
         self._prev_gi: float | None = None
 
@@ -176,7 +184,7 @@ class FundedRatioTierStrategy(FundedRatioStrategyBase):
 
     @staticmethod
     def _strip_qualifier(state: str | None) -> str | None:
-        """'BELT (crash)' → 'BELT'; pass through None / plain names. (Archived.)"""
+        """'BELT (crash)' → 'BELT'; pass through None / plain names."""
         if not state:
             return state
         return state.split()[0] if " " in state else state
@@ -199,7 +207,7 @@ class FundedRatioTierStrategy(FundedRatioStrategyBase):
 
     @staticmethod
     def _unbanded_lookup(fr: float, tiers: list[dict]) -> dict:
-        """First tier with ``fr_min ≤ fr`` (tiers sorted DESC). (Archived.)"""
+        """First tier with ``fr_min ≤ fr`` (tiers sorted DESC)."""
         for t in tiers:
             if fr >= t["fr_min"]:
                 return t
@@ -222,12 +230,11 @@ class FundedRatioTierStrategy(FundedRatioStrategyBase):
         gi: float,
         begin_year_portfolio: float,
     ) -> tuple[float, str]:
-        """The PURE tier-ladder decision (the archived ``compute()`` pipeline).
+        """The PURE tier-ladder decision (the legacy ``compute()`` pipeline).
 
-        Faithful port. ``fr`` is the SMOOTHED funded ratio; ``smoothed`` is the
+        ``fr`` is the SMOOTHED funded ratio; ``smoothed`` is the
         smoothed portfolio (the hard-floor test); ``begin_year_portfolio`` /
-        ``prev_portfolio`` are the RAW current / prior balances (the crash YoY drop,
-        matching the archived ``ctx.portfolio_value`` / ``ctx.prev_portfolio_value``);
+        ``prev_portfolio`` are the RAW current / prior balances (the crash YoY drop);
         ``prev_state`` is the prior tier/state name (hysteresis); ``gi`` is the
         year's guaranteed income (the dynamic floor threshold). Returns
         ``(amount, state_name)``.
@@ -309,7 +316,7 @@ class FundedRatioTierStrategy(FundedRatioStrategyBase):
         # ``self.prev_state`` still hold last year's values (the next-year advance
         # happens after _decide returns). On the FIRST call prev_portfolio /
         # prev_state are None and smoothed == begin_year_portfolio → the unbanded
-        # initial anchor, reproducing the archived ``initial_decision``.
+        # initial anchor, reproducing the legacy ``initial_decision``.
         amount, state_name = self._tier_decision(
             age=age,
             fr=fr,
@@ -321,9 +328,8 @@ class FundedRatioTierStrategy(FundedRatioStrategyBase):
         )
 
         # Adjustment-event direction: compare THIS year's tier amount to the prior
-        # withdrawn spend (a real, honest per-year fact — the tier ladder moved up,
-        # down, or held). No fabricated guardrail-band semantics. The first year has
-        # no prior spend → "hold".
+        # withdrawn spend (the tier ladder moved up, down, or held). The first year
+        # has no prior spend → "hold".
         if self.prev_spend is None or abs(amount - self.prev_spend) <= 1e-9:
             action = "hold"
         elif amount > self.prev_spend:

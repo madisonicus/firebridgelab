@@ -68,14 +68,14 @@ const plain = (x) => JSON.parse(JSON.stringify(x));
 
 test("bucket id order is cash → income → growth (the engine + payload order)", () => {
   const BucketView = loadBucketView();
-  // Mirrors firebridgelab.scenario.BucketConfig field order + the BucketYear/payload
+  // Mirrors firebridgelab.engine.scenario.BucketConfig field order + the BucketYear/payload
   // cash/income/growth order the worst-cohort + bucket_balances series carry.
   assert.deepEqual(plain(BucketView.ids), ["cash", "income", "growth"]);
 });
 
 test("default 100%-weight class per bucket matches firebridgelab.default_bucket_config", () => {
   const BucketView = loadBucketView();
-  // Hardcoded engine expectation (firebridgelab.scenario.default_bucket_config /
+  // Hardcoded engine expectation (firebridgelab.engine.scenario.default_bucket_config /
   // tests/test_buckets.py): cash 100% st_treasury, income 100% us_agg_bonds,
   // growth 100% us_total_market. A drift here would seed the client matrices to a
   // different portfolio than the engine's documented default.
@@ -88,7 +88,7 @@ test("default 100%-weight class per bucket matches firebridgelab.default_bucket_
 
 test("bucket display labels match the engine's bucket names", () => {
   const BucketView = loadBucketView();
-  // firebridgelab.scenario.default_bucket_config names: Cash / Income / Growth.
+  // firebridgelab.engine.scenario.default_bucket_config names: Cash / Income / Growth.
   assert.deepEqual(plain(BucketView.labels), {
     cash: "Cash",
     income: "Income",

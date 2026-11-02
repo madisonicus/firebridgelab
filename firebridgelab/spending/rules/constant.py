@@ -1,4 +1,10 @@
-"""spending.rules.constant (split from the flat layout)."""
+"""The ``constant`` and ``lifecycle`` spending modes.
+
+Both are pure functions of age, served by ``spending_for_age`` in
+``spending.lifecycle``: ``constant`` spends ``annual_spending`` every year;
+``lifecycle`` applies the age-anchored go-go/slow-go/no-go phase curve.
+Neither looks at the portfolio or carries state.
+"""
 
 from __future__ import annotations
 
@@ -14,9 +20,8 @@ class PureAgeStrategy(SpendingStrategy):
     ``spending_for_age`` helper.
 
     Ignores ``begin_year_portfolio`` and ``gi`` and carries NO mutable state, so a
-    run under this strategy is byte-for-byte identical to calling
-    ``spending_for_age`` directly the way the engines did before the strategy
-    abstraction. The canary depends on this (design hard constraint).
+    run under this strategy is numerically identical to calling
+    ``spending_for_age`` directly.
     """
 
     def spend_for_year(

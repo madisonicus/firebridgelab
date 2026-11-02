@@ -21,7 +21,7 @@ even one ULP fails the build.
 - A genuine result change (e.g. a new spending mode that alters the default) requires deliberately
   re-pinning the canary, which forces a conscious "this number really did change, and here's why."
 - Sub-ULP floating-point drift from algebraically-identical re-expressions is **not** automatically
-  acceptable — it is arbitrated case-by-case (see ADR 0002 and the docstring of `firebridgelab/_step.py`).
+  acceptable — it is arbitrated case-by-case (see ADR 0002 and the docstring of `firebridgelab/engine/step.py`).
 
 ## Amendment (2026-11): pins depend on the fetched data
 

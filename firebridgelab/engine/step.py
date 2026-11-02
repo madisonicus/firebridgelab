@@ -4,13 +4,12 @@ One function — ``step_year`` — applies one year of the midpoint-withdrawal
 mechanic to a portfolio given the year's real return, guaranteed income, and
 spending. All three engines (Deterministic, Historical cohort replay, Monte
 Carlo trial replay) call it, so the year-step math has ONE definition and
-cannot drift between modes.
+cannot drift between modes. ``net_return`` nets the annual fee out of a year's
+return and ``max_fundable_spend`` inverts the step.
 
-This module is the seam the engines share (LANGUAGE: "two adapters = real
-seam" — promoted from a private helper in ``firebridgelab.simulate`` once
-``firebridgelab.historical`` became the second caller in slice 3). Keep this module
-narrow: no scenario, no strategy, no GI accumulation, no per-year reporting —
-just the portfolio step itself. Anything broader belongs in the calling engine.
+Keep this module narrow: no scenario, no strategy, no GI accumulation, no
+per-year reporting — just the portfolio step itself. Anything broader belongs in
+the calling engine.
 """
 
 from __future__ import annotations
@@ -19,7 +18,7 @@ from __future__ import annotations
 
 def net_return(r: float, annual_fee: float) -> float:
     """A year's real return net of an all-in annual cost: ``(1+r)(1-fee) - 1``.
-    ``annual_fee == 0`` returns ``r`` unchanged (byte-identical)."""
+    ``annual_fee == 0`` returns ``r`` itself, so a zero fee is an exact no-op."""
     if annual_fee == 0.0:
         return r
     return (1.0 + r) * (1.0 - annual_fee) - 1.0
@@ -40,10 +39,10 @@ def step_year(
         growth = start_portfolio * r
         end = start_portfolio + growth + gi * (1 + r / 2) - spending * (1 + r / 2)
 
-    Before 2026-10 the engine credited GI with no growth while charging
-    spending half a year, a conservative asymmetry worth ~8% of terminal
-    wealth on the Plan of Record (review 2026-10-11). The form above is the
-    canonical operand order the canaries pin (ADR 0001/0002).
+    Crediting GI with no growth while charging spending half a year would be a
+    conservative asymmetry (~8% of terminal wealth on the Plan of Record). The
+    form above is the canonical operand order the regression tests pin
+    (ADR 0001/0002).
 
     Spending and GI are inputs to the step — the caller decides how to compute
     them (deterministic vs cohort vs guardrail). This helper just steps the

@@ -141,7 +141,7 @@ _CLASS_LABELS = {
 }
 
 # Canonical 12-class menu ORDER + the two legacy classes' labels (asset-class
-# design "The 12 classes" table). The 10 NEW classes live in firebridgelab.scenario.CLASS_MENU
+# design "The 12 classes" table). The 10 NEW classes live in firebridgelab.engine.allocation.CLASS_MENU
 # (keyed by class id, carrying their geometric-mean real_return + volatility from
 # the staged series); the two LEGACY classes (us_total_market / us_agg_bonds) are
 # NOT in CLASS_MENU (their default allocation stays length-2 in the engine), so
@@ -167,7 +167,7 @@ _CLASS_MENU_ORDER = (
 
 def _available_class_ids() -> tuple[str, ...]:
     """``_CLASS_MENU_ORDER`` minus optional classes whose data isn't installed
-    (the two legacy classes are always present; see firebridgelab.class_series)."""
+    (the two legacy classes are always present; see firebridgelab.returns.class_series)."""
     return tuple(c for c in _CLASS_MENU_ORDER if c in _CLASS_LABELS or c in CLASS_MENU)
 
 
@@ -941,11 +941,11 @@ def _dragged_deterministic_trajectory(scenario, *, path=None):
 
     Caller (``_run_trajectory``) invokes this ONLY when ``has_tax_split(scenario)``
     and sourcing is single — the same gate ``_tax_location_payload`` /
-    ``_federal_tax_payload`` use. Builds an ``firebridgelab.simulate.Trajectory`` (the
+    ``_federal_tax_payload`` use. Builds an ``firebridgelab.engine.deterministic.Trajectory`` (the
     SAME shape ``simulate()`` returns, so ``DeterministicPayload.from_result``
     needs no changes) off the dragged decomposition
     (``simulate_tax_location_deterministic``), mirroring
-    ``firebridgelab.stress.simulate_stress``'s Family-A/B dragged-wrapping exactly:
+    ``firebridgelab.analysis.stress.simulate_stress``'s Family-A/B dragged-wrapping exactly:
     ``start_portfolio`` / ``growth = start_portfolio * r`` reconstructed off the
     SAME deterministic blended-return sequence the decomposition consumed,
     ``spending`` is the REALIZED (fundable-capped) consumption
@@ -1140,12 +1140,12 @@ def _class_menu_entries() -> list[dict]:
     """The canonical 12-class menu as ``{id, label, real_return, volatility,
     data_start_year, is_equity}`` dicts in design order.
 
-    ``is_equity`` is read directly from ``firebridgelab.buckets.EQUITY_CLASS_IDS`` — the
+    ``is_equity`` is read directly from ``firebridgelab.engine.buckets.EQUITY_CLASS_IDS`` — the
     SINGLE SOURCE of the equity/non-equity classification. The browser consumes it
     (glide-preset mapping) instead of hand-keeping a JS replica of that set.
 
     Sources, by class (asset-class design "The 12 classes"):
-      - The 10 NEW classes come from ``firebridgelab.scenario.CLASS_MENU`` (their geometric-mean
+      - The 10 NEW classes come from ``firebridgelab.engine.allocation.CLASS_MENU`` (their geometric-mean
         ``real_return`` + ``volatility`` already seeded from the staged series).
       - The 2 LEGACY classes (``us_total_market`` / ``us_agg_bonds``) are not in
         CLASS_MENU, so their menu defaults are derived here from the SAME loaded
@@ -1195,7 +1195,7 @@ def _class_menu_entries() -> list[dict]:
                 "volatility": volatility,
                 "data_start_year": data_start_year,
                 # SINGLE SOURCE OF TRUTH for the equity/non-equity split: read
-                # directly from firebridgelab.buckets.EQUITY_CLASS_IDS (the same set the
+                # directly from firebridgelab.engine.buckets.EQUITY_CLASS_IDS (the same set the
                 # effective-equity glidepath readout uses). Additive field — the
                 # browser consumes it for glide-preset classification instead of
                 # hand-keeping a JS replica. The engine constant stays canonical;
@@ -1225,7 +1225,7 @@ def get_classes() -> dict:
     real return (the Deterministic default + the matrix's pre-filled return), the
     annual real-return volatility (the MC default), the earliest year of real data
     (the "testable since YYYY" hint), and ``is_equity`` — the equity/non-equity
-    flag read from ``firebridgelab.buckets.EQUITY_CLASS_IDS`` (single source of truth; the
+    flag read from ``firebridgelab.engine.buckets.EQUITY_CLASS_IDS`` (single source of truth; the
     glide-preset client reads it from here). The frontend builds the
     allocation-matrix rows + per-class CMA defaults from this.
     """
@@ -1484,7 +1484,7 @@ def _federal_tax_payload(scenario, *, path=None) -> Optional[dict]:
     supplied AND sourcing is single — the SAME gate as ``_tax_location_payload``
     (the overlay rides the dragged decomposition; no split, no defensible tax
     number — DECISION 3). Runs the deterministic decomposition + the pure tax
-    overlay (``firebridgelab.federal_tax.compute_tax_overlay``) and serializes the
+    overlay (``firebridgelab.tax.overlay.compute_tax_overlay``) and serializes the
     per-age series plus the path scalars.
 
     ``path`` (det-request memoization) — see ``_tax_location_payload``'s
@@ -1607,7 +1607,7 @@ def _estate_cost_payload(estate_cost) -> Optional[dict]:
     """Serialize an ``EstateCostOfTaxes`` (or None) into the DECISION 9 readout
     block — one serializer for all three modes, since the deterministic single
     pair and the Historical/MC median-of-per-path-differences share the SAME
-    ``firebridgelab.tax_location.EstateCostOfTaxes`` dataclass. ``None`` (no split, or
+    ``firebridgelab.tax.location_risk.EstateCostOfTaxes`` dataclass. ``None`` (no split, or
     the buckets no-op) omits the block.
 
     Shape (the web agent builds against this verbatim):
@@ -1654,7 +1654,7 @@ def _deterministic_estate_cost(scenario, *, path=None):
     independent pre-tax run over the identical deterministic blended-return
     sequence (``deterministic_blended_returns`` factors out the SAME sequence
     ``simulate`` builds internally via ``blended_real_return_at_age``) — the
-    same discipline ``firebridgelab.historical._split_cohort_step`` uses for
+    same discipline ``firebridgelab.engine.cohort_aggregate._split_cohort_step`` uses for
     Historical/MC (a separate ``_simulate_cohort`` pass, never the paired
     series). ``count == 1`` — ``aggregate_estate_cost`` degenerates correctly
     to the single-pair case.
@@ -2708,7 +2708,7 @@ def _validate_tax_location(scenario) -> None:
 
     tax-buckets design tb1: the split is OFF unless supplied; when supplied (any of
     the three balances non-None), the three must sum to ``initial_portfolio``
-    within $1. Delegates to ``firebridgelab.tax_location.resolve_split`` (the single
+    within $1. Delegates to ``firebridgelab.tax.location.resolve_split`` (the single
     source of the sum rule), translating its ``ValueError`` to a 422 so the same
     rule guards the engine and the API. No-op when the feature is off.
     """

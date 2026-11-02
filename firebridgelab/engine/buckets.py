@@ -1,99 +1,61 @@
-"""The 3-bucket withdrawal-sourcing mechanic (bucket-strategy design).
+"""The 3-bucket withdrawal-sourcing mechanic (``sourcing_mode == "buckets"``).
 
-Where ``firebridgelab/_step.py:step_year`` steps ONE blended portfolio balance, this
-module steps THREE buckets — cash / income / growth — with cash-first sourcing
-and a ONE-SIDED refill (rebalance in up years, ride in down years). It is the
-``sourcing_mode == "buckets"`` analogue of the single-balance ``_simulate_cohort``
-the three engines share, so the per-year mechanic has ONE definition and cannot
-drift between Deterministic / Historical / Monte Carlo.
+Where ``engine.step.step_year`` steps ONE blended portfolio balance, this module
+steps THREE buckets — cash / income / growth — with cash-first sourcing and a
+ONE-SIDED refill (rebalance in up years, ride in down years). It is the buckets
+analogue of the single-balance ``engine.sim_core._simulate_cohort``: all three
+engines feed ``simulate_buckets_cohort``, so the per-year mechanic has ONE
+definition. The safe buckets are sized in years of the forward gap
+(``gap_for_age`` / ``cash_target`` / ``income_target``). All values are real dollars.
 
-Why one bucket reproduces the single-balance engine BYTE-FOR-BYTE (Gate B)
---------------------------------------------------------------------------
-With a SINGLE (cash-)bucket holding the full scenario allocation (so its blended
-return ``r`` equals the single-balance blend, income + growth empty), GI lands on
-cash and ALL of the year's spending sources from that one funded bucket, so the
-per-year update is::
-
-    B_cash ← (B_cash + B_cash*r + gi) − s*(1 + r/2)   # grow, +GI, then source s
-
-which is exactly ``step_year``'s canonical form
-``end = start + start*r + (gi − spending)*(1 + r/2)`` — SAME operands, SAME LEFT-TO-
-RIGHT association, byte-identical under IEEE-754, then floored ONCE. The grow-then-
-add-GI ``(B + B*r) + gi`` regroups bit-for-bit to ``B + B*r + gi`` (left-assoc),
-and the midpoint is the identical ``- s*(1 + r/2)`` expression, NOT the
-algebraically-equal-but-not-bit-equal ``B*(1+r)`` form. CRUCIALLY the single
-funded bucket absorbs the FULL spend ``s`` (including any overdraw beyond its
-balance) BEFORE the one final floor — so a deep-drawdown year that floors to 0
-under ``step_year`` (GI eaten by the floor) ALSO floors to 0 here, reproducing the
-single-balance depletion count/flag, not just the percentile fans. That is the
-rigorous plumbing anchor (Gate B): buckets-with-one-bucket == single, BYTE-FOR-
-BYTE, INCLUDING depletion. (The earlier ``s_cash = min(s, B_cash)`` cap was the
-bug: it stranded GI above the floor and gave the bucket path FEWER depletions than
-single, confounding the bucket-vs-single head-to-head with a floor-semantics
-difference instead of the sourcing difference.)
-
-The per-year mechanic (CORRECTNESS-CRITICAL — pinned to the corrected design)
-----------------------------------------------------------------------------
+The per-year mechanic (``_step_buckets``; the order is correctness-critical)
+---------------------------------------------------------------------------
 State entering year ``a``: three non-negative balances ``(B_cash, B_inc, B_gro)``
 and per-bucket real returns ``(r_cash, r_inc, r_gro)`` (each bucket's allocation
-blend at age ``a``, resolved per mode). Order of operations (the GI/floor order is
-correctness-critical — see "Why this preserves the canary" above):
+blend at age ``a``, resolved per mode).
 
   1. Grow each bucket: ``B_i ← B_i + B_i*r_i``.
-  2. Add GI flat to the grown cash bucket (no growth factor):
-     ``B_cash ← B_cash + GI(a)``.
-  3. Source GROSS spending ``s = spending_for_age(a)`` cash-first against the
-     GROWN + GI balances: take ``min(remaining, available)`` from cash, then
-     income, then growth (cascade). Each SOURCED bucket loses the midpoint-
-     discounted withdrawal ``B_i ← B_i − s_i*(1 + r_i/2)``. The residual that
-     exceeds the total available across the three buckets (a genuine overdraw /
-     depletion) is charged to the LAST funded bucket touched (the deepest the
-     cascade reached — growth when growth has dollars, else income, else cash), so
-     it may go TRANSIENTLY NEGATIVE. We do NOT floor mid-cascade in a way that
-     strands GI above zero — there is ONE final floor in step 5. (In the single-
-     bucket degenerate, income + growth are empty, so cash is the last funded
-     bucket and absorbs the full spend incl. overdraw — the Gate-B identity.)
-  4. Year-end rebalance toward the (rolling, shrinking) targets — GROWTH IS THE
-     RESIDUAL (the CORRECTED mechanic, which replaced an original
-     one-sided refill stranding the freed safe-side dollars in income). With
-     next-year targets ``cash_tgt_next`` / ``income_tgt_next`` (the forward gap —
-     these SHRINK as GI lands and the gap collapses):
+  2. Add GI to the grown cash bucket as a mid-year flow:
+     ``B_cash ← B_cash + GI(a)*(1 + r_cash/2)`` (the same convention as ``step_year``).
+  3. Source GROSS spending cash-first against the GROWN + GI balances (cascade:
+     cash, then income, then growth). Each SOURCED bucket loses the midpoint-
+     discounted withdrawal ``B_i ← B_i − s_i*(1 + r_i/2)``. The residual beyond the
+     total available (a genuine overdraw / depletion) is charged to the LAST funded
+     bucket the cascade reached, so it may go TRANSIENTLY NEGATIVE. There is no
+     mid-cascade floor, which would strand GI above zero — only the final floor in
+     step 5.
+  4. Year-end rebalance toward next year's (rolling, shrinking) targets — GROWTH
+     IS THE RESIDUAL:
        (a) RELEASE EXCESS → GROWTH, ANY year. If the safe side is over-funded
            (``new_cash + new_inc > cash_tgt_next + income_tgt_next`` — happens
-           precisely as pensions/SS land and the gap collapses), move the excess
-           into GROWTH (buying growth is allowed in any market), then set cash →
-           ``cash_tgt_next`` and income → ``income_tgt_next``. THIS is the leg the
-           original spec was missing — it makes growth RISE as GI lands instead of
-           the freed money stranding in income.
-       (b) TOP-UP SHORTFALL, UP years only. If the safe side is below target
-           (normal mid-bridge as it spends down), refill from growth to the targets
-           ONLY when ``up = (r_gro > UP_TRIGGER_FLOOR)`` (sell high). In a down year
-           do NOT sell growth to refill (ride) — leave the safe side under target;
-           growth is only ever drawn for SPENDING when cash+income are genuinely
-           exhausted (the buffer-survival failure mode, step 3).
+           as pensions/SS land and the gap collapses), move the excess into
+           GROWTH and set cash / income to their targets. This makes growth RISE
+           as GI lands instead of the freed money stranding in income.
+       (b) TOP-UP SHORTFALL, UP years only. If the safe side is below target,
+           refill from growth ONLY when ``r_gro > UP_TRIGGER_FLOOR`` (sell high).
+           In a down year do NOT sell growth to refill (ride); growth is only
+           drawn for SPENDING when cash+income are exhausted (step 3).
        (c) Within the safe side, move freely between cash and income to hit each
-           target (mass-preserving).
-     All transfers are mass-preserving end-of-year-dollar reallocations (no growth
-     / midpoint applied), on the post-source (still-unfloored) balances. The
-     over-funded and under-funded branches are mutually exclusive (the safe sum is
-     either above or below the target sum), so at most one fires. SYMMETRIC_REFILL
-     forces the top-up leg every year (the Gate-D contrast); the release leg is
-     unconditional regardless.
-  5. ONE final floor per bucket at 0. The portfolio is depleted the first year the
-     PRE-floor SUMMED balance goes strictly ``< 0`` (the cascade overdrew — spending
-     could not be funded), evaluated BEFORE this floor — the SAME strictly-negative
-     test ``step_year`` applies to its single pre-floor ``end_portfolio``. A year
-     that lands EXACTLY on 0.0 is NOT depleted (it floored cleanly with nothing
-     left), so the single-bucket Gate-B depletion identity is structural at the
-     zero boundary, not merely empirical for the current cohorts.
+           target.
+     All transfers are mass-preserving reallocations on the post-source
+     (still-unfloored) balances; (a) and (b) are mutually exclusive.
+     ``SYMMETRIC_REFILL`` forces the top-up leg every year; the release leg is
+     unconditional.
+  5. ONE final floor per bucket at 0. The year is depleted iff the PRE-floor SUMMED
+     balance is strictly ``< 0`` — the same test ``step_year`` applies to its
+     pre-floor ``end_portfolio``, so a year landing EXACTLY on 0.0 is not depleted.
+
+Single-bucket identity: with all three buckets holding the scenario allocation and
+``n1 = n2 = 0`` (safe targets 0, growth holds everything), the summed update reduces
+to ``step_year``'s canonical form and reproduces the single-balance engine exactly,
+including depletion. That is why the cascade charges the overdraw to the last
+funded bucket and floors once: capping the draw at the bucket's balance would
+strand GI above the floor and give the bucket path FEWER depletions than single.
 
 A "forced growth sale" (the buffer-survival metric) = a year where dollars were
-truly sold from the growth bucket (``sold_from_growth > 0`` = ``min(growth
-request, available growth)``) because cash + income (the buffer) were exhausted in
-a drawdown. A request beyond growth's balance is depletion (the portfolio can't
-pay), NOT a "sale" of dollars that aren't there — so an empty growth bucket
-records ZERO forced sale (the metric counts real sales, not phantom overdraws).
-That is the real failure mode the strategy measures.
+truly sold from the growth bucket (``min(growth request, available growth)``)
+because cash + income were exhausted. A request beyond growth's balance is
+depletion, not a sale, so an empty growth bucket records ZERO forced sale.
 """
 
 from __future__ import annotations
@@ -115,15 +77,12 @@ from firebridgelab.spending.modes import (
 from firebridgelab.spending.registry import make_strategy
 
 
-# Up/down refill trigger (bucket-strategy design "Knobs": "the single
-# highest-leverage knob; expose it as at least a documented constant the
-# verification can flip"). The default is a one-sided rule keyed on the growth
-# bucket's real return being POSITIVE this year (``r_gro > UP_TRIGGER_FLOOR``,
-# floor 0). Set ``UP_TRIGGER_FLOOR`` arbitrarily high (e.g. 1e9) to make every
-# year a DOWN year (never refill — pure ride), or set ``SYMMETRIC_REFILL = True``
-# to refill EVERY year regardless of the trigger (the symmetric / rebalance-both-
-# -ways variant Gate D contrasts against). v1 ships the one-sided default; the
-# verification flips these to exercise the thesis.
+# Up/down refill trigger, the strategy's highest-leverage knob. The default is a
+# one-sided rule keyed on the growth bucket's real return being POSITIVE this
+# year (``r_gro > UP_TRIGGER_FLOOR``, floor 0). Set ``UP_TRIGGER_FLOOR``
+# arbitrarily high (e.g. 1e9) to make every year a DOWN year (never refill — pure
+# ride), or set ``SYMMETRIC_REFILL = True`` to refill EVERY year regardless of
+# the trigger (the symmetric / rebalance-both-ways variant).
 UP_TRIGGER_FLOOR: float = 0.0
 SYMMETRIC_REFILL: bool = False
 
@@ -167,12 +126,11 @@ class BucketTrajectory:
 def _initial_balances(scenario: Scenario) -> tuple[float, float, float]:
     """Initial cash / income / growth balances at ``start_age``.
 
-    bucket-strategy design "The forward gap": ``cash = cash_target(start)``,
+    ``cash = cash_target(start)``,
     ``income = income_target(start)``, ``growth = initial_portfolio − cash −
     income``. If the safe buckets can't be funded (``cash + income >
     initial_portfolio``), scale cash and income down PROPORTIONALLY so growth = 0
-    (the ``bucket_underfunded`` case — the engine must not crash on it). Not the
-    default household's case (9yr gap ≪ $1.8M), but handled.
+    (the ``bucket_underfunded`` case — the engine must not crash on it).
     """
     start = scenario.start_age
     cash = cash_target(scenario, start)
@@ -193,7 +151,7 @@ def _initial_balances(scenario: Scenario) -> tuple[float, float, float]:
 def bucket_underfunded(scenario: Scenario) -> bool:
     """True iff the safe buckets can't be fully funded at ``start_age``.
 
-    bucket-strategy design: surface a ``bucket_underfunded`` flag when
+    Surfaces a ``bucket_underfunded`` flag when
     ``cash_target(start) + income_target(start) > initial_portfolio`` (cash +
     income are then scaled down proportionally and growth = 0). The payload reads
     this so the UI can show a one-line note. Pure / side-effect-free.
@@ -218,39 +176,30 @@ def _step_buckets(
     under the midpoint convention — the cash-first sum of ``avail[i]/(1 + r_i/2)``
     capped at the request (== ``spending`` in any non-depleting year; the midpoint-
     discounted fundable amount once the buckets can't cover the request, NOT the raw
-    drained balance). In the single-(cash-)bucket degenerate it equals the single-
-    portfolio ``_step.max_fundable_spend`` to the cent (the Gate-B identity extended
-    to recorded spend). It is REPORTED only and never alters the portfolio step
-    (``draws`` / balances / depletion), so the Gate-B BALANCE identity holds byte-
-    for-byte.
+    drained balance). It is REPORTED only and never alters the portfolio step
+    (``draws`` / balances / depletion).
 
     ``balances`` = (cash, income, growth) at year start; ``returns`` =
     (r_cash, r_inc, r_gro); ``cash_tgt_next`` / ``income_tgt_next`` are the rolling
     targets for NEXT year (the refill brings the safe buckets up to where they need
-    to be entering year a+1). Pinned to the corrected design order-of-operations
-    (grow → +GI → source against grown+GI → refill → ONE final floor); the byte-
-    for-byte single-bucket identity rests on the exact float expressions below
-    (see the module docstring).
+    to be entering year a+1). Order of operations: grow → +GI → source against
+    grown+GI → refill → ONE final floor; the single-bucket identity rests on the
+    exact float expressions below (see the module docstring).
 
     ``depleted_this_year`` mirrors ``step_year``'s semantics EXACTLY: it flags the
     year as depleted iff the PRE-floor SUMMED bucket balance is strictly ``< 0`` —
     the cascade overdrew, spending could not be funded — evaluated BEFORE the final
     per-bucket floor. The refill is mass-preserving, so the pre-floor sum is
-    invariant to it; in the single-(cash-)bucket degenerate (income + growth empty,
-    no refill) the pre-floor sum IS ``step_year``'s ``end_portfolio``, so this test
-    reduces to ``end_portfolio < 0`` byte-for-byte. A year that lands EXACTLY on 0.0
-    is NOT flagged (matching ``step_year``), so the Gate-B depletion identity is
-    STRUCTURAL at the zero boundary, not merely empirical for the current cohorts.
+    invariant to it. A year that lands EXACTLY on 0.0 is NOT flagged (matching
+    ``step_year``), so the single-bucket depletion identity holds at the zero
+    boundary by construction.
     """
     b_cash, b_inc, b_gro = balances
     r_cash, r_inc, r_gro = returns
 
-    # 1. Grow each bucket. 2. Add GI flat to the GROWN cash bucket (no growth
-    # factor). The cash expression is written in step_year's EXACT operand order —
-    # ``b_cash + b_cash*r_cash + gi`` — and ``(B + B*r) + gi`` regroups bit-for-bit
-    # to ``B + B*r + gi`` (left-assoc), so the single-(cash-)bucket degenerate
-    # reproduces step_year BYTE-FOR-BYTE under IEEE-754 (Gate B). Income / growth
-    # carry no GI.
+    # 1. Grow each bucket. 2. Add GI to the GROWN cash bucket as a mid-year flow.
+    # The cash expression is written in step_year's operand order
+    # (``B + B*r + gi*(1 + r/2)``, left-assoc; ADR 0002). Income / growth carry no GI.
     grown_cash = b_cash + b_cash * r_cash + gi * (1 + r_cash / 2)
     grown_inc = b_inc + b_inc * r_inc
     grown_gro = b_gro + b_gro * r_gro
@@ -259,7 +208,7 @@ def _step_buckets(
     # bucket takes min(remaining_request, max(0, its grown balance)); the residual
     # that exceeds the total available (a genuine overdraw / depletion) is charged
     # to the LAST funded bucket the cascade reached, so it may go transiently
-    # NEGATIVE — NO mid-cascade floor that would strand GI above zero (the bug).
+    # NEGATIVE — NO mid-cascade floor, which would strand GI above zero.
     # The sourced amount is midpoint-discounted ``s_i*(1 + r_i/2)`` per bucket.
     avail = (max(0.0, grown_cash), max(0.0, grown_inc), max(0.0, grown_gro))
     # Each bucket reduces by ``draw*(1 + r_i/2)``, so a grown balance funds at most
@@ -282,8 +231,8 @@ def _step_buckets(
         remaining -= take
     # Charge the overdraw (request beyond total availability) to the deepest funded
     # bucket — growth when growth has dollars, else income, else cash. In the
-    # single-bucket degenerate income + growth are empty, so cash is last_funded and
-    # absorbs the full spend incl. overdraw (the Gate-B identity). If NO bucket had
+    # single-bucket degenerate this is growth, which absorbs the rest of the spend
+    # incl. overdraw (the single-bucket identity). If NO bucket had
     # any availability (everything already at/under zero), charge cash so the
     # overdraw still registers against the portfolio (it floors to 0 either way).
     remaining_before_overdraw = max(0.0, remaining)
@@ -308,8 +257,8 @@ def _step_buckets(
     new_gro = grown_gro - draws[2] * (1 + r_gro / 2)
 
     # 4. Year-end rebalance toward the (rolling, shrinking) targets — GROWTH IS THE
-    # RESIDUAL (the corrected mechanic). The safe side is either over-funded (release
-    # the excess to growth — the missing leg) or under-funded (top up from growth in
+    # RESIDUAL. The safe side is either over-funded (release the excess to growth)
+    # or under-funded (top up from growth in
     # up years only — the one-sided ride-down protection); the two branches are
     # mutually exclusive on the summed safe side. All moves are mass-preserving (no
     # growth/midpoint applied), on the post-source (still-unfloored) balances.
@@ -321,23 +270,18 @@ def _step_buckets(
         # is allowed in any market), and cash/income snap to their targets. This is
         # what makes growth RISE as GI lands instead of stranding in income.
         #
-        # GATE-B NOTE: the single-bucket byte-for-byte identity uses the GROWTH-only
-        # degenerate (n1 = n2 = 0 → cash_tgt_next = income_tgt_next = 0, growth holds
-        # the whole portfolio). There this branch fires ONLY when the cash bucket
-        # retains GI above the spend (``safe = leftover GI > 0 = safe_target``), moving
-        # that leftover into growth — but in the default household GI < spend every
-        # year, so cash drains to (or below) 0 each year and ``safe > 0`` is False:
-        # the else branch runs and leaves the balances bit-untouched. (The CORRECTED
-        # release leg is precisely why the OLD huge-n1 cash-only fixture no longer
-        # stays inert — once the portfolio outgrows the shrinking cash target the
-        # release fires and the path diverges; growth-only sidesteps that by pinning
-        # the safe targets to 0.)
+        # Single-bucket identity: in the GROWTH-only degenerate (n1 = n2 = 0 →
+        # both safe targets 0) this branch fires ONLY when the cash bucket retains
+        # GI above the spend, moving that leftover into growth. When GI < spend,
+        # cash drains to (or below) 0 and the else branch leaves the balances
+        # untouched. (A cash-only degenerate with a huge n1 would NOT stay inert:
+        # once the portfolio outgrows the shrinking cash target this leg fires.)
         new_gro += safe - safe_target
         new_cash = cash_tgt_next
         new_inc = income_tgt_next
     else:
-        # (b) TOP-UP SHORTFALL, UP years only (or SYMMETRIC_REFILL — the Gate-D
-        # contrast, which tops up every year). In a down year we do NOT sell growth
+        # (b) TOP-UP SHORTFALL, UP years only (or SYMMETRIC_REFILL, which tops up
+        # every year). In a down year we do NOT sell growth
         # to refill (ride): leave the safe side under target; growth is only drawn
         # for SPENDING when cash+income are exhausted (the buffer-survival failure
         # mode, step 3). Cash first then income, each capped by available growth
@@ -360,8 +304,8 @@ def _step_buckets(
         # income when cash is short — honoring cash-first sourcing. Guarded on a real
         # cash↔income imbalance vs the targets so the GROWTH-only single-bucket
         # degenerate (income empty, both safe targets 0, cash drained to ≤ 0 each
-        # year) is left BIT-UNTOUCHED (Gate B): with new_inc == 0 and income_tgt_next
-        # == 0 neither sub-branch fires, so no min/subtraction re-rounds new_cash.
+        # year) is left bit-untouched: with new_inc == 0 and income_tgt_next == 0
+        # neither sub-branch fires, so no min/subtraction re-rounds new_cash.
         cash_surplus = new_cash - cash_tgt_next
         if cash_surplus > 0.0 and new_inc < income_tgt_next:
             # Move cash's surplus into income, up to income's remaining room.
@@ -378,10 +322,7 @@ def _step_buckets(
     # test step_year applies to its single pre-floor end_portfolio (the cascade
     # overdrew; spending could not be funded). Computed here, BEFORE the final floor.
     # The refill (step 4) is mass-preserving, so this sum is identical pre/post
-    # refill; a year landing EXACTLY on 0.0 is NOT depleted (matching step_year), so
-    # the Gate-B identity is structural at the zero boundary. In the single-bucket
-    # degenerate (income + growth empty, no refill) this sum IS step_year's
-    # end_portfolio, so the test reduces to ``end_portfolio < 0`` byte-for-byte.
+    # refill; a year landing EXACTLY on 0.0 is NOT depleted (matching step_year).
     pre_floor_sum = new_cash + new_inc + new_gro
     depleted_this_year = pre_floor_sum < 0
 
@@ -389,7 +330,7 @@ def _step_buckets(
     # transiently negative in the cascade above; the portfolio is depleted the
     # first year all three buckets floor to 0). GI is available-to-spend BEFORE
     # this floor (folded into the cash balance in step 2), matching step_year's
-    # floor-eats-GI semantics — the Gate-B depletion identity.
+    # floor-eats-GI semantics (the single-bucket depletion identity).
     new_cash = max(0.0, new_cash)
     new_inc = max(0.0, new_inc)
     new_gro = max(0.0, new_gro)
@@ -405,21 +346,21 @@ def simulate_buckets_cohort(
     """Run one 3-bucket trajectory given per-bucket per-year real-return arrays.
 
     The single shared 3-bucket loop — the ``sourcing_mode == "buckets"`` analogue
-    of ``historical._simulate_cohort`` — so all three engines feed it (Deterministic
+    of ``engine.sim_core._simulate_cohort`` — so all three engines feed it (Deterministic
     a constant-per-bucket array, Historical the cohort per-class blend, MC the
     sampled per-class blend) and the mechanic can't drift between modes.
 
     ``bucket_returns`` maps each bucket id (``"cash"`` / ``"income"`` / ``"growth"``)
     to its length-``n_steps`` real-return array (one entry per age-step,
     start_age..end_age inclusive). Spending comes from a ``SpendingStrategy`` built
-    ONCE before the loop (buckets compose with the byte-stable PureAgeStrategy —
-    constant / lifecycle; guardrails is fenced at the API). The rolling cash/income
+    ONCE before the loop (buckets compose with the pure-age strategies —
+    constant / lifecycle; dynamic modes are fenced). The rolling cash/income
     TARGETS for next year are recomputed each step from the scenario (so they shrink
     as GI lands), and GI is the SAME four-stream sum the single path uses.
 
-    Guardrails is FENCED in buckets mode (bucket-strategy design — composing buckets
-    + Guyton-Klinger is slice 2): raise the typed ``BucketsGuardrailsNotComposable``
-    here (defense-in-depth; the API also validates the combination up front).
+    Guardrails and the funded-ratio modes are FENCED in buckets mode (the two do
+    not compose): raise the typed ``BucketsGuardrailsNotComposable`` here
+    (defense-in-depth; the API also validates the combination up front).
     """
     if scenario.spending_mode in (
         SPENDING_MODE_GUARDRAILS,
@@ -451,16 +392,15 @@ def simulate_buckets_cohort(
         # Spending from the strategy. The "begin-of-year portfolio" denominator the
         # guardrail rate uses isn't meaningful for a bucket split (and guardrails is
         # fenced anyway), so we pass the summed begin-of-year balance for signature
-        # parity; the byte-stable PureAgeStrategy ignores it.
+        # parity; the pure-age strategies ignore it.
         begin_total = cash + income + growth
         spending = strategy.spend_for_year(scenario, age, begin_total, gi)
-        # Cost-of-living real drift (stress-test design slice 4): the SAME post-strategy
-        # multiplier the single-sourcing loops apply (firebridgelab.simulate /
-        # firebridgelab.sim_core) — mirrored here so the two sourcing modes can't diverge on
-        # drift semantics (the buckets path runs through Family-B perturbations too,
-        # e.g. sustained_cost_drift). Applied BEFORE ``spending`` flows into ``_step_buckets``
-        # so the buckets actually sell enough to fund the drifted spend. Default
-        # spending_real_drift 0.0 ⇒ (1+0)**k == 1.0 ⇒ byte-identical (canary holds).
+        # Cost-of-living real drift: the SAME post-strategy multiplier the
+        # single-sourcing loops apply (engine.deterministic / engine.sim_core) —
+        # mirrored here so the two sourcing modes can't diverge on drift semantics
+        # (the buckets path runs through Family-B stresses too, e.g.
+        # sustained_cost_drift). Applied BEFORE ``_step_buckets`` so the buckets
+        # sell enough to fund the drifted spend. Default 0.0 makes it exactly 1.0.
         spending *= spending_multiplier(scenario, age)
 
         # Rolling targets for NEXT year (the refill brings the safe buckets up to
@@ -487,13 +427,13 @@ def simulate_buckets_cohort(
         # leftover above the year's spend would survive the floor (and the
         # release-excess refill leg would even move it INTO growth), resurrecting
         # the portfolio. Mirrors the same loop-level override in
-        # ``sim_core._simulate_cohort`` (the single-balance analogue) so the two
+        # ``engine.sim_core._simulate_cohort`` (the single-balance analogue) so the two
         # sourcing modes can't drift. ``realized_spend`` is recorded BEFORE this
         # override and already caps at the GI-funded cascade level (cash fund cap
         # ``gi/(1 + r_cash/2)`` once the buckets are empty); ``depleted_age``
         # (first crossing) is handled below off ``depleted_this_year`` and never
-        # moves. Byte-identical for any path that never recovers post-depletion
-        # (all three buckets are already 0.0 then).
+        # moves. No effect on a path that never recovers post-depletion (all three
+        # buckets are already 0.0 then).
         if already_depleted:
             cash = income = growth = 0.0
 
@@ -502,11 +442,9 @@ def simulate_buckets_cohort(
             first_forced_sale_age = age
         # Depletion flag mirrors step_year: the year the PRE-floor summed balance
         # went strictly < 0 (the cascade overdrew). _step_buckets computes it before
-        # the final floor, so a year that lands EXACTLY on 0.0 is NOT flagged — the
-        # Gate-B single-bucket identity holds structurally at the zero boundary, not
-        # just empirically for the current cohorts (the old post-floor
-        # ``cash <= 0 and income <= 0 and growth <= 0`` test flagged an exact-zero
-        # landing that step_year would not).
+        # the final floor, so a year that lands EXACTLY on 0.0 is NOT flagged (a
+        # post-floor ``all buckets <= 0`` test would flag an exact-zero landing that
+        # step_year does not).
         if depleted_this_year and depleted_age is None:
             depleted_age = age
 
@@ -558,9 +496,9 @@ def simulate_buckets_deterministic(scenario: Scenario) -> BucketTrajectory:
     flat across the horizon) and runs the shared ``simulate_buckets_cohort``. In
     Deterministic mode every year is an UP year (no down years exist), so the
     one-sided "ride" branch never fires and the buffer is never tested — that is
-    expected (bucket-strategy design: surface a caption pointing the user to
-    Historical / MC). The single-bucket degenerate config reproduces the
-    deterministic single-balance terminal byte-for-byte (Gate B).
+    expected (the UI captions it, pointing the user to Historical / MC). The
+    single-bucket degenerate config reproduces the deterministic single-balance
+    terminal exactly.
     """
     n_steps = scenario.end_age - scenario.start_age + 1
     rs = _bucket_geometric_returns(scenario)
@@ -584,12 +522,12 @@ def _bucket_equity_weight(bucket) -> float:
 def effective_equity_glidepath(scenario: Scenario) -> list[dict]:
     """The per-age effective-equity share along the DETERMINISTIC buckets run.
 
-    SURFACES the allocation the bucket setup silently imposes (bucket-strategy
-    "effective-equity glidepath"). Gap-based sizing puts most of a high-spend
-    portfolio in the low-equity safe buckets and the rest in growth, so the
-    effective equity share is far below the nominal growth-bucket allocation early
-    and RISES toward the growth-bucket weight as guaranteed income lands (the safe
-    targets shrink → the growth share grows). This makes that glide explicit.
+    SURFACES the allocation the bucket setup silently imposes. Gap-based sizing puts
+    most of a high-spend portfolio in the low-equity safe buckets and the rest in
+    growth, so the effective equity share is far below the nominal growth-bucket
+    allocation early and RISES toward the growth-bucket weight as guaranteed income
+    lands (the safe targets shrink → the growth share grows). This makes that glide
+    explicit.
 
     The share at age ``a`` is computed off the BEGIN-of-year (entering-``a``)
     bucket balances — the allocation the portfolio carries INTO that year — not the
@@ -641,13 +579,12 @@ def effective_equity_glidepath(scenario: Scenario) -> list[dict]:
 def gap_for_age(scenario: Scenario, age: int) -> float:
     """The forward GAP at ``age`` = max(0, spending − guaranteed income).
 
-    bucket-strategy design "The forward gap": ``gap(k) = max(0,
-    spending_for_age(scenario, k) − GI(k))``. The safe buckets are sized in years
-    of THIS gap (not gross spending), so as GI lands the gap — and the safe
-    targets — shrink. Uses the SAME ``spending_for_age`` the engines use for
+    ``gap(k) = max(0, spending_for_age(scenario, k) − GI(k))``. The safe buckets are
+    sized in years of THIS gap (not gross spending), so as GI lands the gap — and the
+    safe targets — shrink. Uses the SAME ``spending_for_age`` the engines use for
     constant / lifecycle and the SAME GI sum (``gi_at_age``), so the bucket targets
     can't drift from the engine's spending / GI. (Buckets compose with constant /
-    lifecycle only; guardrails is fenced — see the API.)
+    lifecycle only; the dynamic modes are fenced.)
     """
     return max(0.0, spending_for_age(scenario, age) - gi_at_age(scenario, age))
 
@@ -655,7 +592,7 @@ def gap_for_age(scenario: Scenario, age: int) -> float:
 def cash_target(scenario: Scenario, age: int) -> float:
     """Rolling cash-bucket target at ``age`` = sum of the next N1 years of gap.
 
-    bucket-strategy design: ``cash_target(a) = Σ_{k=a}^{min(a+N1−1, end)} gap(k)``.
+    ``cash_target(a) = Σ_{k=a}^{min(a+N1−1, end)} gap(k)``.
     The sum runs from ``age`` through ``age + N1 − 1``, clipped to ``end_age``
     (inclusive). Recomputed each year, so the target shrinks as GI lands. N1 = 0
     yields a 0 target (the empty range). Requires a bucket config (callers only
@@ -670,7 +607,6 @@ def income_target(scenario: Scenario, age: int) -> float:
     """Rolling income-bucket target at ``age`` = the N2 years of gap after the cash
     window.
 
-    bucket-strategy design:
     ``income_target(a) = Σ_{k=a+N1}^{min(a+N1+N2−1, end)} gap(k)``. The sum runs
     from ``age + N1`` through ``age + N1 + N2 − 1``, clipped to ``end_age``
     (inclusive). Recomputed each year. If the cash window already reaches past

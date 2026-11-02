@@ -1,8 +1,6 @@
 """Offline loader for Robert Shiller's historical dataset (``ie_data.xls``).
 
-Adapted from the archived prior version's vetted parser — only the
-data-loading/parsing logic, in the current codebase's clean style. Turns
-Shiller's monthly Excel sheet into **annual real total returns** for two
+Turns Shiller's monthly Excel sheet into **annual real total returns** for two
 series:
 
   - ``us_equity`` — S&P 500 real total return (price appreciation + dividends,
@@ -13,16 +11,16 @@ series:
 Returns are already real (CPI-adjusted), so they drop straight into the
 real-terms engine; CPI is not needed for Historical mode.
 
-This reads a **cached** file shipped with the app (``ie_data.xls`` in the data directory; see ``firebridgelab.paths``).
-There is deliberately NO network download at runtime — the service reads the
-file offline. ``xlrd`` is the .xls engine.
+This reads a **cached** file (``ie_data.xls`` in the data directory; see
+``returns.paths``). There is deliberately NO network download at runtime —
+``firebridgelab-fetch-data`` fetches it once. ``xlrd`` is the .xls engine.
 
 Public surface:
   - ``ShillerData`` — parsed annual series + ``returns_for_period`` /
-    ``all_starting_years`` helpers (same shape the archived module exposed).
+    ``all_starting_years`` helpers.
   - ``load_shiller()`` — parse the cached file (memoized).
   - ``SERIES_LOADERS`` — registry mapping a series id to the array on
-    ``ShillerData`` that holds it (see firebridgelab.historical for the registry that
+    ``ShillerData`` that holds it (see ``returns.series`` for the registry that
     binds asset classes to these ids).
 """
 
@@ -37,13 +35,12 @@ import pandas as pd
 from firebridgelab.returns.paths import data_dir, missing_data_message
 
 
-# Cached data file shipped with the app. Read offline; never downloaded at
-# runtime (the archived module's download path is intentionally dropped).
+# Cached data file. Read offline; never downloaded at runtime.
 CACHE_FILE = data_dir() / "ie_data.xls"
 
 # Approximate duration of a 10-year Treasury, used to convert a yield change
 # into a price return for the bond series. ~7 years is the conventional figure
-# and matches the archived parser (and, broadly, cFIREsim's approach).
+# and broadly matches cFIREsim's approach.
 _TREASURY_DURATION = 7.0
 
 

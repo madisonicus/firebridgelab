@@ -1,4 +1,10 @@
-"""tax.location_risk (split from the flat layout)."""
+"""Aggregate tax-location paths across cohorts / trials.
+
+``aggregate_tax_location_risk`` reduces per-path ``TaxLocationPath`` facts to the
+headline pre-59½ depletion metric plus balance fans (``TaxLocationRisk``);
+``aggregate_estate_cost`` pairs pre-tax and dragged terminal balances into the
+"estate cost of taxes" readout (``EstateCostOfTaxes``).
+"""
 
 from __future__ import annotations
 
@@ -48,28 +54,25 @@ class TaxLocationRisk:
     taxable_depletion: DepletionDistribution
     reachable_depletion: DepletionDistribution
 
-    # Optional taxable percentile bands for charting the depletion spread (the
-    # design's "optionally taxable percentile bands"). Per-age percentiles of the
-    # taxable balance across paths; None on the deterministic single-path side
-    # (which carries the explicit balance series instead).
+    # Optional taxable percentile bands for charting the depletion spread. Per-age
+    # percentiles of the taxable balance across paths; None on the deterministic
+    # single-path side (which carries the explicit balance series instead).
     ages: list[int] | None = None
     taxable_p10: list[float] | None = None
     taxable_median: list[float] | None = None
     taxable_p90: list[float] | None = None
 
-    # Per-account median balance series + the TOTAL-investments fan (txlb
-    # hotfix). Median is not additive, so the three account medians do NOT stack
-    # to ``total_median`` — that is expected and correct; the chart draws them as
-    # LINES (typical composition) while the total fan carries the uncertainty.
+    # Per-account median balance series + the TOTAL-investments fan. Median is not
+    # additive, so the three account medians do NOT stack to ``total_median`` — that
+    # is expected and correct; the chart draws them as LINES (typical composition)
+    # while the total fan carries the uncertainty.
     #   - ``tax_deferred_median`` / ``roth_median`` — per-age median across paths
     #     of each account's reconstructed end-of-year balance (taxable's median is
     #     ``taxable_median`` above).
     #   - ``total_p10`` / ``total_median`` / ``total_p90`` — per-age percentiles of
-    #     the per-path TOTAL (= taxable + tax_deferred + roth). Under td1 this is
-    #     the DRAGGED total (DIES: this used to match the still-pre-tax overall
-    #     portfolio fan exactly; re-pointing the portfolio fan ITSELF to be the
-    #     dragged total is a td-b deliverable — see
-    #     ``tests/test_tax_location.py``'s re-pointed consistency test).
+    #     the per-path TOTAL (= taxable + tax_deferred + roth), i.e. the
+    #     DRAGGED total — the same total the portfolio fan shows for split
+    #     scenarios (see ``tests/test_tax_location.py``'s consistency test).
     tax_deferred_median: list[float] | None = None
     roth_median: list[float] | None = None
     total_p10: list[float] | None = None
@@ -138,8 +141,8 @@ def aggregate_tax_location_risk(
     roth_median = np.percentile(roth_matrix, 50, axis=0).tolist()
 
     # The TOTAL-investments fan: per-age percentiles of the per-path TOTAL
-    # (= taxable + tax_deferred + roth). Under td1 this is the DRAGGED total by
-    # construction (see the TaxLocationRisk field docstring).
+    # (= taxable + tax_deferred + roth) — the DRAGGED total by construction
+    # (see the TaxLocationRisk field docstring).
     total_matrix = taxable_matrix + tax_deferred_matrix + roth_matrix
     total_p10, total_median, total_p90 = (
         row.tolist()
@@ -166,7 +169,7 @@ def aggregate_tax_location_risk(
 
 @dataclass(frozen=True)
 class EstateCostOfTaxes:
-    """"Estate cost of taxes" readout (td-b, DECISION 9) — framed as "how
+    """"Estate cost of taxes" readout — framed as "how
     much smaller the estate ends because the portfolio paid the IRS", paired
     with the success-rate delta so a $0 estate cost can never misread as "taxes
     are free" in exactly the scenarios (both runs deplete) where they broke the
@@ -174,12 +177,12 @@ class EstateCostOfTaxes:
 
     ``estate_cost = pretax_terminal - dragged_terminal`` PER PATH, where
     ``pretax_terminal`` comes from an INDEPENDENT run of the scenario's
-    pre-tax/legacy world — a FRESH spending-strategy instance reading the
+    pre-tax world — a FRESH spending-strategy instance reading the
     UNTAXED balance, over the SAME return sequence — never the same-spend
-    ``TaxLocationPath.pretax_total`` td-a recorded (that series is paired
-    against the DRAGGED run's OWN spend decisions, kept for the drag-direction
-    BINDS invariant; DECISION 9 wants the two runs to be honestly independent,
-    "each is the honest run of its own world" — under a dynamic strategy the
+    ``TaxLocationPath.pretax_total`` (that series is paired against the
+    DRAGGED run's OWN spend decisions, kept for the drag-direction BINDS
+    invariant; here the two runs are independent, each the honest run of its
+    own world — under a dynamic strategy the
     two can spend, and therefore deplete, at different times). Aggregation is
     the MEDIAN of per-path differences (paired by return sequence), never a
     difference of medians (that would let the two worlds' medians come from
@@ -211,8 +214,8 @@ def aggregate_estate_cost(
     pretax_success: list[bool],
     dragged_success: list[bool],
 ) -> EstateCostOfTaxes:
-    """Aggregate the per-path (pretax, dragged) terminal pairs into the DECISION 9
-    readout. All four lists must be the SAME length and index-aligned (path i's
+    """Aggregate the per-path (pretax, dragged) terminal pairs into the
+    estate-cost readout. All four lists must be the SAME length and index-aligned (path i's
     pretax terminal / dragged terminal / pretax success / dragged success), so
     the per-path DIFFERENCE (never a difference of medians) is well-defined.
     ``count == 1`` (the deterministic mode caller) degenerates correctly: the

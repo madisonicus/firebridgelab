@@ -5,7 +5,7 @@ path that depleted at (say) 53 recomputed ``end = 0 + 0 + gi − spend·(1+r/2)`
 the year a GI stream landed — going POSITIVE whenever GI exceeds the funded gap
 — and the "depleted" portfolio re-accumulated a balance. The fix makes depletion
 absorbing at the loop seams (``sim_core._simulate_cohort``, the deterministic
-loop in ``firebridgelab.simulate``, ``buckets.simulate_buckets_cohort``, and the
+loop in ``firebridgelab.engine.deterministic``, ``buckets.simulate_buckets_cohort``, and the
 tax-location shadow's local scalar).
 
 DIVERGENT START (feedback_preservation_vs_correctness): these tests run a

@@ -23,7 +23,7 @@ streams active at an age (`age >= start_age`); it does not gross-up or haircut f
   feature, not a bug in the GI model. If built, it would feed amounts *into* these same four fields.
 - Per-person independence is real and load-bearing: the two SS streams have independent amounts and
   ages. Canonicalizing the GI sum (one `gi_at_age` instead of three copies) protects this
-  independence — see the deepening work on `firebridgelab/scenario.py:gi_at_age`.
+  independence — see the deepening work on `firebridgelab/income/guaranteed.py:gi_at_age`.
 
 ## Status
 

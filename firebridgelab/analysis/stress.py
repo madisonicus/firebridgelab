@@ -1,43 +1,45 @@
-"""Synthetic-cohort stress tests (Family A — authored return paths).
+"""Stress tests: one specified adverse world, run as a single trajectory.
 
-A STRESS is an OVERLAY on the current plan, never a replacement (stress-test
-design "Core design decisions" #1): the user's allocation, spending target,
-spending strategy, and guaranteed income stay fixed; the stress swaps ONLY the
-return environment. Mechanically a Family-A stress is a *Cohort whose per-year
-returns are AUTHORED rather than sampled* — not a fourth return mode. It reuses
-the EXISTING per-cohort loop (``firebridgelab.sim_core._simulate_cohort``) in place of a
-Shiller window, exactly the way ``firebridgelab.historical.simulate_historical`` builds
-a cohort, and renders as a SINGLE deterministic trajectory (the
-``firebridgelab.simulate.Trajectory`` shape), not a 113-cohort fan — it's one specified
-adverse world.
+A STRESS is an OVERLAY on the current plan, never a replacement: the user's
+allocation, spending target, spending strategy and guaranteed income stay fixed,
+and the stress changes one dimension. ``simulate_stress`` returns the
+``engine.deterministic.Trajectory`` shape (one line, not a fan). Two families:
 
-Slice 2 (stress-test design §Slicing) transcribes the rest of Family A's ADVERSE
-scenarios from the framework appendix and wires the full selector. The battery is
-the SIX adverse worlds (the three tailwind/false-positive scenarios — Average
-Markets, 1990s Bull Run, March 2020 V-Drop — are deliberately OUT of scope):
+* **Family A** (``STRESS_SCENARIOS``) — an authored return path: a cohort whose
+  per-year returns are AUTHORED rather than sampled, run through the shared
+  per-cohort loop (``engine.sim_core._simulate_cohort``). The six adverse worlds
+  are transcribed from the source framework's appendix (a retirement spending and
+  portfolio-management framework document):
 
-  * ``stagflation_1970s``        — framework appendix §4
+  * ``stagflation_1970s``          — framework appendix §4
   * ``historical_depression_1929`` — framework appendix §9
-  * ``slow_grind_2000``          — framework appendix §6
-  * ``gfc_2008``                 — framework appendix §3
-  * ``valuation_unwind_2025``    — framework appendix §7
-  * ``depression_extreme``       — framework appendix §8 (Japan-style no-recovery)
+  * ``slow_grind_2000``            — framework appendix §6
+  * ``gfc_2008``                   — framework appendix §3
+  * ``valuation_unwind_2025``      — framework appendix §7
+  * ``depression_extreme``         — framework appendix §8 (Japan-style no-recovery)
 
-Authored return table (the "6-column framework" shape)
-------------------------------------------------------
-The source framework (a retirement spending and portfolio-management framework
-document) authors its scenarios as a year-by-year per-asset-class REAL-return table over 6
-columns: US Total, US SCV, Int'l, Bonds, Gold, Cash. A stress here carries the
-same shape, as a ``_StressTable`` holding:
+  The framework's tailwind scenarios (Average Markets, 1990s Bull Run, March 2020
+  V-Drop) are deliberately excluded.
 
-  * ``rows`` — the EXPLICIT per-year rows (transcribed real returns, as
-    fractions). Year *k* (1-indexed) takes ``rows[k-1]``.
-  * ``normal_row`` — the framework's "11+" / "6+" / "9+" NORMAL row. Every year
-    BEYOND the explicit rows takes the normal row's per-column value. If a class's
-    column isn't in the normal row, it falls back to that class's OWN
-    deterministic default ``real_return`` (the slice-1 tail behavior — preserved).
+* **Family B** (``STRESS_PERTURBATIONS``) — a ``Scenario -> Scenario`` transform
+  (cut SS, scale spending, add real drift) run through the ordinary deterministic
+  engine under the plan's own returns.
 
-Transcription conventions (stress-test design "correctness-guarantor discipline"):
+With a tax-location split, both families run the DRAGGED decomposition so a
+stressed split trajectory pays its taxes like any other.
+
+Authored return table
+---------------------
+The framework authors each scenario as a year-by-year REAL-return table over 6
+columns: US Total, US SCV, Int'l, Bonds, Gold, Cash. A ``_StressTable`` holds:
+
+  * ``rows`` — the EXPLICIT per-year rows (real returns, as fractions). Year *k*
+    (1-indexed) takes ``rows[k-1]``.
+  * ``normal_row`` — the framework's "11+" / "6+" / "9+" NORMAL row, applied to
+    every year beyond the explicit rows. A column absent from the normal row falls
+    back to that class's OWN deterministic default ``real_return``.
+
+Transcription conventions:
 
   * EXPLICIT numeric cell → verbatim as a fraction (−37% → ``-0.37``).
   * RANGE cell ("+3–4%") → the MIDPOINT (``0.035``), commented at the cell.
@@ -45,18 +47,12 @@ Transcription conventions (stress-test design "correctness-guarantor discipline"
     each class from its last explicit year's value to its normal-row value across
     the gap (``_interp_gap``), commented at the call site.
 
-6→12 class mapping
-------------------
-The framework names 6 columns; the modeler has 12 class ids. Each modeler class
-is mapped to a framework column by ``_CLASS_TO_COLUMN`` (proxy choices documented
-inline). Every one of the 12 maps, so a stress can be applied to any allocation.
+Each of the 12 modeler class ids maps to one framework column via
+``_CLASS_TO_COLUMN`` (proxy choices documented inline).
 
-Scope guard
------------
-Stress supports SINGLE sourcing + CONSTANT allocation only. A glidepath or
-buckets scenario raises a clear ``StressNotAvailable`` (their per-phase /
-per-bucket return composition is a later slice). An unknown ``stress_id`` likewise
-raises.
+Scope guard: Family A supports SINGLE sourcing + CONSTANT allocation only; a
+glidepath or buckets scenario raises ``StressNotAvailable``, as does an unknown
+``stress_id``.
 """
 
 from __future__ import annotations
@@ -93,7 +89,7 @@ class StressNotAvailable(ValueError):
     language at the API seam (``api.error_translation``).
     """
 
-# The 6 framework columns (stress-test design "The battery"). A stress table is
+# The 6 framework columns. A stress table is
 # keyed by these column names; the modeler's 12 class ids each map to one.
 _COL_US_TOTAL = "US Total"
 _COL_US_SCV = "US SCV"
@@ -102,8 +98,7 @@ _COL_BONDS = "Bonds"
 _COL_GOLD = "Gold"
 _COL_CASH = "Cash"
 
-# 6→12 class-id → framework-column map (stress-test design "Build-time decisions /
-# 6→12 class mapping"). Proxy choices (the modeler classes the framework's 6
+# 6→12 class-id → framework-column map. Proxy choices (the modeler classes the framework's 6
 # columns don't name a column for) are documented per line:
 #   - us_reit → US Total: REITs are an equity proxy (no REIT column in the 6).
 #   - emerging_markets → Int'l: EM rides the international-equity column.
@@ -135,7 +130,7 @@ class _StressTable:
     ``rows`` are the EXPLICIT years (year *k* = ``rows[k-1]``). ``normal_row`` is the
     framework's "11+"/"6+"/"9+" tail applied to EVERY year beyond ``rows``; a
     column absent from ``normal_row`` falls back to that class's own default
-    ``real_return`` (the slice-1 tail behavior). Each entry is a per-column dict of
+    ``real_return``. Each entry is a per-column dict of
     real returns as fractions.
     """
 
@@ -148,7 +143,7 @@ def _interp_gap(
     normal_row: dict[str, float],
     n_gap: int,
 ) -> list[dict[str, float]]:
-    """Linear-interpolate ``n_gap`` unspecified gap rows per the design rule.
+    """Linear-interpolate ``n_gap`` unspecified gap rows.
 
     For a "6–10 varied" style gap with no published numbers, each class glides
     LINEARLY from its last explicit year's value to its normal-row value. With the
@@ -171,9 +166,8 @@ def _interp_gap(
 
 # 1970s Stagflation (framework appendix §4): stocks and bonds down together while
 # gold explodes — the classic stagflation regime. Years 1-5 EXPLICIT; the
-# framework's "6–10 varied" gap is LINEAR-INTERPOLATED (slice-2 finalization of the
-# slice-1 PROVISIONAL placeholder) from each class's year-5 value to its 11+
-# normal-row value; year 11+ is the normal row.
+# framework's "6–10 varied" gap is LINEAR-INTERPOLATED from each class's year-5
+# value to its 11+ normal-row value; year 11+ is the normal row.
 _STAGFLATION_1970S_NORMAL = {
     _COL_US_TOTAL: +0.10, _COL_US_SCV: +0.12, _COL_INTL: +0.07,
     _COL_BONDS: +0.03, _COL_GOLD: +0.02, _COL_CASH: +0.02,
@@ -373,9 +367,8 @@ _DEPRESSION_EXTREME = _StressTable(
 )
 
 
-# The stress registry, keyed by stress id (stress-test design: one VIEW entry
-# opens a sub-selector over this registry). Slice 2 ships the six ADVERSE Family-A
-# worlds; the three tailwind/false-positive framework scenarios are out of scope.
+# The Family-A registry, keyed by stress id: the six ADVERSE worlds (the three
+# tailwind/false-positive framework scenarios are out of scope).
 STRESS_SCENARIOS: dict[str, _StressTable] = {
     "stagflation_1970s": _STAGFLATION_1970S,
     "historical_depression_1929": _HISTORICAL_DEPRESSION_1929,
@@ -387,14 +380,15 @@ STRESS_SCENARIOS: dict[str, _StressTable] = {
 
 
 # ---------------------------------------------------------------------------
-# Family B — scenario perturbations (stress-test design "The two families").
+# Family B — scenario perturbations.
 # ---------------------------------------------------------------------------
 # A Family-B stress is NOT an authored return path; it is a TRANSFORM on the
 # Scenario itself (cut an income stream, scale spending for an FX hit), then run
-# through the ORDINARY deterministic engine (``firebridgelab.simulate.simulate``) under
-# the plan's own return assumption. By design, Family B renders as a SINGLE Deterministic line — the same
-# ``Trajectory`` output shape as Family A — NOT a fan. One mental model: every
-# stress, A or B, shows up as one specified adverse world's trajectory.
+# through the ORDINARY deterministic engine (``engine.deterministic.simulate``)
+# under the plan's own return assumption. Family B renders as a SINGLE
+# Deterministic line — the same ``Trajectory`` output shape as Family A — NOT a fan. One
+# mental model: every stress, A or B, shows up as one specified adverse world's
+# trajectory.
 #
 # Each transform is a pure ``Scenario -> Scenario`` built with
 # ``dataclasses.replace`` (so the input scenario is never mutated and the frozen
@@ -414,12 +408,12 @@ def _ss_haircut_23(scenario: Scenario) -> Scenario:
     left unchanged — this is an income-side shock on the SS streams ONLY.
 
     Timing note (why a FLAT 23% cut is correct here, no per-year ramp): both SS
-    streams start at age 67 (the default ``*_ss_start_age``), which is AFTER the
+    streams start at 67 / 70 (the default ``*_ss_start_age``), which is AFTER the
     ~2034 depletion (≈ age 60 on the modeler's single age axis). So the streams are
     already in the reduced-benefit world the moment they switch on; a flat 23%
     reduction on the amounts is exact for any claim age ≥ ~60, and no per-year
     timing logic is needed. (Were SS claimed before ~2034 a phased haircut would be
-    needed; that is out of scope — the default household claims both at 67.)
+    needed; that is out of scope — the default household claims at 67 and 70.)
     """
     return replace(
         scenario,
@@ -442,8 +436,8 @@ def _cost_of_living_shock(scenario: Scenario) -> Scenario:
     the plan's own currency and unaffected by the shock.
 
     The +20% magnitude is a round PLANNING DEFAULT, not a point forecast (major
-    exchange rates, for example, have moved 20%+ over multi-year spans). It is a baked preset (no knob), consistent with the
-    feature's "stress tests, not fantasy-world creators" stance.
+    exchange rates, for example, have moved 20%+ over multi-year spans). It is a
+    baked preset (no knob): stress tests, not fantasy-world creators.
     """
     return replace(
         scenario,
@@ -457,15 +451,16 @@ def _government_austerity(scenario: Scenario) -> Scenario:
     """Combined government-income austerity: SS ×0.77 AND a frozen-COLA pension drift.
 
     A plan whose guaranteed income is mostly government-sourced (public-sector
-    pensions plus Social Security) carries a CONCENTRATION RISK: both government income sources can be squeezed TOGETHER,
-    which is what this stress models:
+    pensions plus Social Security) carries a CONCENTRATION RISK: both government
+    income sources can be squeezed TOGETHER, which is what this stress models:
 
       * SS ×0.77 — the ~2034 trust-fund haircut (the ``ss_haircut_23`` cut), still
         real-constant at the REDUCED level (a flat 23% benefit cut, no per-year
         ramp, applied from each claim age).
       * ``pension_real_drift = 0.025`` — the pension COLA goes from full to FROZEN,
         so the pensions erode 2.5%/yr in REAL terms (roughly the full-COLA-to-zero
-        gap at ~2.5% inflation). Applied via ``gi_at_age`` to the two PENSION
+        gap at ~2.5% inflation). Applied via ``income.guaranteed.gi_at_age`` (through
+        the pension multiplier) to the two PENSION
         streams only.
 
     So the two checks are cut together: SS via a level haircut, pensions via a
@@ -486,9 +481,9 @@ def _sustained_cost_drift(scenario: Scenario) -> Scenario:
     Distinct from the one-time ``cost_of_living_shock`` (a single +20% step): this is
     a SUSTAINED per-year real drift: a cost of living that outruns the inflation
     index (or, for someone spending in another currency, a steady real
-    appreciation of that currency) DRIFTS UP at that rate. Modeled as ``spending_real_drift = 0.015`` — a post-strategy
-    cost-of-living multiplier applied in the sim loops (composes with any spending
-    strategy).
+    appreciation of that currency) DRIFTS UP at that rate. Modeled as
+    ``spending_real_drift = 0.015`` — a post-strategy cost-of-living multiplier
+    applied in the sim loops (composes with any spending strategy).
 
     Documented as an ADVERSE tail, not a forecast. The rails are NOT scaled — the
     spending line drifts up while the floor/ceiling stay at the input levels.
@@ -497,10 +492,10 @@ def _sustained_cost_drift(scenario: Scenario) -> Scenario:
 
 
 # The Family-B registry, keyed by stress id (a SEPARATE registry from the Family-A
-# ``STRESS_SCENARIOS`` tables — the two families are never collapsed). Slices 3+4
-# ship four perturbations: the SS haircut + cost-of-living shock (slice 3,
-# no COLA machinery), and the two COLA-bearing concentration-risk stresses (slice 4
-# — government-income austerity and sustained cost-of-living drift).
+# ``STRESS_SCENARIOS`` tables — the two families are never collapsed): the SS
+# haircut and cost-of-living shock (level changes), and the two COLA-bearing
+# concentration-risk stresses (government-income austerity and sustained
+# cost-of-living drift).
 STRESS_PERTURBATIONS: dict[str, Callable[[Scenario], Scenario]] = {
     "ss_haircut_23": _ss_haircut_23,
     "cost_of_living_shock": _cost_of_living_shock,
@@ -536,7 +531,7 @@ def _class_return_array(
             "only on the canonical asset-class menu"
         )
     # The tail value: the normal-row column if present, else the class's own
-    # deterministic default real_return (slice-1 tail behavior preserved).
+    # deterministic default real_return.
     tail = table.normal_row.get(column, ac.real_return)
     out = np.empty(n_steps, dtype=float)
     for step in range(n_steps):
@@ -565,37 +560,35 @@ def simulate_stress(scenario: Scenario, stress_id: str) -> Trajectory:
          per-year return array → ``(end_portfolios, depleted_age, spends)``.
       5. Wrap into a ``Trajectory`` with one ``YearPoint`` per age, computing
          ``start_portfolio`` and ``growth = start*r`` per year EXACTLY as
-         ``firebridgelab.simulate.simulate`` does, so the tooltip stays consistent.
+         ``engine.deterministic.simulate`` does, so the tooltip stays consistent.
 
     Scope guard: SINGLE sourcing + CONSTANT allocation only. A glidepath or buckets
-    scenario raises ``StressNotAvailable`` (per-phase / per-bucket composition is a
-    later slice).
+    scenario raises ``StressNotAvailable`` (per-phase / per-bucket composition is
+    not supported).
 
-    Tax-drag (design td1, HARD CONSTRAINT "stress mode"): when a tax-location
-    split is supplied, step 4 routes through the DRAGGED decomposition
-    (``simulate_path_decomposition``) instead of the plain ``_simulate_cohort``
-    — "stress is a return-shock lens and the balances underneath it must stay
-    honest (a stressed split trajectory pays its taxes like any other)". The
-    trajectory's numbers change (a stressed split world now pays its bill), but
-    the READOUT stays hidden — ``simulate_stress`` returns the SAME bare
-    ``Trajectory`` shape either way, no tax_location/federal_tax block (the tb1
-    gap persists here by design, documented in the explainer). td-c: FAMILY B
-    is wired the SAME way (it used to dispatch a split straight through the
-    plain ``simulate()``, the same pre-tax falsehood Family A fixed in td-b) —
-    both families share the dragged-wrapping helper (``_wrap_trajectory``)
-    below, so they can't drift from each other. Family B's dragged branch uses
+    Tax drag: when a tax-location split is supplied, step 4 routes through the
+    DRAGGED decomposition (``simulate_path_decomposition``) instead of the plain
+    ``_simulate_cohort`` — stress is a return-shock lens and the balances
+    underneath it must stay honest (a stressed split trajectory pays its taxes
+    like any other). The trajectory's numbers change, but the READOUT stays
+    hidden — ``simulate_stress`` returns the SAME bare ``Trajectory`` shape
+    either way, with no tax_location/federal_tax block (documented in the
+    explainer). FAMILY B is wired the SAME way; both families share the
+    wrapping helper (``_wrap_trajectory``) below, so they can't drift from each
+    other. Family B's dragged branch uses
     the PERTURBED scenario's own deterministic blended-return sequence
     (``deterministic_blended_returns`` — Family B never swaps the return
     environment, only the scenario), never the authored stress table.
 
-    Two FAMILIES dispatch off ``stress_id`` (stress-test design "The two families"):
+    Two FAMILIES dispatch off ``stress_id``:
 
       * FAMILY A (``STRESS_SCENARIOS``) — an authored synthetic-cohort return table,
         the path documented above.
       * FAMILY B (``STRESS_PERTURBATIONS``) — a pure ``Scenario -> Scenario``
         transform (cut SS, scale spending for an FX hit), then run through the
-        ORDINARY deterministic ``firebridgelab.simulate.simulate``. By design this renders as a SINGLE Deterministic line — the same
-        ``Trajectory`` shape as Family A, NOT a fan. The transform does the work; the
+        ORDINARY deterministic ``engine.deterministic.simulate``. This renders as a
+        SINGLE Deterministic line — the same ``Trajectory`` shape as Family A, NOT
+        a fan. The transform does the work; the
         return environment is the plan's own assumption (no return swap).
 
     Family B is dispatched FIRST (before the Family-A scope guards), because it runs
@@ -609,10 +602,9 @@ def simulate_stress(scenario: Scenario, stress_id: str) -> Trajectory:
     if perturbation is not None:
         perturbed = perturbation(scenario)
         if has_tax_split(perturbed):
-            # td-c fix: Family B must pay its taxes too (the td1 HARD
-            # CONSTRAINT — "a stressed split trajectory pays its taxes like
-            # any other" — applies to a scenario-transform stress exactly as
-            # much as an authored-return-table one). Uses the PERTURBED
+            # Family B pays its taxes too: a stressed split trajectory pays its
+            # taxes like any other, whether the stress is a scenario transform
+            # or an authored return table. Uses the PERTURBED
             # scenario's own deterministic blended returns (Family B never
             # swaps the return environment) and a FRESH strategy reading the
             # perturbed, dragged, taxed balance.
@@ -669,7 +661,7 @@ def simulate_stress(scenario: Scenario, stress_id: str) -> Trajectory:
         blended += norm_weight * _class_return_array(ac, table, n_steps)
 
     if has_tax_split(scenario):
-        # td1 HARD CONSTRAINT: drag applies under stress. Sourcing is already
+        # Tax drag applies under stress. Sourcing is already
         # guaranteed single by the scope guard above, so has_tax_split alone
         # gates the same way it does elsewhere in the engine. The recorded
         # spend is the REALIZED (fundable-capped) consumption — the same
@@ -699,17 +691,17 @@ def _wrap_trajectory(
     """Wrap a per-year ``(end_portfolio, spend)`` series into the single-
     trajectory ``Trajectory`` shape, recomputing ``start_portfolio`` and
     ``growth = start_portfolio * r`` per year EXACTLY as
-    ``firebridgelab.simulate.simulate`` does (module docstring step 5) — shared by
-    FAMILY A's tail above (both its split and no-split branches already
-    converge to this one wrapping step) and FAMILY B's dragged branch (td-c),
-    so the two families can never wrap a trajectory differently.
+    ``engine.deterministic.simulate`` does (``simulate_stress`` step 5) — shared by
+    FAMILY A's tail above (both its split and no-split branches converge to this
+    one wrapping step) and FAMILY B's dragged branch, so the two families can
+    never wrap a trajectory differently.
 
     For a NO-SPLIT run the YearPoint tooltip identity holds exactly (end ==
     start + growth + (gi − spend)·(1+r/2)). For a SPLIT run it deliberately does
     NOT: ``end_portfolio`` IS the dragged total, and the gap between the
     identity's prediction and the recorded end is the year's (hidden) tax bill
-    — YearPoint carries no tax field, and the stress readout keeps today's
-    visibility (the tb1 gap, documented in the explainer). Do not "fix" the
+    — YearPoint carries no tax field, and the stress readout does not show taxes
+    (documented in the explainer). Do not "fix" the
     residual by re-deriving end from the identity — the dragged total is the
     honest balance.
     """
@@ -743,8 +735,8 @@ def effective_spending_rails(scenario: Scenario, stress_id: str) -> tuple[float,
     A spending-chart guide line must label the floor/ceiling for *the world being
     shown*, not the live UI knob. Family A (and the SS-haircut Family-B
     perturbation) leave the rails untouched, so the effective rails equal the
-    input scenario's. The ``cost_of_living_shock`` perturbation scales BOTH rails ×1.20 (it
-    scales ``annual_spending`` and the operational rails together so a dynamic
+    input scenario's. The ``cost_of_living_shock`` perturbation scales BOTH rails
+    ×1.20 (it scales ``annual_spending`` and the operational rails together so a dynamic
     strategy's clamps stay proportional to the shocked cost of living), so a
     guardrails / FR run there actually floors at the ×1.20 value — and the guide
     line must say so.

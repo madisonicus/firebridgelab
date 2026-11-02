@@ -1,47 +1,27 @@
-"""Federal-tax overlay — now a thin REPACKAGING pass over the dragged
-tax-location decomposition (tax-drag design td1
-supersedes the ft1/ft2 "display-only accounting pass" role this module used to
-play).
+"""Federal-tax overlay: a thin repackaging pass over the dragged tax-location path.
 
-WHAT CHANGED (DECISION 4's module-layering fix + td-a scope item 5): under
-ft1/ft2 this module OWNED the entire year-tax computation — it read tb1's
-untaxed shadow decomposition, derived ordinary/LTCG income, ran
-``compute_federal_tax``, applied the penalty, and split the attribution. Under
-td1 the portfolio itself pays its tax bill, and computing that bill requires
-resolving a per-year FIXED POINT coupled to the internal transfers (the
-voluntary bracket-fill lever, the RMD-excess movement) — machinery that has to
-live where the account balances live, i.e. ``firebridgelab.tax_location``. So:
+The portfolio pays its own tax bill, and computing that bill means resolving a
+per-year FIXED POINT coupled to the internal transfers (the voluntary
+bracket-fill lever, the RMD-excess movement). That machinery lives where the
+account balances live: ``step_buckets_dragged`` in ``tax.location``, called from
+``simulate_path_decomposition`` in ``tax.location_path``. This module only reads
+the already-resolved per-age series off the dragged ``TaxLocationPath``
+(``tax`` / ``spending_tax`` / ``voluntary_tax`` / ``forced_tax`` / ``penalty`` /
+``ordinary_income`` / ``ltcg_income`` / ``gross_outflow``) and NEVER re-derives
+them — a re-derivation here could silently diverge from the fixed point's
+resolved values.
 
-  - The pure tax PRIMITIVES (``compute_federal_tax``, the MFJ constants, the
-    RMD table) moved to the leaf module ``firebridgelab.federal_tax_core`` (imported
-    by BOTH ``tax_location`` and this module — see that module's docstring for
-    the layering diagram). This module RE-EXPORTS every one of those names
-    unchanged, so every existing ``from firebridgelab.federal_tax import X`` — the
-    API layer, ``firebridgelab/__init__.py``, and the five ft1 IRS-anchor tests —
-    keeps working without modification.
-  - The per-year income/tax/attribution computation moved INTO
-    ``firebridgelab.tax_location.step_buckets_dragged`` (called from
-    ``simulate_path_decomposition``), because it is now COUPLED to the
-    transfers and the account balances, not a separable read-only pass.
-  - This module's ``compute_tax_overlay`` shrinks to PURE REPACKAGING: it reads
-    the already-resolved per-age series straight off the dragged
-    ``TaxLocationPath`` (``tax`` / ``spending_tax`` / ``voluntary_tax`` /
-    ``forced_tax`` / ``penalty`` / ``ordinary_income`` / ``ltcg_income`` /
-    ``gross_outflow``) and NEVER re-derives them — single source of truth is
-    the decomposition (a re-derivation here could silently diverge from the
-    fixed point's actual resolved values). td-d retires the one field that
-    WAS computed here (not merely copied): ``net_spending`` = ``realized_spend
-    - spending_tax`` (design DECISION 7's "interim-compat" field, superseded
-    end-to-end by the gross-outflow line — ``api/main.py`` and its tests no
-    longer read it).
+It also re-exports the tax primitives from ``tax.core`` and ``tax.rmd``
+(``compute_federal_tax``, the MFJ constants, the RMD helpers) under
+``__all__``.
 
-Two public entry points (unchanged surface from ft1/ft2):
+Two public entry points:
 
   - ``compute_tax_overlay(scenario, path)`` — maps ONE dragged
     ``TaxLocationPath`` to a per-age ``FederalTaxPath``.
   - ``aggregate_tax_overlay(paths)`` — reduces a list of ``FederalTaxPath``
     (one per cohort/trial) to the Historical/MC headline aggregate, mirroring
-    ``firebridgelab.tax_location.aggregate_tax_location_risk``.
+    ``aggregate_tax_location_risk`` in ``tax.location_risk``.
 """
 
 from __future__ import annotations
@@ -92,22 +72,22 @@ class FederalTaxPath:
         components (pre-deduction) the fixed point converged on.
       - ``tax`` — total federal tax INCLUDING the early-withdrawal penalty
         (0.0 once the path has already depleted in a prior year — the
-        post-depletion convention, see ``firebridgelab.tax_location``).
-      - ``spending_tax`` / ``voluntary_tax`` / ``forced_tax`` — DECISION 6's
-        exact three-way telescoping attribution:
+        post-depletion convention, see ``tax.location``).
+      - ``spending_tax`` / ``voluntary_tax`` / ``forced_tax`` — the exact
+        three-way telescoping attribution:
         ``spending_tax + voluntary_tax + forced_tax == tax`` at every age,
         EXACT ``==``.
       - ``penalty`` — the 10% early-withdrawal penalty alone (a subset of
         ``tax``, not additional to it).
       - ``gross_outflow`` — "what the portfolio actually funds" = ``spending +
-        tax`` (DECISION 7's chart line, td-a records it; td-d draws it).
+        tax`` (the chart's gross-outflow line).
 
-    Path scalars (mirrors the design's Historical/MC readout):
+    Path scalars (the Historical/MC readout):
 
       - ``total_tax`` — sum of ``tax`` across the path.
       - ``avg_annual_tax`` — ``total_tax / len(ages)``.
       - ``effective_rate`` — ``total_tax / total REALIZED spending`` across the
-        path (0.0 if total realized spending is 0). td-b: the denominator is
+        path (0.0 if total realized spending is 0). The denominator is
         the realized series — dividing by intended consumption that never
         happened understates the rate on depleting paths. Identical on
         non-depleting paths.
@@ -119,8 +99,8 @@ class FederalTaxPath:
       - ``pretax_terminal`` / ``dragged_terminal`` — the path's LAST-year
         paired pre-tax total and dragged total (``TaxLocationPath.pretax_total
         [-1]`` and ``taxable[-1]+tax_deferred[-1]+roth[-1]``) — the "estate
-        cost of taxes" readout's (DECISION 9, a later slice) two raw inputs,
-        recorded here so td-b/c can pair them (median of PER-PATH differences,
+        cost of taxes" readout's two raw inputs, recorded here so the
+        aggregation can pair them (median of PER-PATH differences,
         never a difference of medians) without re-deriving from
         ``TaxLocationPath`` at the aggregation layer.
     """
@@ -153,7 +133,7 @@ def compute_tax_overlay(scenario, path: TaxLocationPath) -> FederalTaxPath:
     ``voluntary_tax`` / ``forced_tax`` / ``penalty`` / ``ordinary_income`` /
     ``ltcg_income`` / ``gross_outflow``) straight off ``path`` and NEVER
     recomputes them — every field here is copied, plus the path-level scalar
-    reductions (sums / medians / worst-year), unchanged in spirit from ft1/ft2.
+    reductions (sums / medians / worst-year).
     """
     ages = list(path.ages)
     n = len(ages)
@@ -214,7 +194,7 @@ def compute_tax_overlay(scenario, path: TaxLocationPath) -> FederalTaxPath:
 class FederalTaxOverlayAggregate:
     """Aggregated federal-tax overlay across cohorts / trials (Historical/MC).
 
-    The tax-overlay analogue of ``firebridgelab.tax_location.TaxLocationRisk``: median
+    The tax-overlay analogue of ``TaxLocationRisk`` (``tax.location_risk``): median
     per-age series + median-of-scalars across paths (mirrors
     ``aggregate_tax_location_risk``'s discipline — same aggregator shared by
     both stochastic engines so the two readouts can't drift).

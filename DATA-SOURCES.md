@@ -4,10 +4,10 @@ The library reads two files from its data directory at runtime
 (`$FIREBRIDGELAB_DATA`, else `data/cache/` in a source checkout, else
 `~/.cache/firebridgelab`):
 
-- `ie_data.xls` (Shiller), parsed by `firebridgelab/shiller.py` into the US stock and
+- `ie_data.xls` (Shiller), parsed by `firebridgelab/returns/shiller.py` into the US stock and
   10-year Treasury series;
-- `asset_class_series.csv`, built by `firebridgelab/data_build.py`
-  from the other raw files below and read by `firebridgelab/class_series.py`.
+- `asset_class_series.csv`, built by `firebridgelab/returns/data_build.py`
+  from the other raw files below and read by `firebridgelab/returns/class_series.py`.
 
 None of these files are in the repository. `firebridgelab-fetch-data`
 downloads the freely available ones and runs the builder. `data/cache/` is
@@ -31,7 +31,7 @@ seven classes. The missing classes drop out of the class menu
 of the Historical and Monte Carlo registries. Tests that need them carry the
 `requires_optional_classes` marker and are skipped. `firebridgelab-fetch-data`
 prints instructions for getting the files. The exact testfol.io request is
-`_TESTFOL_FETCH_CMD` in `firebridgelab/data_build.py`.
+`_TESTFOL_FETCH_CMD` in `firebridgelab/returns/data_build.py`.
 
 ## Citations
 

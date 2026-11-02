@@ -1,4 +1,11 @@
-"""engine.allocation (split from the flat layout)."""
+"""Asset classes, the class menu, and the allocation in force at each age.
+
+Defines ``AssetClass`` and ``CLASS_MENU`` (the selectable classes, seeded from the
+staged annual real series), the Shiller-derived Monte Carlo volatility/correlation
+defaults, the glidepath phases (``glidepath_boundaries`` / ``allocation_at_age``),
+and the blended portfolio real return. Returns are annual real fractions
+(0.07 = 7%).
+"""
 
 from __future__ import annotations
 
@@ -12,30 +19,27 @@ if TYPE_CHECKING:
 
 
 
-# Valid allocation_mode values (glidepath design). "constant" (default) holds ONE
-# allocation across the whole horizon — today's behavior, byte-for-byte unchanged.
+# Valid allocation_mode values. "constant" (default) holds ONE allocation across
+# the whole horizon.
 # "glidepath" carries one allocation per DERIVED phase (a rising-equity / bond-tent
 # glide), and the portfolio's real return at a given age is the blend of THAT age's
 # phase's allocation. The toggle is orthogonal to `mode` and `spending_mode`.
 ALLOCATION_MODE_CONSTANT = "constant"
 ALLOCATION_MODE_GLIDEPATH = "glidepath"
 
-# The ONE fixed boundary the glidepath adds (glidepath design "The core design
-# decision"). The IRS penalty-free 401(k) withdrawal rule is age 59½; the engine
-# uses an INTEGER annual age axis, so we model the boundary at age 60 — the first
-# full year of penalty-free access. It is NOT a user input in this slice (it's a
-# tax rule, not a preference). The pension + SS boundaries are NOT hardcoded here;
-# they DERIVE from the existing GI start-age scenario inputs (see
-# ``glidepath_boundaries``).
+# The ONE fixed boundary the glidepath adds. The IRS penalty-free 401(k)
+# withdrawal rule is age 59½ (26 U.S.C. 72(t)); the engine uses an INTEGER annual
+# age axis, so we model the boundary at age 60 — the first full year of
+# penalty-free access. It is NOT a user input (it's a tax rule, not a preference). The
+# pension + SS boundaries are NOT hardcoded here; they DERIVE from the existing GI
+# start-age scenario inputs (see ``glidepath_boundaries``).
 ALLOCATION_401K_ACCESS_AGE = 60
 
 # Shiller-derived Monte Carlo defaults (computed from the same 1871-2025 series
-# Historical replays — the design notes Decision #3). Per-class
-# annual real-return standard deviations and a single equity-bond real-return
-# correlation. These are the v1 defaults wherever an AssetClass / Scenario is
-# constructed without explicit values, so the Monte Carlo sampler has honest,
-# data-calibrated inputs. The Deterministic and Historical engines never read
-# them, so threading these in leaves those paths byte-for-byte unchanged.
+# Historical replays): per-class annual real-return standard deviations and a
+# single equity-bond real-return correlation. These are the defaults wherever an
+# AssetClass / Scenario is constructed without explicit values. The Historical
+# engine never reads them.
 #
 # _DEFAULT_EQUITY_VOLATILITY / _DEFAULT_BOND_VOLATILITY are hand-ROUNDED
 # FALLBACK figures, not the canonical values. They exist only for the two call
@@ -47,8 +51,7 @@ ALLOCATION_401K_ACCESS_AGE = 60
 # ``default_bucket_config()``, and ``/api/classes``'s ``_class_menu_entries()``
 # — the CANONICAL per-legacy-class volatility comes from the exact series
 # stdev via ``_legacy_default_volatility()`` below, so there is one computation,
-# not three independently hand-rounded copies of it (those copies
-# had drifted from each other and from the exact figure by ~2e-4).
+# not several hand-rounded copies of it.
 _DEFAULT_EQUITY_VOLATILITY = 0.174  # S&P real total return annual stdev (rounded fallback)
 _DEFAULT_BOND_VOLATILITY = 0.088    # 10yr Treasury real total return annual stdev (rounded fallback)
 DEFAULT_CORRELATION = 0.20          # full-history equity-bond real-return correlation
@@ -63,22 +66,19 @@ def _legacy_default_volatility(class_id: str) -> float:
     that class's real-return series — so ``default_scenario()`` and
     ``default_bucket_config()`` can build with the exact value instead of the
     hand-rounded ``_DEFAULT_EQUITY_VOLATILITY`` / ``_DEFAULT_BOND_VOLATILITY``
-    constants above. Before this fix the two were computed independently and
-    had drifted apart by ~2e-4 per class — a vol-less parsed allocation (which
-    resolves to the exact published figure) diverged from the default
-    scenario's own Monte Carlo run.
+    constants above, and a vol-less parsed allocation (which resolves to the
+    exact published figure) matches the default scenario's own Monte Carlo run.
 
-    Defined for any class id in ``firebridgelab.historical.SERIES_FOR_CLASS``; raises
-    ``KeyError`` only for an id absent from that map. In practice the sole
-    caller — the ``_class_menu_entries()`` ``else`` branch — reaches it only for
+    Defined for any class id in ``returns.series.SERIES_FOR_CLASS``; raises
+    ``KeyError`` only for an id absent from that map. In the API, the
+    ``_class_menu_entries()`` ``else`` branch reaches it only for
     the two legacy ids (``us_total_market`` / ``us_agg_bonds``, the keys that map
     to a series id rather than to themselves); the other ten classes take the
     ``CLASS_MENU`` branch, so the exact same computation serves all twelve.
 
-    Lazy-imports numpy + the series-id mapping + the series loader (same
-    cycle-avoidance pattern ``_build_class_menu`` uses below: ``firebridgelab.
-    historical`` imports ``firebridgelab.scenario`` at module top, so importing it
-    back here at module top would be circular) and memoizes via
+    Lazy-imports numpy + the series-id mapping + the series loader
+    (``returns.series`` imports this module at module top, so importing it back
+    here at module top would be circular) and memoizes via
     ``functools.lru_cache`` since this must be called at RUNTIME — never at
     module import time, which is when the ``AssetClass.volatility`` dataclass
     field default above is evaluated.
@@ -93,17 +93,15 @@ def _legacy_default_volatility(class_id: str) -> float:
     return float(np.std(list(series[series_id].values()), ddof=1))
 
 
-# Display labels for the slice-1 NEW classes (asset-class design D5 table).
+# Display labels for the menu classes beyond the two legacy ones.
 # Presentation-only — never a dict key or query token. Keyed by class id; used
 # to build the CLASS_MENU entries below (after AssetClass is defined).
 _NEW_CLASS_LABELS: dict[str, str] = {
-    # slice 1
     "us_small_value": "US Small-Cap Value",
     "lt_treasury": "US Treasury Bonds (10-yr, Damodaran)",
     "it_treasury": "US Intermediate Treasuries",
     "st_treasury": "US Short Treasuries / T-bills",
     "us_reit": "US REITs",
-    # slice 4a (design D5 table display names)
     "gold": "Gold",
     "intl_developed": "International Developed (ex-US)",
     "emerging_markets": "Emerging Markets",
@@ -116,12 +114,12 @@ _NEW_CLASS_LABELS: dict[str, str] = {
 class AssetClass:
     """One asset class in a portfolio allocation.
 
-    Two id namespaces (asset-class design, round-2 fix): ``id`` is the **class
+    Two id namespaces: ``id`` is the **class
     id** — the stable menu / allocation / query key (e.g. ``us_total_market``);
     ``label`` is the **display** name, presentation-only and NEVER a dict key or
     query token. The *series* id (the data key) is a third thing entirely, held
-    in ``historical.SERIES_FOR_CLASS`` as a class-id → series-id map. The two
-    coincide for the 10 new classes but NOT for the two legacy ones — class
+    in ``returns.series.SERIES_FOR_CLASS`` as a class-id → series-id map. The two
+    coincide for the 10 menu classes but NOT for the two legacy ones — class
     ``us_total_market`` binds to the existing series ``us_equity``, and
     ``us_agg_bonds`` to ``us_bonds``.
 
@@ -130,12 +128,9 @@ class AssetClass:
     weight-weighted average across all classes.
 
     ``volatility`` is the class's annual standard deviation of real return,
-    used ONLY by the Monte Carlo engine (firebridgelab.monte_carlo) to sample a
-    Normal(mean, vol) return path. It defaults to the Shiller-derived figure so
-    the field exists everywhere an AssetClass is built without the Deterministic
-    or Historical engines (which never read it) changing at all — same
-    defaulted-field pattern the lifecycle phase fields used. The MC UI makes it
-    editable in a later build; v1 carries the default.
+    used by the Monte Carlo sampler to draw a return path (and by the
+    rebalanced compound return). It defaults to the rounded Shiller-derived
+    equity figure. The Historical engine never reads it.
     """
 
     id: str             # stable class id (menu / allocation / query key)
@@ -146,20 +141,17 @@ class AssetClass:
 
 
 def _build_class_menu() -> dict[str, "AssetClass"]:
-    """Seed the class menu from the staged annual REAL series (asset-class design
-    slice 1, D2/D5).
+    """Seed the class menu from the staged annual REAL series.
 
-    Each NEW class's Deterministic default ``real_return`` is its **geometric
+    Each class's Deterministic default ``real_return`` is its **geometric
     mean** real return (the constant rate reproducing realized cumulative
-    growth — D2), and its ``volatility`` is the series' annual real-return
-    stdev (for the MC sampler in slice 2). All carry ``weight=0.0`` — they are
-    INERT menu entries, NOT part of the default allocation (which stays length-2,
-    so the numeric value canary survives — D4). Presets / the matrix UI pull
-    them into an editable allocation in later slices.
+    growth), and its ``volatility`` is the series' annual real-return stdev.
+    All carry ``weight=0.0`` — they are INERT menu entries, NOT part of the
+    default allocation (which stays the length-2 legacy 60/40). Presets / the
+    matrix UI pull them into an editable allocation.
 
-    Imported lazily (inside the function) to avoid a module-level import cycle
-    with firebridgelab.class_series; the loader is memoized, so this parses at most
-    once per process.
+    The loader is imported inside the function and is memoized, so this parses
+    at most once per process. Classes whose raw data isn't installed are skipped.
     """
     from firebridgelab.returns.class_series import NEW_CLASS_SERIES, load_class_series
 
@@ -184,23 +176,20 @@ def _build_class_menu() -> dict[str, "AssetClass"]:
     return menu
 
 
-# The class menu/registry (asset-class design round-2 fix B1): the NEW classes
-# live HERE, NOT in default_scenario()'s allocation, so the default path stays
-# length-2 and the value canary survives. Presets and the multi-class matrix UI
-# pull classes from this menu into the editable allocation in later slices.
-# Slice 1 populates the long-history, free-sourced classes (US small-value, the
-# Treasury/cash ladder, US REITs) with their geometric-mean real returns + vols
-# from the staged annual real series; the remaining classes (intl/EM, TIPS,
-# gold, commodities) land as their series are sourced in later slices. Keyed by
-# class id. Built at import via the staged-series loader (memoized).
+# The class menu/registry: the menu classes live HERE, NOT in
+# default_scenario()'s allocation, so the default path stays length-2. Presets
+# and the multi-class matrix UI pull classes from this menu into the editable
+# allocation. Each entry carries its geometric-mean real return + vol from the
+# staged annual real series. Keyed by class id. Built at import via the
+# staged-series loader (memoized); empty if no data has been fetched.
 CLASS_MENU: dict[str, "AssetClass"] = _build_class_menu()
 
 
 def glidepath_boundaries(scenario: Scenario) -> list[int]:
     """The glidepath phase-START ages, derived from the plan's inflection ages.
 
-    Glidepath design "The core design decision": the phase boundaries are the
-    household's real financial inflection ages, DERIVED (not separately entered):
+    The phase boundaries are the household's real financial inflection ages, DERIVED
+    (not separately entered):
 
         sorted distinct set of
           { ALLOCATION_401K_ACCESS_AGE }                       # fixed IRS constant
@@ -221,12 +210,12 @@ def glidepath_boundaries(scenario: Scenario) -> list[int]:
     Person B claim at different ages, an extra boundary (and phase) simply appears;
     that is the whole point of deriving rather than entering.
 
-    SINGLE-AGE-AXIS LIMITATION (glidepath design "Known limitation"): the model
+    SINGLE-AGE-AXIS LIMITATION: the model
     treats both people as the same age — every GI stream fires on
     ``age >= start_age`` against ONE timeline, and these boundaries live on that
     same single axis. True per-person event timing (an age gap that makes Person B's
-    "62" land at a different timeline age) needs a two-person age axis, which is a
-    separate, larger card. Do not infer two-person ages from this helper.
+    "62" land at a different timeline age) needs a two-person age axis, which the
+    model does not have. Do not infer two-person ages from this helper.
     """
     inflections = {
         ALLOCATION_401K_ACCESS_AGE,
@@ -281,10 +270,10 @@ def blended_real_return(scenario: Scenario) -> float:
 
 
 def allocation_at_age(scenario: Scenario, age: int) -> tuple["AssetClass", ...]:
-    """The allocation in force at ``age`` (glidepath design).
+    """The allocation in force at ``age``.
 
     Under ``constant`` allocation_mode (the default) this is always the single
-    ``scenario.allocation`` — today's behavior, unchanged. Under ``glidepath`` it
+    ``scenario.allocation``. Under ``glidepath`` it
     is the allocation of the phase containing ``age`` (phases are contiguous,
     half-open, lower-bound inclusive — see ``phase_index_for_age``).
 
@@ -312,7 +301,7 @@ def blended_real_return_at_age(scenario: Scenario, age: int) -> float:
     """Portfolio real return at a given age — the Deterministic engine's ``r``.
 
     Returns the rebalanced compound return of the allocation in force at
-    ``age`` (``firebridgelab.monte_carlo.rebalanced_compound_return``): the weighted
+    ``age`` (``returns.sampling.rebalanced_compound_return``): the weighted
     arithmetic mean less half the portfolio variance, from the same moments and
     correlations Monte Carlo samples. Under ``constant`` allocation_mode it is
     the same value every year; under ``glidepath`` it follows the active phase.
@@ -320,7 +309,7 @@ def blended_real_return_at_age(scenario: Scenario, age: int) -> float:
     stays the display/validation figure.
     """
 
-    # Lazy import: monte_carlo imports this module.
+    # Lazy import: returns.sampling imports this module.
     from firebridgelab.returns.sampling import rebalanced_compound_return
 
     if scenario.allocation_mode != ALLOCATION_MODE_GLIDEPATH:

@@ -1,66 +1,28 @@
-"""Historical-sequence simulation (Historical mode).
+"""Historical-sequence simulation (Historical mode): ``simulate_historical``.
 
-Where Deterministic mode compounds one constant blended real return, Historical
-mode replays actual history: it runs the plan over **every** historical cohort
-(start year) with a full N-year window, drawing that cohort's year-by-year real
-returns, then aggregates across cohorts. This is what makes the
-sequence-of-returns / volatility risk of an allocation visible — the point of
-the feature (see the design notes).
+Where Deterministic mode compounds one constant return, Historical mode replays
+actual history: it runs the plan over **every** historical cohort (start year) with
+a full N-year window, drawing that cohort's year-by-year real returns, then
+aggregates across cohorts to the per-age percentile fan (p10/p25/p50/p75/p90) and
+depletion stats. This makes the sequence-of-returns risk of an allocation visible.
+The per-year mechanic is the shared ``engine.sim_core._simulate_cohort`` (or
+``engine.buckets.simulate_buckets_cohort``); window selection lives in
+``engine.cohort_windows`` and aggregation in ``engine.cohort_aggregate``.
 
-Build 1 reported the **median** portfolio trajectory by age plus descriptive
-**depletion** stats (how many cohorts hit zero, and the earliest age). Build 2
-adds the **percentile fan**: per-age p10/p25/p75/p90 alongside the median (=p50),
-plus the (p10, p90) ending range. No comparison yet (Build 3).
+Series mapping and renormalization
+----------------------------------
+Each ``AssetClass`` maps to a historical series by its class id
+(``returns.series.SERIES_FOR_CLASS``). A cohort's blended return reads weights
+**only** from classes that map to a loaded series and **renormalizes** them to sum
+to 1, so an unmapped class can never silently leak weight the series can't fill.
+If no class maps, that's an error. Mixes that select any non-Shiller series use
+the no-backfill common-overlap window (see ``engine.cohort_windows``), and the
+result reports the earliest valid start as ``testable_since``.
 
-Series mapping + renormalization (Decision 3)
----------------------------------------------
-A small registry (``SERIES_REGISTRY``) lists the historical series we have, v1:
-``us_equity`` (S&P real total return) and ``us_bonds`` (10yr Treasury real total
-return). Each ``AssetClass`` maps to a series id by its **class id** via the
-class-id → series-id map ``SERIES_FOR_CLASS`` (asset-class design: the two id
-namespaces — class id is the allocation key, series id is the data key; they
-differ for the legacy pair, where class ``us_total_market`` binds series
-``us_equity`` and class ``us_agg_bonds`` binds series ``us_bonds``).
-
-When building a cohort's blended return, we read weights **only** from classes
-that map to a series we have, and **renormalize those weights to sum to 1** at
-computation time. In v1 both default classes map and already sum to 100%, so
-this is a no-op — but it's a cheap correctness invariant: a future unmapped
-class (e.g. "crypto 5%") can never silently corrupt a Historical result by
-leaking weight the series can't fill. If no class maps, that's an error.
-
-Everything else matches Deterministic mode exactly: the midpoint withdrawal
-convention, the four per-person GI streams, constant-real spending, and the
-portfolio floored at zero (depletion = flatline at zero thereafter).
-
-Multi-class cohort replay + window policy (slice 3, D3)
--------------------------------------------------------
-Slice 1 staged the new asset-class annual REAL series; slice 2 used them in
-Monte Carlo. Slice 3 makes **Historical cohort replay** work across the loaded
-multi-class menu (the seven classes that have real series today), implementing
-the no-backfill common-overlap window policy (asset-class design D3):
-
-  - **Selected = weight > ε** (``HISTORICAL_SELECTION_EPSILON``). A 0%-weight
-    (but mapped) class does NOT constrain the window — otherwise a preset that
-    lists many classes with some at 0% would silently collapse every window to
-    the shortest history.
-  - **No-backfill common-overlap window.** The valid cohort start years are
-    exactly the years Y where EVERY *selected* class has real data for the FULL
-    horizon (Y .. Y+horizon-1). A short-history class (e.g. ``us_reit`` 1972+)
-    sharply restricts the valid cohorts — that's correct and honest; we never
-    fabricate / backfill the missing pre-inception years.
-  - **"testable since YYYY".** The result payload surfaces the earliest valid
-    cohort start year (``start_year`` / its alias ``testable_since``) and the
-    cohort count, so the UI can display "testable since YYYY".
-  - **Hide / renormalize.** A class with NO loaded series at all (the five
-    not-yet-loaded: intl / EM / TIPS / gold / commodities) is still hidden and
-    the remaining weights renormalized (the existing rule). A *loaded-but-short-
-    history* class is NOT hidden — it constrains the window instead.
-
-Calendar-phase reconciliation (slice-3 carry-forward)
------------------------------------------------------
+Calendar-phase reconciliation
+-----------------------------
 The loaded series sit on three sub-annual phases, all labeled by an integer
-calendar year y (see ``firebridgelab/data_build.py``):
+calendar year y (see ``returns.data_build``):
 
   * Jan(y)→Jan(y+1): the Shiller pair (``us_equity`` / ``us_bonds``) and
     ``it_treasury`` (built from January 5-yr yields).
@@ -68,38 +30,22 @@ calendar year y (see ``firebridgelab/data_build.py``):
     (``st_treasury``, ``lt_treasury``, ``us_small_value``).
   * Dec(y-1)→Dec(y): ``us_reit`` (Nareit December index levels).
 
-Convention chosen: **align all series to one annual phase by their shared
-integer year label** — i.e. every series' "year y" return is the cohort's
-year-y return, blended cell-by-cell. The residual is at most a ~6-month phase
-offset between the Jan-anchored and the Dec/calendar-anchored series. We accept
-and label that residual rather than re-fetch sub-annual data, because:
-
-  1. The engine is annual by construction (D1) — there is no monthly axis to
-     re-phase onto, and the free sources are only published annually.
-  2. The offset is a *fraction of one* of the ~42 compounding years in a
-     cohort, so it cannot accumulate or drift a trajectory (it shifts which
-     12-month window a single cell measures, not the count or ordering of
-     cells). Slice-1 per-series stats are unaffected — each series is internally
-     self-consistent; only the cross-class *blend* of a single year's cell mixes
-     the phase, and only for portfolios that actually mix a Jan-anchored with a
-     calendar/Dec-anchored class.
-
-This is the same annual-label convention the existing Shiller two-series blend
-already uses (stock and bond both Jan→Jan, so it was phase-clean before; adding
-the calendar/Dec series introduces the residual, which is why it's documented
-here). A future reader who notices the ~6-month mismatch should NOT chase it as
-an off-by-one — it is the deliberate, accepted annual-alignment residual.
+Convention: **align all series by their shared integer year label** and blend
+cell-by-cell. The residual is at most a ~6-month phase offset between the
+Jan-anchored and the Dec/calendar-anchored series. We accept it rather than
+re-fetch sub-annual data because the engine is annual by construction and the
+free sources are published annually, and because the offset shifts which
+12-month window a single cell measures, not the count or ordering of cells, so it
+cannot accumulate along a trajectory. It only affects portfolios that mix a
+Jan-anchored with a Dec-anchored class. Do NOT chase it as an off-by-one.
 
 Horizon convention
 ------------------
 The horizon is ``end_age - start_age + 1`` annual returns — one return per
 age-point, inclusive of both endpoints — matching the deterministic engine's
-age-points (default 50→95 = 46 return-years). Note this differs from how a
-classic "30-year retirement" SWR study counts: there, a 30-year horizon spans
-``end_age - start_age = 30`` (30 return-years over 31 age-points), so our
-cohort counts will read one higher than such a table for the same span. Keep
-this in mind before chasing a phantom off-by-one against a published 30-year
-SWR result.
+age-points (default 50→95 = 46 return-years). A classic "30-year retirement" SWR
+study counts ``end_age - start_age = 30`` return-years, so our cohort counts read
+one higher than such a table for the same span; that is not an off-by-one.
 """
 
 from __future__ import annotations
@@ -148,8 +94,8 @@ def _simulate_historical_glidepath(
     Everything downstream (the per-cohort sim, the fan/depletion aggregation) is
     the SAME shared machinery the constant paths use, so the spending fan +
     depletion stats can't drift. Reduces to the constant Historical result
-    byte-for-byte when every phase shares the single allocation (the
-    degenerate-glide identity).
+    exactly when every phase shares the single allocation (the degenerate-glide
+    identity).
     """
     n_steps = scenario.end_age - scenario.start_age + 1
     selected_series, start_years, series_data = _glidepath_window(scenario)
@@ -165,10 +111,10 @@ def _simulate_historical_glidepath(
     dragged_terminals: list[float] = []
     pretax_success: list[bool] = []
     dragged_success: list[bool] = []
-    # td-b MC/Historical timing-gate perf: precompute the per-age
-    # (penalty_free, n_65_plus, pension_ss_ordinary) table ONCE per scenario
-    # (none of the three depend on the cohort's return path) instead of every
-    # cohort recomputing it fresh — see tax_location.year_tax_context_table.
+    # Precompute the per-age (penalty_free, n_65_plus, pension_ss_ordinary)
+    # table ONCE per scenario (none of the three depend on the cohort's return
+    # path) instead of every cohort recomputing it — see
+    # tax.location_path.year_tax_context_table.
     year_context = year_tax_context_table(scenario) if split_on else None
     for start_year in start_years:
         period = _period_from_series(series_data, selected_series, start_year, n_steps)
@@ -176,9 +122,9 @@ def _simulate_historical_glidepath(
             scenario, period, HIST_SERIES_REGISTRY
         )
         if split_on:
-            # td-b fan re-point (DECISION 1): the dragged decomposition drives
-            # the fan/spend-fan/events/depletion; the scalar pass moves INSIDE
-            # this helper as the DECISION 9 pre-tax counterfactual only.
+            # With a tax split, the dragged (after-tax) decomposition drives the
+            # fan / spend fan / events / depletion; the scalar pass runs inside
+            # this helper only as the pre-tax counterfactual.
             _split_cohort_step(
                 scenario, returns, tax_paths, cohort_trajectories, cohort_spends,
                 cohort_events, depletion_ages, pretax_terminals, dragged_terminals,
@@ -212,17 +158,17 @@ def _simulate_historical_glidepath(
 def _simulate_historical_buckets(
     scenario: Scenario, window_start_year: int | None = None
 ) -> HistoricalResult:
-    """3-bucket cohort replay over the D3 no-backfill common-overlap window.
+    """3-bucket cohort replay over the no-backfill common-overlap window.
 
-    bucket-strategy design: replay the plan over every historical cohort, sourcing
-    cash-first with the one-sided refill (``buckets.simulate_buckets_cohort``).
+    Replay the plan over every historical cohort, sourcing cash-first with the
+    one-sided refill (``engine.buckets.simulate_buckets_cohort``).
     Each bucket's per-year real return is its allocation's cohort blend — the SAME
     ``_cohort_blended_returns`` the single-balance path uses, applied per bucket
     over the union-series window. Aggregates to the portfolio fan + depletion
     (the shared ``_aggregate_cohorts``, so the fan can't drift) and attaches the
     buffer-survival readout (the per-cohort first-forced-growth-sale ages).
 
-    Spending is constant / lifecycle only (guardrails is fenced at the API), so the
+    Spending is constant / lifecycle only (the dynamic modes are fenced), so the
     cohort spends are identical across cohorts and the spending fan stays None —
     the bucket value is the buffer-survival metric, not a spend fan.
     """
@@ -277,14 +223,13 @@ def simulate_historical(
     that many years of returns (``end_age - start_age + 1``). Aggregates to the
     per-age **percentile fan** and depletion stats across cohorts.
 
-    Two paths, same math (asset-class design slice 3):
+    Two paths, same math:
 
     - **Legacy Shiller path** (``_is_legacy_shiller_only``): when the only mapped
-      classes are the Shiller pair, use the original ``ShillerData`` cohort path
-      verbatim — both series are 1871+, so the window policy is a no-op and the
-      default 2-class run stays byte-stable.
-    - **Multi-class path**: any slice-1 staged class in the mix routes here. It
-      applies the D3 window policy — selected = weight > ε, no-backfill common-
+      classes are the Shiller pair, use the ``ShillerData`` cohort path — both
+      series are 1871+, so the window policy is a no-op.
+    - **Multi-class path**: any non-Shiller class in the mix routes here. It
+      applies the window policy — selected = weight > ε, no-backfill common-
       overlap window, hide/renormalize unmapped — and replays cohorts over the
       restricted window, surfacing the earliest valid start (``testable_since``).
 
@@ -293,34 +238,31 @@ def simulate_historical(
     ``historical_series_by_id()`` and ignores ``data`` — injecting it will not
     reach the multi-class blend.
 
-    Glidepath (glidepath design): when ``allocation_mode == "glidepath"`` the blend
+    Glidepath: when ``allocation_mode == "glidepath"`` the blend
     weights vary by phase, so it ALWAYS routes through the dedicated glidepath path
     (``_simulate_historical_glidepath``) — which reads the year-keyed accessor and
-    blends per-phase. The year-keyed accessor is byte-identical to ``ShillerData``
+    blends per-phase. The year-keyed accessor returns exactly ``ShillerData``'s values
     for the Shiller pair, so a degenerate glide (every phase = the single
     allocation) reproduces the constant Historical result exactly.
 
-    Buckets (bucket-strategy design): when ``sourcing_mode == "buckets"`` the run
-    routes to the dedicated 3-bucket cohort path (``_simulate_historical_buckets``)
-    — the portfolio fan + depletion stats use the SAME aggregator, plus the new
-    buffer-survival readout. The bucket allocations supersede the single/glidepath
-    allocation (glidepath is ignored in buckets mode, per the design), so the bucket
-    branch is checked FIRST.
+    Buckets: when ``sourcing_mode == "buckets"`` the run routes to the dedicated
+    3-bucket cohort path (``_simulate_historical_buckets``) — the portfolio fan +
+    depletion stats use the SAME aggregator, plus the buffer-survival readout. The
+    bucket allocations supersede the single/glidepath allocation (glidepath is
+    ignored in buckets mode), so the bucket branch is checked FIRST.
 
     Comparison-window alignment (``window_start_year``): an optional COHORT
     START-YEAR FLOOR. When set, every path drops cohort starts earlier than it
     (``_apply_window_floor``) so an A/B comparison can score two scenarios on the
     SAME cohort set (the common = latest testable window). ``None`` (single,
-    non-comparison runs) keeps each scenario's native window — single-run behavior
-    is byte-for-byte unchanged. The floor only NARROWS (it can never expand a
-    window past the data), so the canary is untouched.
+    non-comparison runs) keeps each scenario's native window. The floor only
+    NARROWS (it can never expand a window past the data).
     """
     if scenario.sourcing_mode == SOURCING_MODE_BUCKETS:
-        # Tax-location split (tax-buckets design tb1) is SINGLE-mode only. If a split
-        # is ALSO supplied here it is intentionally NO-OP'd (the buckets path never
-        # decomposes by tax location — the 3×3 tax-location × cash/income/growth
-        # product is a deferred later card). Logged (not silently ignored) so the
-        # mode interaction is visible; the buckets internals are untouched.
+        # The tax-location split is SINGLE-mode only. If a split is ALSO supplied
+        # here it is intentionally ignored (the buckets path never decomposes by
+        # tax location). Logged (not silently ignored) so the mode interaction is
+        # visible.
         if has_tax_split(scenario):
             logging.getLogger(__name__).info(
                 "tax-location split supplied with sourcing_mode=buckets; "
@@ -350,12 +292,12 @@ def simulate_historical(
 
     # cohorts[c][k] = end-of-year portfolio for cohort c at age step k;
     # cohort_spends[c][k] = the spend WITHDRAWN at that age (feeds the spend fan);
-    # cohort_events[c] = that cohort's guardrail AdjustmentEvent log (slice 2).
+    # cohort_events[c] = that cohort's guardrail AdjustmentEvent log.
     cohort_trajectories: list[list[float]] = []
     cohort_spends: list[list[float]] = []
     cohort_events: list[list[AdjustmentEvent]] = []
     depletion_ages: list[int] = []
-    # Tax-location shadow decomposition (tax-buckets design tb1): collect one path
+    # Tax-location shadow decomposition: collect one path
     # per cohort when a split is supplied, then aggregate to the risk metric. No-op
     # (the list stays empty → tax_location_risk None → payload omits it) otherwise.
     split_on = has_tax_split(scenario)
@@ -364,18 +306,18 @@ def simulate_historical(
     dragged_terminals: list[float] = []
     pretax_success: list[bool] = []
     dragged_success: list[bool] = []
-    # td-b MC/Historical timing-gate perf: precompute the per-age
-    # (penalty_free, n_65_plus, pension_ss_ordinary) table ONCE per scenario
-    # (none of the three depend on the cohort's return path) instead of every
-    # cohort recomputing it fresh — see tax_location.year_tax_context_table.
+    # Precompute the per-age (penalty_free, n_65_plus, pension_ss_ordinary)
+    # table ONCE per scenario (none of the three depend on the cohort's return
+    # path) instead of every cohort recomputing it — see
+    # tax.location_path.year_tax_context_table.
     year_context = year_tax_context_table(scenario) if split_on else None
     for start_year in start_years:
         period = data.returns_for_period(start_year, n_steps)
         returns = _cohort_blended_returns(weights, period)
         if split_on:
-            # td-b fan re-point (DECISION 1): the dragged decomposition drives
-            # the fan/spend-fan/events/depletion; the scalar pass moves INSIDE
-            # this helper as the DECISION 9 pre-tax counterfactual only.
+            # With a tax split, the dragged (after-tax) decomposition drives the
+            # fan / spend fan / events / depletion; the scalar pass runs inside
+            # this helper only as the pre-tax counterfactual.
             _split_cohort_step(
                 scenario, returns, tax_paths, cohort_trajectories, cohort_spends,
                 cohort_events, depletion_ages, pretax_terminals, dragged_terminals,
@@ -414,13 +356,13 @@ def simulate_historical(
 def _simulate_historical_multiclass(
     scenario: Scenario, window_start_year: int | None = None
 ) -> HistoricalResult:
-    """Multi-class cohort replay over the D3 no-backfill common-overlap window.
+    """Multi-class cohort replay over the no-backfill common-overlap window.
 
-    The slice-3 path (taken whenever a slice-1 staged class is in the mix). Steps:
+    Taken whenever a non-Shiller class is in the mix. Steps:
 
     1. **Hide / renormalize** unmapped classes: ``renormalized_weights`` over
-       ``HIST_SERIES_REGISTRY`` drops any class with no loaded series (the five
-       not-yet-loaded) and renormalizes the rest to sum to 1.
+       ``HIST_SERIES_REGISTRY`` drops any class with no loaded series and
+       renormalizes the rest to sum to 1.
     2. **Selected = weight > ε** (``selected_series_for``): only series whose
        summed raw weight clears the epsilon constrain the window — a 0%-weight
        mapped class does not.
@@ -452,18 +394,18 @@ def _simulate_historical_multiclass(
     dragged_terminals: list[float] = []
     pretax_success: list[bool] = []
     dragged_success: list[bool] = []
-    # td-b MC/Historical timing-gate perf: precompute the per-age
-    # (penalty_free, n_65_plus, pension_ss_ordinary) table ONCE per scenario
-    # (none of the three depend on the cohort's return path) instead of every
-    # cohort recomputing it fresh — see tax_location.year_tax_context_table.
+    # Precompute the per-age (penalty_free, n_65_plus, pension_ss_ordinary)
+    # table ONCE per scenario (none of the three depend on the cohort's return
+    # path) instead of every cohort recomputing it — see
+    # tax.location_path.year_tax_context_table.
     year_context = year_tax_context_table(scenario) if split_on else None
     for start_year in start_years:
         period = _period_from_series(series_data, selected_series, start_year, n_steps)
         returns = _cohort_blended_returns(weights, period)
         if split_on:
-            # td-b fan re-point (DECISION 1): the dragged decomposition drives
-            # the fan/spend-fan/events/depletion; the scalar pass moves INSIDE
-            # this helper as the DECISION 9 pre-tax counterfactual only.
+            # With a tax split, the dragged (after-tax) decomposition drives the
+            # fan / spend fan / events / depletion; the scalar pass runs inside
+            # this helper only as the pre-tax counterfactual.
             _split_cohort_step(
                 scenario, returns, tax_paths, cohort_trajectories, cohort_spends,
                 cohort_events, depletion_ages, pretax_terminals, dragged_terminals,

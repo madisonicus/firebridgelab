@@ -1,4 +1,10 @@
-"""spending.funded_ratio (split from the flat layout)."""
+"""Shared carried-state spine for the funded-ratio spending rules.
+
+``FundedRatioStrategyBase`` tracks the smoothed portfolio, the crash drop, the
+prior tier/spend and the funded ratio (smoothed portfolio / NPV of the GI-netted
+gap stream, from ``spending.npv``). The ``fr_smooth``, ``fr_guardrail`` and
+``fr_tiers`` rules in ``spending.rules`` subclass it and implement ``_decide``.
+"""
 
 from __future__ import annotations
 
@@ -7,21 +13,18 @@ from firebridgelab.spending.base import SpendingStrategy
 
 
 class FundedRatioStrategyBase(SpendingStrategy):
-    """Carried-state SPINE for the funded-ratio spending strategies (FR feature
-    slice 1, FR foundation). NOT a user-facing strategy on its own — the concrete
-    variants (slices 2-4) subclass this and implement ``_decide``.
+    """Carried-state SPINE for the funded-ratio spending strategies. NOT a
+    user-facing strategy on its own — the concrete variants subclass this and
+    implement ``_decide``.
 
-    The archived legacy framework centralized the FR plumbing in a
-    ``PolicyContext`` the runner assembled each year. The current engine has a
-    leaner seam: a strategy is built ONCE per run (cohort / trial / the single
-    deterministic path) and ``spend_for_year(scenario, age, begin_year_portfolio,
-    gi)`` is called once per year IN ORDER, so a strategy can carry the same state
-    itself across the per-year calls. This base maintains everything the archived
-    ``PolicyContext`` provided centrally:
+    A strategy is built ONCE per run (cohort / trial / the single deterministic
+    path) and ``spend_for_year(scenario, age, begin_year_portfolio, gi)`` is
+    called once per year IN ORDER, so the strategy carries its own state across
+    the per-year calls. This base maintains:
 
       - **3-year smoothed portfolio** — the mean of the last ≤3
-        ``begin_year_portfolio`` values (first year = the current value), matching
-        the archived ``simulation.py`` smoothing ``sum(history[-3:]) / n``.
+        ``begin_year_portfolio`` values (first year = the current value),
+        ``sum(history[-3:]) / n``.
       - **previous begin-of-year portfolio** — for the crash YoY drop fraction
         ``(prev - cur) / prev`` (``None`` on the first call → no crash signal,
         exposed as ``crash_drop = 0.0`` / ``prev_portfolio = None``).
@@ -31,8 +34,8 @@ class FundedRatioStrategyBase(SpendingStrategy):
         (``None`` on the first call).
       - **npv_gaps_by_age** + ``funded_ratio(age)`` — the NPV table is built ONCE
         in ``__init__`` from the scenario + the subclass-supplied
-        ``npv_target_real``; ``funded_ratio(age) = smoothed / npv[age]`` with the
-        archived's safe handling (npv ≤ 0 → a large sentinel ``_FR_SENTINEL``,
+        ``npv_target_real``; ``funded_ratio(age) = smoothed / npv[age]`` with
+        safe handling (npv ≤ 0 → a large sentinel ``_FR_SENTINEL``,
         i.e. GI covers everything → the portfolio is infinite-ratio safe).
 
     ``is_solvable = False`` — like ``GuardrailStrategy``, an FR strategy is
@@ -45,12 +48,12 @@ class FundedRatioStrategyBase(SpendingStrategy):
     The NPV target differs by variant — this is the load-bearing FR invariant,
     so ``npv_target_real`` is a CONSTRUCTOR PARAMETER each variant supplies:
 
-      - ``fr-xmastree``  → the MAX go-go tier amount ($160k legacy). Discount the
+      - ``fr_tiers``  → the MAX go-go tier amount ($160k). Discount the
         MAX tier, NOT the floor: the FR then reads "what fraction of MAX can the
         portfolio sustain forever", so the ladder starts conservative. Passing the
         floor here is the classic bug (initial FR > 1 → the policy launches at
         FULL/MAX and burns the portfolio).
-      - ``fr-smooth`` / ``fr-guardrail`` → ``scenario.annual_spending`` (the
+      - ``fr_smooth`` / ``fr_guardrail`` → ``scenario.annual_spending`` (the
         baseline desired / go-go-peak spend), so FR = 1 means "the portfolio
         exactly funds the baseline".
 
@@ -58,11 +61,8 @@ class FundedRatioStrategyBase(SpendingStrategy):
     (and an optional state/tier name). The base's ``spend_for_year`` updates ALL
     the carried state, computes ``fr``, delegates the spend decision to
     ``_decide``, then records the returned ``(spend, state_name)`` as this year's
-    ``prev_spend`` / ``prev_state`` for the next call.
-
-    Slice-1 deliberately registers NO ``SPENDING_MODE_*`` and adds NO
-    ``make_strategy`` branch — the spine is internal until the concrete variants
-    land. The included trivial-echo unit test exercises the carried state directly.
+    ``prev_spend`` / ``prev_state`` for the next call. The base registers no
+    ``spending_mode`` of its own.
     """
 
     is_solvable: bool = False
@@ -72,17 +72,17 @@ class FundedRatioStrategyBase(SpendingStrategy):
     collects_spends: bool = True
 
     # Smoothing window (years of begin-of-year portfolio averaged into the
-    # FR numerator), matching the archived simulation.py ``history[-3:]`` window.
+    # FR numerator).
     _SMOOTH_WINDOW: int = 3
     # FR sentinel when the NPV denominator is ≤ 0 (GI covers the target at every
-    # remaining age → the portfolio is infinite-ratio safe). Matches the archived
+    # remaining age → the portfolio is infinite-ratio safe). Matches the legacy
     # TierLadderPolicy ``_funded_ratio`` sentinel.
     _FR_SENTINEL: float = 999.0
 
     def __init__(self, scenario: Scenario, npv_target_real: float) -> None:
-        # Imported lazily to avoid a module import cycle: firebridgelab.finance imports
-        # from this engine layer, so importing it at module top would risk a
-        # cycle. The loader is cheap and runs once per strategy construction.
+        # Imported lazily to avoid a module import cycle: spending.npv imports
+        # the engine/income layers, so importing it at module top would risk a
+        # cycle. The import is cheap and runs once per strategy construction.
         from firebridgelab.spending.npv import compute_npv_gaps_by_age
 
         self.npv_target_real = float(npv_target_real)
@@ -106,7 +106,7 @@ class FundedRatioStrategyBase(SpendingStrategy):
 
         Returns the large sentinel ``_FR_SENTINEL`` when the NPV is ≤ 0 (GI covers
         the target at every remaining age → infinite-ratio safe), matching the
-        archived ``TierLadderPolicy._funded_ratio``. An age outside the precomputed
+        legacy ``TierLadderPolicy._funded_ratio``. An age outside the precomputed
         table falls back to a denominator of 1.0 (defensive — callers only ever ask
         for in-horizon ages).
         """
@@ -125,7 +125,7 @@ class FundedRatioStrategyBase(SpendingStrategy):
     ) -> tuple[float, str | None]:
         """Turn this year's funded-ratio context into ``(spend, state_name)``.
 
-        The hook the concrete FR variants (slices 2-4) implement. By the time it
+        The hook the concrete FR variants implement. By the time it
         runs the base has already updated the carried state for THIS year, so the
         implementation can read ``self.smoothed``, ``self.crash_drop``,
         ``self.prev_portfolio``, ``self.prev_state`` (the prior year's tier — not
@@ -136,7 +136,7 @@ class FundedRatioStrategyBase(SpendingStrategy):
         for variants without a tier vocabulary).
 
         The base does NOT implement a spend policy — a concrete subclass must
-        override this. The slice-1 spine ships only the carried-state machinery.
+        override this.
         """
         raise NotImplementedError(
             "FundedRatioStrategyBase._decide must be overridden by a concrete "

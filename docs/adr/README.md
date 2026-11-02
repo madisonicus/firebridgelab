@@ -14,4 +14,7 @@ trade-off. Read these before "fixing" something that looks odd — it may be del
 | [0007](0007-spending-mode-registry.md) | Spending-mode API properties live in one registry |
 | [0008](0008-ss-claim-age-ui-derivation.md) | Social Security claim-age slider: the UI/API derives the benefit; the engine stays amount-driven |
 
+File paths in the ADRs follow the package layout in [docs/library.md](../library.md#package-layout);
+the old flat module paths still import through compatibility shims.
+
 New ADRs: increment the highest number; one decision per file; a paragraph is enough.

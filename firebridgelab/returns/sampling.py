@@ -1,4 +1,13 @@
-"""returns.sampling (split from the flat layout)."""
+"""Monte Carlo return sampling: correlated per-class draws and their blends.
+
+``_sample_class_returns`` is the single shared sampler: per-class Normal (or
+multivariate Student-t) real returns, correlated through a Cholesky factor of
+the nearest-PSD correlation matrix. ``_blended_trial_returns``,
+``_glidepath_blended_trial_returns`` and ``_bucket_trial_returns`` reduce the
+draws to per-trial portfolio returns for constant, glidepath and bucket
+allocations. ``rebalanced_compound_return`` gives the Deterministic engine the
+long-run compound return of the same moments.
+"""
 
 from __future__ import annotations
 
@@ -20,23 +29,23 @@ MIN_SIMPLE_RETURN = -0.99
 
 # Valid correlation range. Exactly +/-1 is positive-SEMIdefinite (rank-deficient)
 # so np.linalg.cholesky raises; clamp to [-CORRELATION_LIMIT, +CORRELATION_LIMIT]
-# and 422 outside it at the API (Decision: correlation guard).
+# and 422 outside it at the API.
 CORRELATION_LIMIT = 0.99
 
-# Eigenvalue floor for the nearest-PSD projection (asset-class design D6 / round-2):
-# a PINNED 1e-8 floor. After clipping negative eigenvalues to this floor and
-# renormalizing to unit diagonal, the matrix is strictly positive-definite, so
-# np.linalg.cholesky always succeeds. For an already-valid matrix (e.g. any valid
-# 2x2) the projection is a no-op within fp noise. The value is pinned (not a
-# parameter) so the projection is reproducible across runs.
+# Eigenvalue floor for the nearest-PSD projection: a PINNED 1e-8 floor. After
+# clipping negative eigenvalues to this floor and renormalizing to unit diagonal,
+# the matrix is strictly positive-definite, so np.linalg.cholesky always succeeds.
+# For an already-valid matrix (e.g. any valid 2x2) the projection is a no-op within
+# fp noise. The value is pinned (not a parameter) so the projection is reproducible
+# across runs.
 EIGENVALUE_FLOOR = 1e-8
 
 
 def _nearest_psd(matrix: np.ndarray) -> np.ndarray:
     """Project a symmetric matrix to the nearest positive-(semi)definite one.
 
-    The acceptance gate every correlation matrix passes before Cholesky
-    (asset-class design D6): symmetrize, eigendecompose, clip eigenvalues to the
+    The acceptance gate every correlation matrix passes before Cholesky:
+    symmetrize, eigendecompose, clip eigenvalues to the
     pinned ``EIGENVALUE_FLOOR`` (1e-8), reassemble, then renormalize to unit
     diagonal so it's a valid *correlation* matrix again. The result is strictly
     positive-definite (eigenvalues >= 1e-8), so ``np.linalg.cholesky`` always
@@ -65,24 +74,24 @@ def _assemble_correlation_matrix(
 ) -> np.ndarray:
     """Assemble the N x N correlation matrix for the mapped classes (pre-PSD).
 
-    Three paths (asset-class design, round-2 fix N1 + slice 2 D6):
+    Three paths:
       - ``n <= 2``: the scalar ``scenario.correlation`` fast-path — 1.0 on the
         diagonal, the scalar on the single off-diagonal pair. The ONLY place the
         scalar is used. This is exactly the 2x2 equity-bond case (or a trivial
-        1x1 identity for a single mapped class). UNCHANGED by slice 2.
+        1x1 identity for a single mapped class).
       - ``n > 2`` with an explicit ``scenario.correlations``: validate and use it.
         The scalar is NEVER broadcast onto a >2 matrix (a uniform off-diagonal is
         a silent wrong default).
-      - ``n > 2`` with NO explicit matrix (slice 2): fall back to the
-        per-pair/max-overlap **estimated default** matrix over the mapped
-        ``series_ids`` (in allocation order) — ``correlation.estimate_correlation_matrix``.
-        This replaces slice 0's placeholder raise. ``series_ids`` MUST be supplied
+      - ``n > 2`` with NO explicit matrix: fall back to the per-pair/max-overlap
+        **estimated default** matrix over the mapped ``series_ids`` (in allocation
+        order), via ``returns.correlation.estimate_with_gate``. ``series_ids`` MUST
+        be supplied
         for this branch (the estimator needs to know which series, in which
         order); the sampler always passes them.
 
     The explicit matrix is validated for shape (n x n) and structure (symmetric,
     unit diagonal within tolerance, |cell| <= 1) and a malformed one raises
-    ``ValueError`` (the API routes it to 422 — slice-2 carry-forward). The
+    ``ValueError`` (the API routes it to 422). The
     assembled matrix is the INPUT to the nearest-PSD projection — it need not be
     PSD here (the per-pair estimate especially need not be).
     """
@@ -91,7 +100,7 @@ def _assemble_correlation_matrix(
         np.fill_diagonal(matrix, 1.0)
         return matrix
 
-    # n > 2 with no explicit matrix: the estimated default (slice 2 D6). The
+    # n > 2 with no explicit matrix: the estimated default. The
     # scalar is still NEVER broadcast onto a >2 matrix.
     if scenario.correlations is None:
         if series_ids is None:
@@ -100,10 +109,10 @@ def _assemble_correlation_matrix(
                 "needs the mapped series ids to estimate the default matrix"
             )
         # Lazy import to avoid a module-level cycle (correlation imports back into
-        # monte_carlo for _nearest_psd / FROBENIUS gate).
+        # this module for _nearest_psd).
         from firebridgelab.returns.correlation import estimate_with_gate
 
-        # estimate_with_gate runs the D6 Frobenius-distance acceptance gate on the
+        # estimate_with_gate runs the Frobenius-distance acceptance gate on the
         # LIVE path: it asserts the raw per-pair estimate is within
         # FROBENIUS_TOLERANCE of its nearest-PSD projection, raising loudly past it
         # (→ 422 at the API) so a large silent correction surfaces here in
@@ -116,19 +125,16 @@ def _assemble_correlation_matrix(
 
     # n > 2 with an explicit matrix: validate structure, then use it.
     #
-    # SLICE-4 ALIGNMENT HAZARD: ``n`` here is the count of the MAPPED series (the
-    # subset of the allocation that binds to a known series, in allocation order).
-    # The explicit ``scenario.correlations`` matrix is supplied by the USER in full
-    # ALLOCATION order (one row/col per allocation entry). In slice 2 every loaded
-    # class maps, so mapped == allocation and the two orders coincide — the shape
-    # check below passes. But slice 4 wires currently-UNMAPPED classes
-    # (intl/EM/TIPS/gold/commodities) into a UI that emits an allocation-order
-    # matrix; an allocation with any unmapped class makes the user's matrix LARGER
-    # than the mapped subset, so it MUST be reindexed to the mapped subset (drop the
-    # unmapped rows/cols, preserving mapped order) BEFORE these shape/structure
-    # checks — otherwise the wrong cells align to the wrong series. In slice 2 this
-    # fails SAFE (an oversized matrix mismatches (n, n) → ValueError → 422), so this
-    # is a forward-looking note, not a bug today.
+    # ALIGNMENT HAZARD: ``n`` here is the count of the MAPPED series (the subset
+    # of the allocation that binds to a known series, in allocation order). The
+    # explicit ``scenario.correlations`` matrix is supplied by the USER in full
+    # ALLOCATION order (one row/col per allocation entry). When every class maps,
+    # the two orders coincide and the shape check below passes. An allocation with
+    # an unmapped class makes the user's matrix LARGER than the mapped subset; it
+    # is not reindexed here, so it fails SAFE (an oversized matrix mismatches
+    # (n, n) → ValueError → 422). Accepting it would mean reindexing to the mapped
+    # subset (drop the unmapped rows/cols, preserving mapped order) BEFORE these
+    # checks — otherwise the wrong cells would align to the wrong series.
     matrix = np.array(scenario.correlations, dtype=float)
     if matrix.shape != (n, n):
         raise ValueError(
@@ -150,9 +156,8 @@ def rebalanced_compound_return(scenario: Scenario) -> float:
 
     The Deterministic engine compounds ONE constant return. A plain weighted
     average of class compound returns ignores the rebalancing (diversification)
-    return an annually-rebalanced mix earns, so it sat ~0.4%/yr below the Monte
-    Carlo median for a 60/40 (review 2026-10-11). Using the SAME moments the MC
-    sampler draws from:
+    return an annually-rebalanced mix earns (~0.4%/yr below the Monte Carlo
+    median for a 60/40). Using the SAME moments the MC sampler draws from:
 
         arith_p = sum_i w_i * (g_i + vol_i**2 / 2)
         var_p   = w' S w            (S = vol_i vol_j corr_ij, same corr matrix as MC)
@@ -209,8 +214,7 @@ def _sample_class_returns(
     to a known series — the API routes that to a 422.
     """
     # MC is parametric, so it maps over the WIDER MC registry (Shiller +
-    # class_series), letting the slice-1 classes sample (slice 2). Historical's
-    # narrower SERIES_REGISTRY mapping is unchanged.
+    # class_series), letting every staged class sample.
     mapped = mapped_series_for(scenario, MC_SERIES_REGISTRY)
     if not mapped:
         raise ValueError(
@@ -224,13 +228,13 @@ def _sample_class_returns(
     classes = [scenario.allocation[i] for i in indices]
 
     vols = np.array([ac.volatility for ac in classes], dtype=float)
-    # Compound knob -> arithmetic mean: the variance-drag uplift (Decision #2).
+    # Compound knob -> arithmetic mean: the variance-drag uplift.
     means = np.array(
         [ac.real_return + ac.volatility**2 / 2.0 for ac in classes], dtype=float
     )
 
     # Assemble (scalar fast-path for N<=2; explicit matrix or the per-pair
-    # estimated default for N>2 — slice 2), then project to the nearest PSD matrix
+    # estimated default for N>2), then project to the nearest PSD matrix
     # BEFORE Cholesky (a no-op for a valid 2x2 or an already-PSD estimate).
     raw_matrix = _assemble_correlation_matrix(scenario, len(series_ids), series_ids)
     matrix = _nearest_psd(raw_matrix)
@@ -278,7 +282,7 @@ def _blended_trial_returns(
     series_ids, _mapped, returns = _sample_class_returns(
         scenario, n_trials, n_years, seed
     )
-    # Wider MC registry (matches _sample_class_returns) so the slice-1 classes'
+    # Wider MC registry (matches _sample_class_returns) so the staged classes'
     # weights are kept and renormalized over the same mapped set.
     weights = renormalized_weights(scenario, MC_SERIES_REGISTRY)  # {series_id: weight}, sums to 1
     # returns[:, :, k] is the k-th mapped series; weight it and sum across series.
@@ -294,8 +298,8 @@ def _glidepath_union_allocation(scenario: Scenario) -> tuple:
     UNION of classes any phase uses, deduped by class id (first occurrence wins —
     a class id carries one vol, so a later phase reusing it samples the same
     series). For a degenerate glide (every phase == the single allocation) the
-    union is exactly that single allocation in its original order, so the draws —
-    and thus the MC canary — are byte-identical to the constant path.
+    union is exactly that single allocation in its original order, so the draws
+    are bit-identical to the constant path.
     """
     from firebridgelab.engine.allocation import glidepath_boundaries
     from firebridgelab.engine.validation import validate_glidepath_class_consistency
@@ -322,13 +326,13 @@ def _glidepath_blended_trial_returns(
 ) -> np.ndarray:
     """Per-trial blended real-return sequences under glidepath (phase weights).
 
-    Glidepath design "Engine hook": MC honors the glide by sampling the union of
+    MC honors the glide by sampling the union of
     phase classes ONCE (so the correlated draws are shared across phases) and then
     blending each YEAR with the renormalized per-series weights of the phase in
     force that year (the same per-phase weights Historical uses, via
     ``glidepath_phase_weights``). Shape ``(n_trials, n_years)``.
 
-    Reduces to ``_blended_trial_returns`` byte-for-byte when every phase equals
+    Reduces to ``_blended_trial_returns`` bit-for-bit when every phase equals
     the single allocation: the union is that single allocation (identical draws),
     and every phase's weights are identical, so the per-year blend equals the
     constant ``returns @ w``.
@@ -365,8 +369,8 @@ def _glidepath_blended_trial_returns(
     # the IDENTICAL reduction the constant path uses (``returns @ w``), just over
     # a year-slice. Doing it per-run (not per-year via einsum) keeps the float
     # summation order bit-for-bit identical to the constant blend, so a degenerate
-    # glide (one effective weight across all years) reproduces the MC canary
-    # byte-for-byte. Phases are contiguous by construction, so a single left-to-
+    # glide (one effective weight across all years) reproduces the constant
+    # path bit-for-bit. Phases are contiguous by construction, so a single left-to-
     # right pass covers every year exactly once.
     blended = np.empty((returns.shape[0], n_years), dtype=float)
     step = 0

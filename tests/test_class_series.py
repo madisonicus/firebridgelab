@@ -1,9 +1,9 @@
 """Tests for the slice-1 asset-class data layer (asset-class design, slice 1).
 
 These pin the data-layer pipeline for the NEW asset classes — the staged annual
-REAL return series (firebridgelab.class_series), the class-menu seeding with the
-geometric-mean real return + stdev (firebridgelab.scenario.CLASS_MENU), and the series
-registration (firebridgelab.historical.SERIES_FOR_CLASS / SERIES_REGISTRY_NEW).
+REAL return series (firebridgelab.returns.class_series), the class-menu seeding with the
+geometric-mean real return + stdev (firebridgelab.engine.allocation.CLASS_MENU), and the series
+registration (firebridgelab.returns.series.SERIES_FOR_CLASS / SERIES_REGISTRY_NEW).
 
 The real correctness gate (design slice-1 "Gate") is the **closed-form
 self-check**: each series' geometric mean must reproduce its realized cumulative

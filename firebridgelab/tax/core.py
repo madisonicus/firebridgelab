@@ -1,47 +1,29 @@
-"""Pure federal-tax primitives — the LEAF module (tax-drag design, DECISION 4's
-module-layering fix).
+"""Pure federal-tax primitives: one year's income -> federal tax.
 
-Why this module exists (the import-cycle this untangles): the dragged
-decomposition in ``firebridgelab.tax_location`` needs the FULL tax computation (not
-just the RMD factor it already used pre-drag) to resolve its per-year fixed
-point — but ``firebridgelab.federal_tax`` has always imported ``firebridgelab.tax_location``
-(for ``PRE_595_MAX_AGE`` / ``TaxLocationPath`` / ``resolve_split``). Letting
-``tax_location`` import back from ``federal_tax`` would be a cycle. So the pure
-primitives that both modules need move here, to a LEAF with no engine
-dependencies of its own:
+Constants come from ``tax/data/federal_2026.toml`` via ``tax.params`` (IRS
+Rev. Proc. 2025-32, the 2026 inflation adjustments; IRC sections cited per
+table in the data file). Two filing statuses: married filing jointly, and
+single from the survivor year on.
 
-    federal_tax_core   (this module — imports nothing from the other two)
-        ^                       ^
-        |                       |
-    tax_location.py        federal_tax.py
-    (imports the leaf       (imports the leaf AND tax_location; re-exports
-     for its fixed point)    every name this module defines, unchanged, so
-                             every existing ``from firebridgelab.federal_tax import
-                             X`` — API and test alike — keeps working)
+Public entry points:
 
-Two public entry points:
+  - ``compute_federal_tax(ordinary_income, ltcg_income, n_65_plus=0, single=False)``
+    — pure year-income -> ``FederalTaxYear`` (ordinary tax / LTCG tax / NIIT /
+    total); ``federal_tax_total`` is its allocation-free hot-path twin. The
+    IRS-anchor tests in ``tests/test_federal_tax.py`` pin it.
+  - ``standard_deduction`` and ``n_65_plus_at_age`` — the deduction and the
+    age-keyed 65+ count the ``tax.location`` fixed point and the ``tax.overlay``
+    pass both need. The RMD helpers live in ``tax.rmd``.
 
-  - ``compute_federal_tax(ordinary_income, ltcg_income, n_65_plus=0)`` — pure
-    year-income -> ``FederalTaxYear`` (ordinary tax / LTCG tax / NIIT / total).
-    UNCHANGED from the federal-tax overlay design (ft1) — moved verbatim, not
-    rewritten; the five IRS-anchor tests in ``tests/test_federal_tax.py`` pin
-    it and must not move.
-  - ``n_65_plus_at_age(age)`` / the RMD helpers (``RMD_START_AGE``,
-    ``rmd_factor``) — the small age-keyed lookups both ``tax_location``'s
-    fixed point and ``federal_tax``'s (now much thinner) overlay pass need.
-
-2026 MFJ constants (VERIFIED against IRS Rev. Proc. 2025-32 — the 2026 annual
-inflation adjustments) are FROZEN in REAL dollars per ADR 0004: the brackets,
-standard deduction, and LTCG breakpoints are CPI-indexed IN LAW, but this
-engine runs entirely in real (today's) dollars, so holding them constant in
-real terms is the coherent choice. Two exceptions are frozen NOMINAL in law
-and held fixed-real here too (documented simplifications, disclosed in the
-ft1/td1 design notes): the 85%-flat SS inclusion rule and the NIIT $250k MAGI
-threshold.
+The brackets, standard deduction and LTCG breakpoints are CPI-indexed in law, but
+this engine runs entirely in real (today's) dollars, so they are held fixed in
+real terms (docs/adr/0004). Two values are fixed-nominal in law and held
+fixed-real here too, a documented simplification: the NIIT MAGI threshold and
+the 85% Social Security inclusion.
 
 The 0% LTCG bracket is load-bearing (the most-likely-wrong spot in the PURE
 tax layer): LTCG tax is STACKED on top of ordinary taxable income through the
-real 0/15/20 brackets, never flat-rated — see ``_stacked_ltcg_tax``.
+0/15/20 breakpoints, never flat-rated — see ``_stacked_ltcg_tax``.
 """
 
 from __future__ import annotations
@@ -101,9 +83,8 @@ def n_65_plus_at_age(age: int) -> int:
 
     2 once ``age >= 65`` (both members of the couple get the extra per-person
     standard deduction simultaneously — the documented same-age approximation),
-    else 0. Factored out so ``tax_location``'s fixed point and ``federal_tax``'s
-    overlay pass compute this identically (previously duplicated as a bare
-    ``2 if age >= 65 else 0`` inline in ``federal_tax.compute_tax_overlay``).
+    else 0. Shared so the ``tax.location`` fixed point and the ``tax.overlay``
+    pass compute this identically.
     """
     return _N_65_PLUS_AT_65 if age >= 65 else 0
 
@@ -121,10 +102,9 @@ def _marginal_tax(taxable: float, brackets: tuple[tuple[float, float], ...]) -> 
     for upper, rate in brackets:
         if taxable <= lower:
             break
-        # perf: inline conditional instead of ``min(taxable, upper)`` —
-        # byte-identical value (CPython ``min(a, b)`` returns ``b`` only when
-        # ``b < a``), no builtin-call overhead; this line runs ~10M times in a
-        # split-MC 10k run.
+        # perf: inline conditional instead of ``min(taxable, upper)`` — the same
+        # value (CPython ``min(a, b)`` returns ``b`` only when ``b < a``), no
+        # builtin-call overhead; this line runs ~10M times in a split-MC 10k run.
         segment = (upper if upper < taxable else taxable) - lower
         tax += segment * rate
         lower = upper
@@ -155,8 +135,8 @@ def _stacked_ltcg_tax(
     for upper, rate in breakpoints:
         if band_end <= lower:
             break
-        # perf: inline conditionals instead of ``max``/``min`` builtins —
-        # byte-identical values, no call overhead (see ``_marginal_tax``).
+        # perf: inline conditionals instead of ``max``/``min`` builtins — the
+        # same values, no call overhead (see ``_marginal_tax``).
         seg_lower = band_start if band_start > lower else lower
         seg_upper = band_end if band_end < upper else upper
         if seg_upper > seg_lower:
@@ -170,7 +150,7 @@ class FederalTaxYear:
     """One year's federal tax, decomposed by source.
 
     ``total`` = ``ordinary_tax + ltcg_tax + niit``. Does NOT include the 10%
-    early-withdrawal penalty — callers (``firebridgelab.tax_location``'s fixed point)
+    early-withdrawal penalty — callers (the ``tax.location`` fixed point)
     apply that on top of ``total``, once the walled-year tax-deferred draw
     amount is known; ``compute_federal_tax`` is a pure year-income -> tax
     function with no notion of "forced" or "walled."
@@ -185,24 +165,25 @@ class FederalTaxYear:
 def compute_federal_tax(
     ordinary_income: float, ltcg_income: float, n_65_plus: int = 0, single: bool = False
 ) -> FederalTaxYear:
-    """Federal tax (MFJ, 2026 constants) on one year's ordinary + LTCG income.
+    """Federal tax (2026 constants; MFJ, or single when ``single``) on one year's
+    ordinary + LTCG income.
 
-    Pure, closed-form, no firebridgelab/scenario dependency — a plain year-income ->
-    tax function so it is independently unit-testable against hand-computed /
-    external-reference scenario-years, AND so ``tax_location``'s per-year fixed
+    Pure, closed-form, no scenario dependency — a plain year-income -> tax
+    function so it is independently unit-testable against hand-computed /
+    external-reference scenario-years, AND so the ``tax.location`` per-year fixed
     point can call it repeatedly (up to 100 times/year) with negligible cost.
 
-    - ``deduction`` = ``STANDARD_DEDUCTION_MFJ + ADDITIONAL_DEDUCTION_65_PLUS *
-      n_65_plus``.
+    - ``deduction`` = ``standard_deduction(n_65_plus, single)`` (base plus the
+      per-person 65+ addition).
     - ``taxable_ordinary`` = ``max(0, ordinary_income - deduction)``; any
       LEFTOVER deduction (when ordinary income doesn't use it all) reduces
       taxable LTCG: ``taxable_ltcg = max(0, ltcg_income - max(0, deduction -
       ordinary_income))``.
-    - Ordinary tax: marginal MFJ brackets on ``taxable_ordinary``.
+    - Ordinary tax: marginal brackets on ``taxable_ordinary``.
     - LTCG tax: STACKED on top of ``taxable_ordinary`` through the 0/15/20
       breakpoints (``_stacked_ltcg_tax``) — never flat-rated.
-    - NIIT: 3.8% x ``min(ltcg_income, max(0, MAGI - $250k))``, MAGI ~=
-      ``ordinary_income + ltcg_income`` (pre-deduction, per the design's
+    - NIIT: 3.8% x ``min(ltcg_income, max(0, MAGI - threshold))`` ($250k MFJ),
+      MAGI ~= ``ordinary_income + ltcg_income`` (pre-deduction, an
       approximation).
     """
     ordinary_tax, ltcg_tax, niit, total = _tax_components(
@@ -217,12 +198,12 @@ def federal_tax_total(
     ordinary_income: float, ltcg_income: float, n_65_plus: int = 0, single: bool = False
 ) -> float:
     """``compute_federal_tax(...).total`` without the ``FederalTaxYear``
-    allocation — the hot-path variant for ``tax_location``'s per-year
+    allocation — the hot-path variant for the ``tax.location`` per-year
     fixed point, which calls this ~3.5M times in a split-MC 10k run and reads
-    ONLY the total (the frozen-dataclass construction was pure overhead
+    ONLY the total (the frozen-dataclass construction would be pure overhead
     there: four ``object.__setattr__`` calls per iterate).
 
-    Byte-identical to ``compute_federal_tax(...).total`` by construction —
+    Identical to ``compute_federal_tax(...).total`` by construction —
     both are thin wrappers over the SAME ``_tax_components`` arithmetic (a
     single source; the two cannot drift), pinned by a test in
     ``tests/test_federal_tax.py``.
@@ -236,11 +217,10 @@ def _tax_components(
     """The shared arithmetic behind ``compute_federal_tax`` /
     ``federal_tax_total``: ``(ordinary_tax, ltcg_tax, niit, total)``.
 
-    Extracted verbatim from ``compute_federal_tax`` so the hot-path
-    total and the dataclass-returning entry point share ONE implementation.
-    The ``max``/``min`` builtins became inline conditionals — byte-identical
-    values (CPython ``max(0.0, x)`` returns ``x`` only when ``x > 0.0``),
-    no builtin-call overhead at ~3.5M calls per split-MC 10k run.
+    One implementation so the hot-path total and the dataclass-returning entry
+    point cannot drift. Inline conditionals stand in for the ``max``/``min``
+    builtins — the same values (CPython ``max(0.0, x)`` returns ``x`` only when
+    ``x > 0.0``), no builtin-call overhead at ~3.5M calls per split-MC 10k run.
     """
     if single:
         brackets = _ORDINARY_BRACKETS_SINGLE

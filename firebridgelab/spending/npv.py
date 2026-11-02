@@ -1,23 +1,15 @@
-"""Pure financial math helpers used across the engine.
+"""NPV of future spending gaps — the funded-ratio denominator.
 
-So far: NPV of future spending gaps. Strategies that need a "funded ratio"
-(portfolio / NPV-of-gaps) compute the denominator once at construction time
-using ``compute_npv_gaps_by_age``, then look up the value per year.
+The funded-ratio spending strategies discount a per-year *gap* between a real
+target spend and the year's guaranteed income, then divide a smoothed portfolio
+by that NPV; they compute the table once at construction with
+``compute_npv_gaps_by_age`` and look up the value per year. The amortization
+frontier bisects on the single-age form, ``npv_gaps_at_age``.
 
-Kept separate from ``firebridgelab.income`` concerns and the withdrawal mechanics: this
-module is pure-math — no I/O, no mutation, no dataclass state. It is the FR
-foundation (funded-ratio feature slice 1): the funded-ratio spending strategies
-(slices 2-4) discount a per-year *gap* between a real target spend and the
-year's guaranteed income, then divide a smoothed portfolio by that NPV.
-
-Ported from the archived ``firebridgelab/finance.py`` (the legacy v6 oracle), adapted to
-the CURRENT ``Scenario``/GI model: the GI summation reuses
-``firebridgelab.scenario.gi_at_age`` so the NPV's per-year GI can never drift from the
-engine's per-year GI (the same anti-drift discipline the guardrail's ``initial_gi``
-anchor follows). The single-age-axis convention (both people share one age
-timeline; every GI stream fires on ``age >= start_age``) is the same one the rest
-of the current engine uses — there is no separate spouse-age offset here, unlike
-the archived two-age version.
+Pure math — no I/O, no mutation, no dataclass state. The GI summation reuses
+``gi_at_age`` (``income.guaranteed``) so the NPV's per-year GI can never drift
+from the engine's per-year GI. Single age axis: both people share one age
+timeline and every GI stream fires on ``age >= start_age``.
 """
 
 from __future__ import annotations
@@ -41,17 +33,17 @@ def compute_npv_gaps_by_age(
 
     where ``GI(a)`` is the summed guaranteed income active at age ``a`` — the
     SAME four-stream sum the engines use per year (via
-    ``firebridgelab.scenario.gi_at_age``), so the NPV denominator can't drift from the
+    ``income.guaranteed.gi_at_age``), so the NPV denominator can't drift from the
     engine's per-year GI.
 
     Args:
         scenario: the run's Scenario (supplies the horizon + the four GI streams).
         target_real: the per-year real spending level whose gap above GI is
             discounted. This is the FR *numerator-equivalent* target — its choice
-            is load-bearing (the ``fr-xmastree`` variant discounts the MAX go-go
-            tier amount, NOT the floor; ``fr-smooth`` / ``fr-guardrail`` discount
+            is load-bearing (the ``fr_tiers`` variant discounts the MAX go-go
+            tier amount, NOT the floor; ``fr_smooth`` / ``fr_guardrail`` discount
             ``scenario.annual_spending``). See ``FundedRatioStrategyBase``.
-        discount_rate: real discount rate (default 0.01, the legacy 1%).
+        discount_rate: real discount rate (default 0.01).
 
     Returns:
         ``dict[int, float]`` mapping ``age -> NPV`` at that age, keys covering

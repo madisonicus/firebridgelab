@@ -1,6 +1,6 @@
 // ss_claim.js — Social Security claim-age actuarial adjustment (pure helper).
 //
-// A FAITHFUL JS MIRROR of firebridgelab/ss_claim.py. The Python helper is the source of
+// A FAITHFUL JS MIRROR of firebridgelab/income/social_security.py. The Python helper is the source of
 // truth; this module reproduces its per-MONTH formula EXACTLY so the web UI can
 // show a live "effective benefit" readout as the claim-age slider moves WITHOUT a
 // server round-trip, and so the front-end derivation never drifts from the API's.
@@ -12,7 +12,7 @@
 //     effectiveSsAmount = fraAmount * ssFactor(claimAge)
 //
 // EXACT SSA rules (per-MONTH formula, NOT a per-age lookup table, so it
-// generalizes to any FRA — see firebridgelab/ss_claim.py docstring + 20 CFR §404.410 /
+// generalizes to any FRA — see firebridgelab/income/social_security.py docstring + 20 CFR §404.410 /
 // §404.313):
 //   - Early (claim before FRA): 5/9 of 1% per month for the first 36 months
 //     before FRA, then 5/12 of 1% per month beyond 36.

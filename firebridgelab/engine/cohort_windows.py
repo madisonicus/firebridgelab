@@ -1,4 +1,23 @@
-"""engine.cohort_windows (split from the flat layout)."""
+"""Historical cohort windows: which start years are replayable, and their returns.
+
+Builds each cohort's per-year blended real-return array for the constant,
+glidepath and bucket paths, shared by ``engine.historical`` and the solver
+(``cohort_return_sequences``). The window policy for multi-class mixes:
+
+  - **Selected = weight > ε** (``HISTORICAL_SELECTION_EPSILON``). A 0%-weight
+    (but mapped) class does NOT constrain the window — otherwise a preset that
+    lists many classes at 0% would collapse every window to the shortest history.
+  - **No-backfill common-overlap window.** Valid cohort starts are exactly the
+    years Y where EVERY selected series has data for the FULL horizon
+    (Y .. Y+horizon-1). A short-history class (e.g. ``us_reit``) restricts the
+    cohorts honestly; missing pre-inception years are never backfilled.
+  - **Hide / renormalize.** A class with NO loaded series is hidden and the
+    remaining weights renormalized; a loaded-but-short class is NOT hidden — it
+    constrains the window instead.
+
+Series are aligned by integer year label (the calendar-phase convention in
+``engine.historical``).
+"""
 
 from __future__ import annotations
 
@@ -41,7 +60,7 @@ def _apply_window_floor(
 ) -> list[int]:
     """Restrict valid cohort starts to those at or after ``window_start_year``.
 
-    The comparison-window alignment hook (option 3): when two scenarios with
+    The comparison-window alignment hook: when two scenarios with
     DIFFERENT native testable windows are compared, the web layer passes the
     COMMON (latest) floor = ``max(testable_since_A, testable_since_B)`` to BOTH so
     the head-to-head scores them on the SAME cohort set (otherwise a buckets
@@ -133,8 +152,8 @@ def _period_from_series(
     The multi-class analogue of ``ShillerData.returns_for_period``: for each
     series id, slices years ``start_year .. start_year+n_steps-1`` out of the
     year-keyed map into a parallel array. Aligns all series by their shared
-    integer year label (the calendar-phase convention documented in the module
-    docstring). Assumes the window is valid for every series (the caller built
+    integer year label (the calendar-phase convention documented in
+    ``engine.historical``). Assumes the window is valid for every series (the caller built
     ``start_year`` from ``common_overlap_start_years``, so every cell exists).
     """
     period: dict[str, np.ndarray] = {}
@@ -149,13 +168,11 @@ def _period_from_series(
 def _is_legacy_shiller_only(scenario: Scenario) -> bool:
     """True iff the mapped allocation is exactly the two Shiller series.
 
-    The byte-stability gate (asset-class design hard constraint): when the only
-    mapped+selected classes resolve to the Shiller pair (``us_equity`` /
-    ``us_bonds``), the window policy is a no-op (both 1871+), and we run the
-    EXISTING Shiller cohort path verbatim so the default 2-class Historical run
-    stays byte-stable (same ~113 cohorts, same fan, same 4%-rule). Any class that
-    maps to a NON-Shiller series (a slice-1 staged class) routes to the
-    multi-class path instead. A 0%-weight non-Shiller class still counts as
+    The legacy-path gate: when the only mapped+selected classes resolve to the
+    Shiller pair (``us_equity`` / ``us_bonds``), the window policy is a no-op
+    (both 1871+), and we run the ``ShillerData`` cohort path so the default
+    2-class Historical run is unchanged. Any class that maps to a NON-Shiller
+    series routes to the multi-class path instead. A 0%-weight non-Shiller class still counts as
     mapped here, but it is dropped by ``selected_series_for`` in the multi-class
     path, so the window stays correct either way; we route on *mapped* (not
     selected) so even a 0%-weight new class takes the multi-class accessor (whose
@@ -192,7 +209,7 @@ def _glidepath_window(
 ) -> tuple[list[str], list[int], dict[str, dict[int, float]]]:
     """Series union + common-overlap window for a glidepath scenario (Historical).
 
-    Glidepath generalizes the D3 window policy across phases: the cohort window
+    Glidepath generalizes the window policy across phases: the cohort window
     must cover EVERY series ANY phase selects, so the selected-series set is the
     UNION of each phase's selected series (a series only one phase uses still
     needs full-horizon data wherever that phase fires). Computes the no-backfill
@@ -326,12 +343,12 @@ def cohort_return_sequences(
 
     The single source of cohort construction shared by ``simulate_historical``
     and the solver's lean depletion-only loop, so the two can't drift in which
-    cohorts they run or how returns blend. Dispatches on the SAME byte-stability
+    cohorts they run or how returns blend. Dispatches on the SAME legacy-path
     gate (``_is_legacy_shiller_only``):
 
     - Legacy Shiller path: ``ShillerData.all_starting_years`` +
       ``returns_for_period`` (window policy is a no-op for the 1871+ pair).
-    - Multi-class path: the D3 window policy (selected = weight > ε, no-backfill
+    - Multi-class path: the window policy (selected = weight > ε, no-backfill
       common-overlap window, hide/renormalize) over the year-keyed accessor.
 
     Returns ``(start_years, cohort_returns)`` where ``start_years[c]`` is cohort
@@ -345,7 +362,7 @@ def cohort_return_sequences(
     """
     n_steps = scenario.end_age - scenario.start_age + 1
 
-    # Glidepath (glidepath design): phase-varying weights, so always take the
+    # Glidepath: phase-varying weights, so always take the
     # glidepath window + per-phase blend (mirrors simulate_historical's routing,
     # so the solver runs the SAME cohorts/returns the display path does).
     if scenario.allocation_mode == ALLOCATION_MODE_GLIDEPATH:
@@ -389,9 +406,9 @@ def cohort_return_sequences(
 def _multiclass_window(
     scenario: Scenario,
 ) -> tuple[dict[str, float], list[str], list[int], dict[str, dict[int, float]]]:
-    """Resolve the multi-class blend weights + D3 common-overlap window.
+    """Resolve the multi-class blend weights + the common-overlap window.
 
-    Shared by ``_simulate_historical_multiclass`` and ``cohort_return_sequences``.
+    Shared by ``engine.historical._simulate_historical_multiclass`` and ``cohort_return_sequences``.
     Returns ``(weights, selected_series, start_years, series_data)``:
 
     - ``weights``: ``{series_id: renormalized_weight}`` over the SELECTED series.

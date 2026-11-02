@@ -20,9 +20,10 @@ return mode — the pieces all three modes (and the solver) run in common:
 A *return mode* (deterministic / historical / monte_carlo) decides HOW the
 per-year returns are drawn; this module owns WHAT happens once you have them.
 
-Dependencies point DOWNWARD only — this module imports from ``firebridgelab.scenario``,
-``firebridgelab._step``, and ``firebridgelab.spending``. ``historical.py``, ``monte_carlo.py``,
-and ``solver.py`` import FROM here, never the reverse, so there is no cycle.
+Dependencies point DOWNWARD only — this module imports from ``engine.scenario``,
+``engine.step``, ``income`` and ``spending``. ``engine.historical``,
+``engine.monte_carlo``, ``engine.cohort_aggregate`` and ``analysis.solver`` import
+FROM here, never the reverse, so there is no cycle.
 """
 
 from __future__ import annotations
@@ -51,7 +52,7 @@ _SPEND_EPSILON: float = 1.0
 
 @dataclass(frozen=True)
 class AdjustmentStats:
-    """Cost-of-flexibility readout, aggregated across all cohorts (slice 2).
+    """Cost-of-flexibility readout, aggregated across all cohorts.
 
     Guardrails + Historical only. Frames the *shape of flexibility*, not a
     pass/fail. All fractions are 0..1; ages are ints; dollars are real.
@@ -66,27 +67,23 @@ class AdjustmentStats:
         cohorts that cut at all; None if no cohort ever cut.
       - ``median_years_at_floor``  — median (across ALL cohorts) of the count of
         years a cohort spent AT the operational floor (``scenario.spending_floor``,
-        within ``_SPEND_EPSILON``). With the default $85k floor == $85k start
-        spend this is THE key squeeze stat — years pinned at the minimum (cuts
-        can't register below a floor that equals the start level).
+        within ``_SPEND_EPSILON``). When the floor equals the start spend this is
+        THE key squeeze stat — years pinned at the minimum (cuts can't register
+        below a floor that equals the start level).
       - ``deepest_cut``         — the DEEPEST CUT, defined as the p10 of each
         cohort's MINIMUM real spend across the horizon: a typical-bad-case floor
         on lifestyle (10% of cohorts get squeezed at least this hard). Chosen
         over the single worst-cohort minimum so one extreme sequence doesn't set
-        the headline (design: "pick one, document it").
+        the headline.
       - ``lowest_single_year_spend`` — the GLOBAL single-year minimum spend across
         ALL cohorts (the absolute lowest any cohort reached in any one year),
         reported alongside ``deepest_cut`` for context. NOTE: this is NOT the
         displayed ``worst_cohort``'s minimum — ``worst_cohort`` is selected by
         lowest TOTAL spend, so its own lowest year (``WorstCohort.min_spend``) is
-        usually higher than this global single-year floor. Named to make that
-        distinction unambiguous (the old name implied it belonged to the displayed
-        worst cohort, which read as a $15k self-contradiction in the UI).
+        usually higher than this global single-year floor.
       - ``pct_ever_forced_to_floor`` — fraction of cohorts that EVER got forced
-        down to the operational floor (``scenario.spending_floor``, default $85k).
-        With the default $85k floor at the start level this is the "% of histories
-        ever forced down to your floor" headline. (Confirmed safe: 0 of 113 cohorts
-        deplete holding a $85k floor.)
+        down to the operational floor (``scenario.spending_floor``, default $85k):
+        the "% of histories ever forced down to your floor" headline.
     """
 
     cohort_count: int
@@ -101,14 +98,14 @@ class AdjustmentStats:
 
 @dataclass(frozen=True)
 class WorstCohortYear:
-    """One year of the worst cohort's annotated spending path (slice 2).
+    """One year of the worst cohort's annotated spending path.
 
     The DISPLAY-ready form of an ``AdjustmentEvent`` for the drill-down narrative:
     the engine logic is rate-based, but every field here is in the dollars the user
     thinks in. ``label`` is the human action tag the UI renders verbatim, with
-    GI-driven raises distinguished from market-driven ones (design resolved
-    decision): a raise in a GI-step year is "raise — guaranteed income started",
-    a raise in a non-GI year is "raise — strong returns".
+    GI-driven raises distinguished from market-driven ones: a raise in a GI-step year is
+    "raise — guaranteed income started", a raise in a non-GI year is "raise — strong
+    returns".
     """
 
     age: int
@@ -122,7 +119,7 @@ class WorstCohortYear:
 
 @dataclass(frozen=True)
 class WorstCohort:
-    """The most-squeezed historical cohort, drilled (slice 2).
+    """The most-squeezed historical cohort, drilled.
 
     "Worst" = the cohort with the LOWEST TOTAL real spending over the full horizon
     (the most-squeezed retirement) — documented, with a deterministic tie-break to
@@ -144,9 +141,8 @@ class WorstCohort:
 
 @dataclass(frozen=True)
 class BufferSurvivalStats:
-    """The buffer-survival readout for the 3-bucket strategy (bucket-strategy design
-    "Output / what the user sees" — the thesis payoff, the analogue of guardrails'
-    ``adjustment_stats``).
+    """The buffer-survival readout for the 3-bucket strategy (the analogue of
+    guardrails' ``adjustment_stats``).
 
     A "forced growth sale" = a year where spending had to be sourced from the
     GROWTH bucket because a sustained drawdown exhausted the cash + income buffer
@@ -158,8 +154,8 @@ class BufferSurvivalStats:
         breached (a forced growth sale happened at any age). 0.0 = the buffer
         carried every history through; this is the headline.
       - ``median_years_buffer_lasted``       — the MEDIAN AGE of the FIRST forced
-        growth sale across the histories that had one (design: "median age of first
-        forced growth sale"); None when NO history ever forced a sale (the
+        growth sale across the histories that had one (despite the field name, an
+        age, not a count of years); None when NO history ever forced a sale (the
         "never" sentinel — the buffer always held).
       - ``worst_forced_sale_age``            — the EARLIEST age any history forced a
         growth sale (the worst case — the soonest the buffer broke); None when
@@ -224,16 +220,15 @@ def _simulate_cohort(
 ) -> tuple[list[float], int | None, list[float]]:
     """Run one cohort: the deterministic sim with a per-year return sequence.
 
-    Identical math to firebridgelab.simulate.simulate (midpoint withdrawal, four GI
+    Identical math to ``engine.deterministic.simulate`` (midpoint withdrawal, four GI
     streams, strategy-shaped spending, floor at zero) except ``r`` comes from
     ``returns[step]`` each year instead of a constant blend. ``returns`` has one
     entry per age-step (start_age .. end_age inclusive).
 
     Spending comes from a ``SpendingStrategy`` constructed ONCE per cohort, BEFORE
-    the year loop (variable-spending design). When ``strategy`` is None one is built
+    the year loop (ADR 0006). When ``strategy`` is None one is built
     from ``scenario.spending_mode`` (``make_strategy``): constant/lifecycle resolve
-    to the byte-stable wrapper over ``spending_for_age`` (so the cohort math is
-    unchanged and the canary holds), guardrails to the stateful GK rule that reads
+    to a wrapper over ``spending_for_age``, guardrails to the stateful GK rule that reads
     the begin-of-year portfolio. Callers that re-run the same scenario across many
     cohorts (the solver / MC) pass None and let each call build its own (cheap,
     and correctly resets the guardrail's carried state per run).
@@ -256,30 +251,26 @@ def _simulate_cohort(
         gi = gi_at_age(scenario, age)
         # Spending from the strategy. The begin-of-year portfolio is ``portfolio``
         # at the TOP of this iteration (the prior year's ``end``, before this
-        # year's growth/withdrawal) — the denominator the guardrail rate uses, per
-        # the design. constant/lifecycle ignore it (byte-stable).
+        # year's growth/withdrawal) — the denominator the guardrail rate uses.
+        # constant/lifecycle ignore it.
         spending = strategy.spend_for_year(scenario, age, portfolio, gi)
-        # Cost-of-living real drift (stress-test design slice 4): a post-strategy
-        # multiplier on the funded spend, applied in BOTH loops for consistency.
-        # Default spending_real_drift 0.0 ⇒ (1+0)**k == 1.0 ⇒ byte-identical (the
-        # Historical + MC default-scenario canaries hold).
+        # Cost-of-living real drift: a post-strategy multiplier on the funded
+        # spend, applied in BOTH loops for consistency. Default
+        # spending_real_drift 0.0 makes it exactly 1.0.
         spending *= spending_multiplier(scenario, age)
         # Realized-spend cap: the strategy returns the INTENDED spend; a depleting
         # cohort year can only fund what the portfolio + GI cover. The RECORDED
         # spend (the ``spends`` list that feeds the fan + adjustment stats) is capped
         # at ``max_fundable_spend`` (non-depleting: intended <= max_fundable, no-op).
         # This is a REPORTING value only — the portfolio is STILL stepped with the
-        # INTENDED ``spending`` so ``end`` AND the depletion flag stay byte-identical
+        # INTENDED ``spending`` so ``end`` AND the depletion flag are unaffected
         # (the flag fires on end < 0; max_fundable lands exactly ON 0 and would NOT
         # flag, so it must not be the value stepped). The strategy keeps its own
         # intended base, so the guardrail nudge is unaffected.
         realized_spend = min(spending, max_fundable_spend(portfolio, r, gi))
-        # Midpoint convention via the shared engine step (same canonical form
-        # the deterministic engine uses). Slice 3: rewired off the
-        # ``portfolio * (1.0 + r)`` expression onto the canonical
-        # ``portfolio + portfolio*r`` form — byte-identical against the
-        # Historical + MC default-scenario canaries on the live cohort grid. Stepped
-        # with the INTENDED spend to preserve the depletion flag (see above).
+        # Midpoint convention via the shared engine step (the canonical
+        # ``portfolio + portfolio*r`` form, ADR 0002). Stepped with the INTENDED
+        # spend to preserve the depletion flag (see above).
         already_depleted = depleted_age is not None
         end, depleted_this_year = step_year(portfolio, r, gi, spending)
         if depleted_this_year and depleted_age is None:
@@ -293,9 +284,8 @@ def _simulate_cohort(
         # ``realized_spend`` above already caps at ``max_fundable_spend(0, r, gi)``
         # = ``gi`` — the GI-funded level — so post-depletion spend semantics
         # are unchanged. ``depleted_age`` (FIRST crossing) is set before this
-        # override and never moves. Byte-identical for any path that never recovers
-        # post-depletion (end is already 0.0 then) — verified at defaults, so the
-        # Historical/MC canaries hold.
+        # override and never moves. No effect on a path that never recovers
+        # post-depletion (end is already 0.0 then).
         if already_depleted:
             end = 0.0
         end_portfolios.append(end)
@@ -315,7 +305,7 @@ def _compute_adjustment_stats(
     cohort_spends: list[list[float]],
     cohort_events: list[list[AdjustmentEvent]],
 ) -> AdjustmentStats:
-    """Aggregate the cost-of-flexibility stats across all cohorts (slice 2).
+    """Aggregate the cost-of-flexibility stats across all cohorts.
 
     Definitions are pinned in ``AdjustmentStats``. "Below the start level" /
     "above" are vs ``scenario.annual_spending`` (the guardrail's start spend);
@@ -325,10 +315,9 @@ def _compute_adjustment_stats(
     cohorts (NOT the displayed worst cohort's minimum — see ``AdjustmentStats``).
 
     Guard: an empty ``cohort_spends`` returns a zeroed stats object rather than
-    dividing by zero / calling ``min``/``np.percentile`` on an empty list. Today
-    this path is only reached behind a ``cohort_spends``-truthy gate, but slice 3's
-    short-window multi-class cohorts under guardrails could combine into a small (or
-    empty) cohort set — cheap insurance so that can never raise.
+    dividing by zero / calling ``min``/``np.percentile`` on an empty list (short-window
+    multi-class cohorts under guardrails could combine into a small or empty
+    cohort set).
     """
     n = len(cohort_spends)
     if n == 0:

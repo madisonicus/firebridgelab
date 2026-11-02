@@ -1,4 +1,11 @@
-"""engine.cohort_aggregate (split from the flat layout)."""
+"""Aggregate per-cohort Historical runs into a ``HistoricalResult``.
+
+Builds the per-age percentile fans (portfolio, and spend for strategies that
+collect spends), depletion stats, the cost-of-flexibility readout, the worst-cohort
+drill-downs, and, when a tax-location split is supplied, the split-mode per-cohort
+step (dragged decomposition plus pre-tax counterfactual) and its aggregates. Shared
+by every ``engine.historical`` path so the readouts can't drift between them.
+"""
 
 from __future__ import annotations
 
@@ -30,7 +37,7 @@ class HistoricalResult:
     is how many cohorts reached zero before ``end_age``; ``earliest_depletion_age``
     is the earliest age any cohort hit zero, or ``None`` if none did.
 
-    Build 2 adds the **percentile fan**: ``p10``/``p25``/``p75``/``p90`` are
+    The **percentile fan**: ``p10``/``p25``/``p75``/``p90`` are
     per-age percentiles of the end-of-year portfolio across cohorts (the median
     is the p50 already carried in ``median``), so at every age
     ``p10 <= p25 <= median <= p75 <= p90``. ``ending_range`` is the
@@ -50,10 +57,10 @@ class HistoricalResult:
     depletion_count: int
     earliest_depletion_age: int | None
 
-    # Spending fan (variable-spending design slice 1). Under constant/lifecycle
-    # spending is identical across every cohort, so there is no spending
-    # distribution to plot and these stay None (the payload omits the spending
-    # fan — back-compatible). Under ``guardrails`` spending VARIES across cohorts
+    # Spending fan. Under constant/lifecycle spending is identical across every
+    # cohort, so there is no spending distribution to plot and these stay None
+    # (the payload omits the spending fan). Under a dynamic strategy (e.g.
+    # ``guardrails``) spending VARIES across cohorts
     # (a bad sequence cuts, a good one raises), so these carry the per-age
     # percentile fan of the WITHDRAWN spend, mirroring the portfolio fan
     # field-for-field: ``spend_*[k]`` is the percentile spend at ``ages[k]``, so at
@@ -64,66 +71,63 @@ class HistoricalResult:
     spend_p75: list[float] | None = None
     spend_p90: list[float] | None = None
 
-    # Adjustment-event visibility (variable-spending design slice 2). Guardrails
-    # only — the cost-of-flexibility readout (``adjustment_stats``) and the
-    # worst-cohort drill-down (``worst_cohort``) are None under constant/lifecycle
-    # (no adjustments to surface). Both additive; the payload omits them otherwise.
+    # Adjustment-event visibility. Dynamic strategies only — the
+    # cost-of-flexibility readout (``adjustment_stats``) and the worst-cohort
+    # drill-down (``worst_cohort``) are None under constant/lifecycle (no
+    # adjustments to surface); the payload omits them then.
     adjustment_stats: "AdjustmentStats | None" = None
     worst_cohort: "WorstCohort | None" = None
 
-    # Buffer-survival stats (bucket-strategy design "Output"). Buckets sourcing only
-    # — the thesis payoff metric: how often a sustained drawdown exhausted the
-    # cash + income buffer and FORCED a growth sale at a loss, across all cohorts.
-    # None under single sourcing (the payload omits them). Additive defaulted field.
+    # Buffer-survival stats. Buckets sourcing only — how often a sustained
+    # drawdown exhausted the cash + income buffer and FORCED a growth sale at a
+    # loss, across all cohorts. None under single sourcing (the payload omits them).
     buffer_survival: "BufferSurvivalStats | None" = None
 
-    # Worst-cohort 3-bucket balance series (bucket-strategy design — the
-    # bucket-balance visualization for Historical mode). Buckets sourcing only: the
+    # Worst-cohort 3-bucket balance series (the bucket-balance visualization for
+    # Historical mode). Buckets sourcing only: the
     # per-year cash/income/growth balances of the worst cohort (earliest forced
     # growth sale; see ``WorstBucketCohort``), so the UI can draw "cash drains
     # through the crash while growth rides". None under single sourcing (and under
-    # buckets if there were no cohorts). Additive defaulted field.
+    # buckets if there were no cohorts).
     worst_bucket_cohort: "WorstBucketCohort | None" = None
 
-    # Tax-location risk (tax-buckets design tb1). The headline frequency metric:
+    # Tax-location risk. The headline frequency metric:
     # across cohorts, how often does the freely-reachable money run dry before 59½.
     # Populated ONLY when a tax-location split is supplied AND sourcing is single
     # (the shadow decomposition ran); None otherwise, so the payload omits the
-    # tax_location_risk block (back-compatible). Held as the firebridgelab.tax_location
-    # ``TaxLocationRisk`` aggregate. Additive defaulted field.
+    # tax_location_risk block. Held as the ``tax.location_risk.TaxLocationRisk``
+    # aggregate.
     tax_location_risk: "object | None" = None
 
-    # Federal tax (federal-tax overlay design ft1; dragged under TAX_DRAG td1).
-    # The Historical twin of the deterministic per-age series: median annual
+    # Federal tax overlay. The Historical twin of the deterministic per-age series: median annual
     # tax, gross-outflow and forced/voluntary medians across cohorts, plus the
     # median-of-path-scalars readout
     # (avg annual tax / effective rate / worst tax year). Populated under the
     # SAME gate as ``tax_location_risk`` (split supplied + single sourcing) —
-    # the overlay rides tb1's shadow decomposition, so it can only exist where
-    # that decomposition ran. None otherwise (payload omits the block).
-    # Additive defaulted field; held as the firebridgelab.federal_tax
-    # ``FederalTaxOverlayAggregate``.
+    # the overlay rides the shadow decomposition, so it can only exist where
+    # that decomposition ran. None otherwise (payload omits the block). Held as
+    # the ``tax.overlay.FederalTaxOverlayAggregate``.
     federal_tax: "object | None" = None
 
-    # Estate cost of taxes (tax-drag design td1, DECISION 9). Populated under the
+    # Estate cost of taxes. Populated under the
     # SAME gate as ``tax_location_risk`` / ``federal_tax``: per cohort, the
     # INDEPENDENT pre-tax counterfactual's terminal balance minus the dragged
     # decomposition's terminal balance ("how much smaller the estate ends
     # because the portfolio paid the IRS"), aggregated as the MEDIAN of
     # per-cohort differences (never a difference of medians) and paired with
     # the dragged-vs-pretax success-rate delta — see
-    # ``firebridgelab.tax_location.EstateCostOfTaxes``'s docstring for why the pairing
+    # ``tax.location_risk.EstateCostOfTaxes``'s docstring for why the pairing
     # matters (a $0 median cost when both worlds deplete would otherwise read
-    # as "taxes are free"). None otherwise (payload omits the block). Additive
-    # defaulted field; held as the firebridgelab.tax_location ``EstateCostOfTaxes``.
+    # as "taxes are free"). None otherwise (payload omits the block). Held as
+    # the ``tax.location_risk.EstateCostOfTaxes``.
     estate_cost: "object | None" = None
 
     @property
     def testable_since(self) -> int:
-        """Earliest valid cohort start year — the "testable since YYYY" label (D3).
+        """Earliest valid cohort start year — the "testable since YYYY" label.
 
         Identical to ``start_year`` (the earliest cohort start used); exposed
-        under the brief's name so the API payload / UI can read the policy label
+        under this name so the API payload / UI can read the policy label
         without coupling to the internal field name. For the default 2-class
         portfolio (equity + bonds, both 1871+) this is 1871; a short-history
         class in the mix (e.g. ``us_reit`` 1972+) pushes it later.
@@ -133,16 +137,14 @@ class HistoricalResult:
 
 @dataclass(frozen=True)
 class WorstBucketCohort:
-    """The worst-case cohort's per-year 3-bucket balances (bucket-strategy design
-    "Output / what the user sees" — the bucket-balance visualization).
+    """The worst-case cohort's per-year 3-bucket balances (the bucket-balance
+    visualization).
 
-    bucket-strategy design: "render the **worst cohort's** bucket dynamics (reuse
-    the worst-cohort selection the guardrails feature already does) so the 'cash
-    drains through the crash while growth rides' behaviour is visible — this is
-    where the protection shows." We reuse the buffer-survival signal already
-    tracked per cohort: the worst cohort is the one whose buffer broke EARLIEST
-    (the smallest first-forced-growth-sale age — the same metric the
-    ``worst_forced_sale_age`` headline reports), with a deterministic tie-break to
+    Shows the worst cohort's bucket dynamics so the "cash drains through the
+    crash while growth rides" behaviour is visible. The worst cohort is the one
+    whose buffer broke EARLIEST (the smallest first-forced-growth-sale age — the
+    same metric the ``worst_forced_sale_age`` headline reports), with a
+    deterministic tie-break to
     the lowest terminal portfolio then the earliest start year. When NO cohort ever
     forced a growth sale (full defeasance — the buffer always held), we fall back to
     the lowest-terminal cohort so the chart always has a worst case to show (and the
@@ -174,19 +176,16 @@ def _decompose_cohort(
 ) -> TaxLocationPath:
     """Run the tax-location dragged decomposition for ONE cohort.
 
-    td-b: ``strategy`` is now built by the CALLER (a fresh instance per cohort,
-    same discipline the non-split scalar loop already used) rather than
-    internally — so the caller can read the strategy's ``events`` log AFTER the
-    run (``_events_of``) the same way it already does for the non-split path.
-    This is what lets the Historical/MC fan re-point (DECISION 1: for split
-    scenarios the portfolio fan ITSELF becomes the dragged total) collect the
-    dragged-consistent adjustment-event log without a second, possibly-drifting
-    strategy instance. The SAME ``returns`` array the (now pre-tax-counterfactual)
-    scalar cohort uses is passed in, so the two runs see the identical per-year
-    market path — only their spending strategies' REACTIONS can differ (DECISION
-    2: the dragged strategy reads the dragged, taxed balance). ``year_context``
-    is the OPTIONAL precomputed ``tax_location.year_tax_context_table`` (td-b
-    MC-timing-gate performance) — see that function's docstring.
+    ``strategy`` is built by the CALLER (a fresh instance per cohort) so the
+    caller can read the strategy's ``events`` log AFTER the run (``_events_of``),
+    as for the non-split path: for split scenarios the portfolio fan ITSELF is
+    the dragged total, and this collects the dragged-consistent adjustment-event
+    log without a second, possibly-drifting strategy instance. The SAME
+    ``returns`` array the pre-tax-counterfactual scalar cohort uses is passed in,
+    so the two runs see the identical per-year market path — only their spending
+    strategies' REACTIONS can differ (the dragged strategy reads the dragged,
+    taxed balance). ``year_context`` is the OPTIONAL precomputed
+    ``tax.location_path.year_tax_context_table`` — see that function's docstring.
     """
     return simulate_path_decomposition(
         scenario, returns, strategy, year_context=year_context
@@ -207,35 +206,33 @@ def _split_cohort_step(
     dragged_success: list[bool],
     year_context: dict | None = None,
 ) -> None:
-    """One cohort's FULL split-mode step (td-b): the fan re-point + the
-    DECISION 9 estate-cost pairing, in one place so the three Historical
-    split call sites (legacy Shiller, multi-class, glidepath) can't drift.
+    """One cohort's FULL split-mode step: the dragged fan contribution + the
+    estate-cost pairing, in one place so the three Historical split call sites
+    (legacy Shiller, multi-class, glidepath) can't drift.
 
     Appends to every one of the ten collector lists (mutation, mirroring the
     existing per-cohort loop shape at each call site so this drops into their
     ``if split_on:`` body unchanged). Runs TWO INDEPENDENT per-cohort sims over
-    the SAME ``returns`` sequence — "each is the honest run of its own world"
-    (DECISION 9):
+    the SAME ``returns`` sequence — each is the honest run of its own world:
 
       1. The DRAGGED decomposition (``_decompose_cohort``, a fresh strategy
          reading the dragged, TAXED balance) — becomes this cohort's
          contribution to the portfolio fan / spend fan / adjustment-event log
-         / depletion count (DECISION 1: the portfolio fan ITSELF is the
-         dragged total for split scenarios). ``tax_paths`` also feeds
-         ``aggregate_tax_location_risk`` / ``aggregate_tax_overlay`` downstream
-         (unchanged from td-a).
+         / depletion count (the portfolio fan ITSELF is the dragged total for
+         split scenarios). ``tax_paths`` also feeds
+         ``aggregate_tax_location_risk`` / ``aggregate_tax_overlay`` downstream.
       2. The INDEPENDENT pre-tax counterfactual (``_simulate_cohort``, a
          SEPARATE fresh strategy reading the UNTAXED balance) — feeds ONLY the
          estate-cost pairing (``aggregate_estate_cost``), never the fan. This
          is deliberately NOT the same-spend ``TaxLocationPath.pretax_total``
-         td-a recorded (that series is paired against the DRAGGED run's OWN
-         spend decisions, kept for the drag-direction BINDS invariant) — a
+         (that series is paired against the DRAGGED run's OWN spend decisions,
+         kept for the drag-direction invariant) — a
          dynamic strategy's two independent runs can legitimately spend, and
          therefore deplete, at different times.
 
     ``year_context`` is the OPTIONAL precomputed per-age
-    ``(penalty_free, n_65_plus, pension_ss_ordinary)`` table (td-b performance
-    — see ``tax_location.year_tax_context_table``): the caller builds it ONCE
+    ``(penalty_free, n_65_plus, pension_ss_ordinary)`` table (see
+    ``tax.location_path.year_tax_context_table``): the caller builds it ONCE
     per scenario (outside the cohort loop) and passes it to every cohort, since
     none of the three values depend on the cohort's return path.
     """
@@ -299,10 +296,7 @@ def _select_worst_bucket_cohort(
 ) -> "WorstBucketCohort | None":
     """Pick the worst cohort + extract its 3-bucket balance series (the drill-down).
 
-    bucket-strategy design: render the WORST cohort's bucket dynamics, reusing the
-    worst-cohort selection the guardrails feature uses — and "if buffer-survival
-    already tracks a worst/earliest-forced-sale cohort, use that". So "worst" =
-    the cohort whose buffer broke EARLIEST (smallest first-forced-growth-sale age —
+    "Worst" = the cohort whose buffer broke EARLIEST (smallest first-forced-growth-sale age —
     the same signal ``worst_forced_sale_age`` reports), with a deterministic
     tie-break: lower terminal portfolio, then earlier start year. When NO cohort
     ever forced a sale (full defeasance), fall back to the LOWEST-terminal cohort so
@@ -344,16 +338,16 @@ def _select_worst_bucket_cohort(
 def _events_of(strategy: SpendingStrategy) -> list[AdjustmentEvent]:
     """The strategy's adjustment-event log, or [] for a non-guardrail strategy.
 
-    Only ``GuardrailStrategy`` records events (slice 2); the byte-stable
-    ``PureAgeStrategy`` wrapper for constant/lifecycle has none, so this returns
-    an empty list there. Keeps the cohort loops uniform — they always collect a
+    Strategies that adjust spending (e.g. ``GuardrailStrategy``) record events;
+    the pure-age wrapper for constant/lifecycle has none, so this returns an
+    empty list there. Keeps the cohort loops uniform — they always collect a
     list, and ``_aggregate_cohorts`` simply finds it empty under constant/lifecycle.
     """
     return list(getattr(strategy, "events", []))
 
 
 def _gi_step_label(action: str, gi_driven: bool) -> str:
-    """Human action tag for a worst-cohort year (design: label GI-driven raises).
+    """Human action tag for a worst-cohort year (GI-driven raises labeled as such).
 
     A raise in a year where GI stepped up is GI-driven (the portfolio-funded rate
     dropped because a pension / SS stream landed) — NOT market outperformance, so
@@ -373,7 +367,7 @@ def _compute_worst_cohort(
     cohort_events: list[list[AdjustmentEvent]],
     depletion_ages_by_index: dict[int, int],
 ) -> WorstCohort:
-    """Pick + drill the most-squeezed cohort (LOWEST TOTAL real spend; slice 2).
+    """Pick + drill the most-squeezed cohort (LOWEST TOTAL real spend).
 
     Selection key = the cohort's summed real spend over the horizon (the
     most-squeezed retirement). Deterministic tie-break: the EARLIEST start year
@@ -432,14 +426,14 @@ def _aggregate_cohorts(
     portfolio at age step k; ``depletion_ages`` is the per-cohort first-depletion
     ages (only for cohorts that depleted).
 
-    ``cohort_spends`` (variable-spending design slice 1) is the parallel per-cohort
-    WITHDRAWN-spend matrix. The spending fan is built ONLY for ``guardrails`` mode
-    (where spending varies across cohorts); under constant/lifecycle spending is
-    identical across cohorts, so a fan would be a flat degenerate band — we leave
-    the spend fields None and the payload omits the spending fan (back-compatible).
+    ``cohort_spends`` is the parallel per-cohort WITHDRAWN-spend matrix. The
+    spending fan is built ONLY for strategies that collect spends
+    (``collects_spends``; spending varies across cohorts); under constant/lifecycle
+    spending is identical across cohorts, so a fan would be a flat degenerate band
+    — we leave the spend fields None and the payload omits the spending fan.
 
-    ``cohort_events`` (slice 2) is the parallel per-cohort AdjustmentEvent log.
-    Under guardrails it drives the aggregate ``adjustment_stats`` + the
+    ``cohort_events`` is the parallel per-cohort AdjustmentEvent log.
+    For those strategies it drives the aggregate ``adjustment_stats`` + the
     ``worst_cohort`` drill-down; under constant/lifecycle it's empty and both
     stay None (the payload omits them).
     """
@@ -450,7 +444,7 @@ def _aggregate_cohorts(
     ages = list(range(scenario.start_age, scenario.end_age + 1))
     ending_range = (p10[-1], p90[-1])
 
-    # Spending fan — guardrails only (design). Same percentile machinery as the
+    # Spending fan — collecting strategies only. Same percentile machinery as the
     # portfolio fan, over the (cohorts, n_steps) spend matrix, so the two fans are
     # built identically and stay monotone (spend_p10 <= ... <= spend_p90 per age).
     spend_fan: dict[str, list[float] | None] = {
@@ -462,11 +456,9 @@ def _aggregate_cohorts(
     }
     adjustment_stats: AdjustmentStats | None = None
     worst_cohort: WorstCohort | None = None
-    # Strategy-level predicate (replaces the old ``spending_mode == guardrails``
-    # gate): collect the spend fan + adjustment stats for any collecting strategy
-    # (guardrails today, the funded-ratio variants when they land). Same value
-    # today — only GuardrailStrategy collects among reachable modes — so byte-
-    # stable. ``make_strategy`` is cheap (no per-cohort cost); built once here.
+    # Strategy-level predicate: collect the spend fan + adjustment stats for any
+    # strategy whose ``collects_spends`` is set. ``make_strategy`` is cheap (no
+    # per-cohort cost); built once here.
     if make_strategy(scenario).collects_spends and cohort_spends:
         spend_matrix = np.array(cohort_spends, dtype=float)  # (cohorts, n_steps)
         s_pctiles = np.percentile(spend_matrix, PERCENTILES, axis=0)  # (5, n_steps)
@@ -479,7 +471,7 @@ def _aggregate_cohorts(
             "spend_p90": s_p90,
         }
 
-        # Adjustment-event visibility (slice 2). Per-cohort depletion-age map for
+        # Adjustment-event visibility. Per-cohort depletion-age map for
         # the worst-cohort drill-down: the first age step whose end-of-year balance
         # is 0 → its age (start_age + k). Recovered from the trajectory matrix so
         # the loops don't need to thread per-index depletion separately.

@@ -1,11 +1,11 @@
 // test_ss_claim_parity.mjs — anti-drift guard for web/ss_claim.js (SS claim-age
 // slider, slice 2 — the web seam).
 //
-// web/ss_claim.js is a hand-written JS MIRROR of firebridgelab/ss_claim.py: it powers the
+// web/ss_claim.js is a hand-written JS MIRROR of firebridgelab/income/social_security.py: it powers the
 // live "effective benefit" readout under the claim-age slider WITHOUT a server
 // round-trip, so it MUST reproduce the Python helper's per-month factor exactly.
 // These tests pin SsClaim.ssFactor() for every age 62..70 against the known SSA
-// factor table for FRA 67 — the table in firebridgelab/ss_claim.py's docstring and SSA's
+// factor table for FRA 67 — the table in firebridgelab/income/social_security.py's docstring and SSA's
 // published factors (62 → 0.70, 67 → 1.00, 70 → 1.24).
 // If the JS formula ever drifts from the regulation (or someone hardcodes a wrong
 // table), this fails. The 62/63/64/67/68/69/70 values are exact; 65/66 are the
@@ -42,7 +42,7 @@ const EPS = 1e-9;
 // The known SSA factor table for FRA 67. 62/63/64 exercise the first-36-months
 // (5/9 of 1%/mo) tier; 65/66 cross into / sit within it as repeating decimals
 // (closed forms, not rounded literals); 67 is FRA; 68/69/70 are the +8%/yr delayed
-// credits. These match firebridgelab/ss_claim.py and the reference table verbatim.
+// credits. These match firebridgelab/income/social_security.py and the reference table verbatim.
 const EXPECTED = {
   62: 0.70, // 60 months early: 36*(5/9%) + 24*(5/12%) = 0.20 + 0.10 = 0.30 cut
   63: 0.75, // 48 months early: 0.20 + 12*(5/12%) = 0.20 + 0.05 = 0.25 cut

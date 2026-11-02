@@ -1,20 +1,18 @@
-"""Social Security claim-age actuarial adjustment (pure helper).
+"""Social Security income: the claim-age actuarial adjustment and the yearly sum.
 
-Computes the SSA actuarial factor by which a Social Security benefit is
-reduced (claiming before Full Retirement Age) or increased (delaying past
-FRA), so a caller can DERIVE the effective benefit from the FRA ("primary
-insurance amount", PIA) benefit and a chosen claim age:
+``ss_factor`` is the SSA actuarial factor by which a benefit is reduced (claiming
+before Full Retirement Age) or increased (delaying past FRA), so a caller derives
+the effective benefit from the FRA benefit (the PIA) and a chosen claim age:
 
     effective_benefit = fra_benefit * ss_factor(claim_age)
 
-This fixes an amount-driven footgun: the engine pays a fixed dollar amount
-from a start age and does NOT actuarially adjust for claim age, so moving a
-start age earlier without lowering the amount silently overstates an early
-claim. The API computes the adjustment HERE and feeds the engine the already-
-adjusted effective amount; the engine stays amount-driven and unchanged.
+The engine pays a fixed dollar amount from a start age and does NOT adjust for
+claim age, so the API computes the adjustment here and feeds the engine the
+already-adjusted effective amount. ``ss_income_at_age`` sums the two streams for
+a year, applying the survivor rule.
 
-EXACT SSA rules (no per-age lookup table — the per-MONTH formula is the
-source of truth so it generalizes to any FRA):
+SSA rules, as a per-MONTH formula (no per-age lookup table), so it generalizes
+to any FRA:
 
 - Early retirement (claim before FRA) — reduction (20 CFR §404.410):
     * 5/9 of 1% per month for the first 36 months before FRA, PLUS
@@ -32,9 +30,6 @@ References: 20 CFR §404.410 (reduction for early retirement), 20 CFR §404.313
 (delayed retirement credits), SSA Handbook §724 (delayed retirement credit
 rates). The factor table this reproduces for FRA 67 matches SSA's published
 factors (62 → 0.70, 67 → 1.00, 70 → 1.24).
-
-Pure module: no imports from ``api`` or ``web``, and no engine imports
-needed — it stands alone.
 """
 
 from __future__ import annotations

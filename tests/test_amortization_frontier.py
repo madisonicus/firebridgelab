@@ -597,7 +597,7 @@ def test_drift_with_pension_drift_falls_back_to_drift_bisection():
 
 def test_escalated_npv_collapses_to_plain_npv_at_zero_drift():
     """``_npv_escalated_gaps_at_age`` at drift = 0 reproduces
-    ``firebridgelab.finance.npv_gaps_at_age`` EXACTLY (same operations, byte-equal) — the
+    ``firebridgelab.spending.npv.npv_gaps_at_age`` EXACTLY (same operations, byte-equal) — the
     invariant-1 collapse at the reference level. The strategy's d == 0 dispatch
     takes the untouched pre-drift-aware code path, so the engine canaries are pinned by
     the existing canary tests, not re-pinned here."""

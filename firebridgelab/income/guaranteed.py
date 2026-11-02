@@ -1,4 +1,4 @@
-"""income.guaranteed (split from the flat layout)."""
+"""The canonical guaranteed-income (GI) sum: pensions plus Social Security."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def gi_at_age(scenario: Scenario, age: int) -> float:
     ``ss_income_at_age``) all read these functions rather than re-deriving the
     sum. A stream is active iff ``age >= its start age``. Pension real value
     follows ``_pension_multiplier``; the survivor rules follow
-    ``is_survivor_year``. With every review-2026-10 field at its default this
-    is the plain four-stream sum.
+    ``is_survivor_year``. With the pension-inflation and survivor fields at their
+    defaults this is the plain four-stream sum.
     """
     return pension_income_at_age(scenario, age) + ss_income_at_age(scenario, age)

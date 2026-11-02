@@ -10,7 +10,7 @@ non-composable modes in `_validate_sourcing`. Adding a mode meant editing all th
 ## Decision
 
 `api/spending_modes.py` holds a single `SpendingModeDescriptor` registry, ordered to match the
-constants in `firebridgelab.scenario`. Each descriptor carries exactly two presentation properties:
+constants in `firebridgelab.spending.modes`. Each descriptor carries exactly two presentation properties:
 
 - `composable_with_buckets` — `False` → 422 when `sourcing_mode == buckets`.
 - `save_eligible` — whether the saved-scenario view accepts the mode.
@@ -19,6 +19,10 @@ The API derives `SPENDING_MODE_IDS`, `SAVE_VIEW_SPENDING_MODE_IDS`, and `_SPENDI
 the registry. Engine *capabilities* (`is_solvable`, `collects_spends`) are deliberately NOT in the
 registry — they stay predicates on the SpendingStrategy instance per ADR 0006, read via
 `make_strategy` and the typed `SpendingStrategyNotSolvable` exception.
+
+The engine has its own, separate registry (`firebridgelab.spending.registry`): it maps each mode
+to the strategy factory that a module in `firebridgelab/spending/rules/` registers. It holds no API
+properties, so a new mode is one rule module plus one descriptor here.
 
 ## Status
 
