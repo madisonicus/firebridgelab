@@ -188,7 +188,7 @@ def _trial_trajectories(
     ``(trajectories, spends, events)`` where ``trajectories`` is the
     ``(n_trials, n_years)`` end-of-year-portfolio matrix, using the SAME
     ``_simulate_cohort`` math Historical and the solver use (midpoint withdrawal,
-    four GI streams, strategy-shaped spending, floor at zero). One Python loop over
+    household flows, strategy-shaped spending, floor at zero). One Python loop over
     trials, each calling the vectorized-enough per-trial sim — 10k x 43 x 2 is
     trivial.
 

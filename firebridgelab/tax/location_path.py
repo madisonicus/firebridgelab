@@ -18,6 +18,7 @@ from firebridgelab.tax.location import (
     PRE_595_MAX_AGE,
     TAX_LOCATION_ACCESS_AGE,
     _filing_profile,
+    _other_ordinary_and_ltcg,
     _pension_income_at_age,
     _ss_income_at_age,
     resolve_split,
@@ -165,7 +166,7 @@ class TaxLocationPath:
 
 def year_tax_context_table(scenario) -> dict[int, tuple[bool, int, float]]:
     """Precompute the per-age ``(penalty_free, n_65_plus, pension_ss_ordinary,
-    single)`` tuple ONCE per scenario, keyed by age (a Monte Carlo hot-path
+    single, extra_ltcg)`` tuple (``_year_tax_context``) ONCE per scenario, keyed by age (a Monte Carlo hot-path
     optimization).
 
     All three depend ONLY on ``scenario`` + ``age`` — NEVER on the return path,
@@ -179,15 +180,26 @@ def year_tax_context_table(scenario) -> dict[int, tuple[bool, int, float]]:
     values inline (the deterministic single path, the hand-anchored unit
     tests).
     """
-    table: dict[int, tuple[bool, int, float, bool]] = {}
+    table: dict[int, tuple[bool, int, float, bool, float]] = {}
     for age in range(scenario.start_age, scenario.end_age + 1):
-        penalty_free = age >= TAX_LOCATION_ACCESS_AGE
-        n_65_plus, single = _filing_profile(scenario, age)
-        pension_ss_ordinary = _pension_income_at_age(
-            scenario, age
-        ) + 0.85 * _ss_income_at_age(scenario, age)
-        table[age] = (penalty_free, n_65_plus, pension_ss_ordinary, single)
+        table[age] = _year_tax_context(scenario, age)
     return table
+
+
+def _year_tax_context(scenario, age: int) -> tuple[bool, int, float, bool, float]:
+    """One year's ``(penalty_free, n_65_plus, pension_ss_ordinary, single,
+    extra_ltcg)``: the account-access flag, the filing profile, the stream
+    ordinary income plus 85% of Social Security plus any cash event taxed as
+    ordinary, and a cash event's long-term gain (all from ``income.household``)."""
+    penalty_free = age >= TAX_LOCATION_ACCESS_AGE
+    n_65_plus, single = _filing_profile(scenario, age)
+    pension_ss_ordinary = _pension_income_at_age(
+        scenario, age
+    ) + 0.85 * _ss_income_at_age(scenario, age)
+    event_ordinary, extra_ltcg = _other_ordinary_and_ltcg(scenario, age)
+    if event_ordinary:
+        pension_ss_ordinary += event_ordinary
+    return penalty_free, n_65_plus, pension_ss_ordinary, single, extra_ltcg
 
 
 def simulate_path_decomposition(
@@ -195,7 +207,7 @@ def simulate_path_decomposition(
     returns,
     strategy,
     *,
-    year_context: dict[int, tuple[bool, int, float]] | None = None,
+    year_context: dict[int, tuple] | None = None,
 ) -> TaxLocationPath:
     """Run the DRAGGED decomposition for ONE path (deterministic / cohort / trial).
 
@@ -220,7 +232,7 @@ def simulate_path_decomposition(
     "post-depletion convention": a naive call would compute a real, nonzero
     bill on GI alone, which the convention says to suppress).
     """
-    from firebridgelab.income.guaranteed import gi_at_age
+    from firebridgelab.income.household import household_year
     from firebridgelab.spending.lifecycle import spending_multiplier
 
     taxable, tax_deferred, roth = resolve_split(scenario)
@@ -270,9 +282,15 @@ def simulate_path_decomposition(
 
     for step, age in enumerate(range(scenario.start_age, scenario.end_age + 1)):
         r = net_return(float(returns[step]), scenario.annual_fee)
-        gi = gi_at_age(scenario, age)
+        # Household flows (``income.household``): the strategy reads income net
+        # of required spending; the required amount is added back after the
+        # drift multiplier, and a cash event joins GI as a mid-year flow — the
+        # SAME order as engine.sim_core._simulate_cohort.
+        hy = household_year(scenario, age)
         # The strategy reads the DRAGGED begin-of-year balance.
-        spending = strategy.spend_for_year(scenario, age, dragged_portfolio, gi)
+        spending = strategy.spend_for_year(
+            scenario, age, dragged_portfolio, hy.gi - hy.required_spending
+        )
         # Cost-of-living real drift — mirrors engine.sim_core._simulate_cohort's
         # post-strategy multiplier EXACTLY; KEEP IN LOCKSTEP (same guard: none —
         # unconditional for every spending mode, incl. amortization, whose
@@ -285,6 +303,8 @@ def simulate_path_decomposition(
         # disagree with its own pre-tax counterfactual. A no-op at the default
         # drift of 0.0 ((1+0)**k == 1.0).
         spending *= spending_multiplier(scenario, age)
+        spending += hy.required_spending
+        gi = hy.gi + hy.cash_event
         # Realized-spend cap (mirrors engine.sim_core._simulate_cohort's
         # discipline on the DRAGGED begin-of-year balance; see the
         # TaxLocationPath docstring): the strategy returns the INTENDED spend;
@@ -295,13 +315,13 @@ def simulate_path_decomposition(
         realized_spend = min(spending, max_fundable_spend(dragged_portfolio, r, gi))
 
         if year_context is not None:
-            penalty_free, n_65_plus, pension_ss_ordinary, single = year_context[age]
+            penalty_free, n_65_plus, pension_ss_ordinary, single, extra_ltcg = (
+                year_context[age]
+            )
         else:
-            penalty_free = age >= TAX_LOCATION_ACCESS_AGE
-            n_65_plus, single = _filing_profile(scenario, age)
-            pension_ss_ordinary = _pension_income_at_age(
-                scenario, age
-            ) + 0.85 * _ss_income_at_age(scenario, age)
+            penalty_free, n_65_plus, pension_ss_ordinary, single, extra_ltcg = (
+                _year_tax_context(scenario, age)
+            )
         prior_tax_deferred = (
             tax_deferred_series[-1] if tax_deferred_series else initial_tax_deferred
         )
@@ -331,6 +351,7 @@ def simulate_path_decomposition(
                 age=age,
                 bracket_fill_target=bracket_fill_target,
                 prior_tax_deferred=prior_tax_deferred,
+                extra_ltcg=extra_ltcg,
             )
             taxable = step_result.taxable
             tax_deferred = step_result.tax_deferred
@@ -496,7 +517,7 @@ def simulate_dragged_depletion_only(
     returns,
     strategy,
     *,
-    year_context: dict[int, tuple[bool, int, float]] | None = None,
+    year_context: dict[int, tuple] | None = None,
 ) -> int | None:
     """Lean, depletion-only dragged run — the solver's inner-loop primitive.
 
@@ -531,7 +552,7 @@ def simulate_dragged_depletion_only(
 
     Returns the first depleted age, or ``None`` if the path never depletes.
     """
-    from firebridgelab.income.guaranteed import gi_at_age
+    from firebridgelab.income.household import household_year
     from firebridgelab.spending.lifecycle import spending_multiplier
 
     taxable, tax_deferred, roth = resolve_split(scenario)
@@ -546,8 +567,10 @@ def simulate_dragged_depletion_only(
     for age in range(scenario.start_age, scenario.end_age + 1):
         step = age - scenario.start_age
         r = net_return(float(returns[step]), scenario.annual_fee)
-        gi = gi_at_age(scenario, age)
-        spending = strategy.spend_for_year(scenario, age, dragged_portfolio, gi)
+        hy = household_year(scenario, age)
+        spending = strategy.spend_for_year(
+            scenario, age, dragged_portfolio, hy.gi - hy.required_spending
+        )
         # Cost-of-living real drift — the SAME post-strategy multiplier the
         # full loop (simulate_path_decomposition) and engine.sim_core._simulate_cohort
         # apply; KEEP ALL THREE IN LOCKSTEP (this lean solver loop mirrors the
@@ -556,15 +579,17 @@ def simulate_dragged_depletion_only(
         # DIFFERENT spend path than the display engine renders). Inert at the
         # default drift of 0.0.
         spending *= spending_multiplier(scenario, age)
+        spending += hy.required_spending
+        gi = hy.gi + hy.cash_event
 
         if year_context is not None:
-            penalty_free, n_65_plus, pension_ss_ordinary, single = year_context[age]
+            penalty_free, n_65_plus, pension_ss_ordinary, single, extra_ltcg = (
+                year_context[age]
+            )
         else:
-            penalty_free = age >= TAX_LOCATION_ACCESS_AGE
-            n_65_plus, single = _filing_profile(scenario, age)
-            pension_ss_ordinary = _pension_income_at_age(
-                scenario, age
-            ) + 0.85 * _ss_income_at_age(scenario, age)
+            penalty_free, n_65_plus, pension_ss_ordinary, single, extra_ltcg = (
+                _year_tax_context(scenario, age)
+            )
 
         step_result = step_buckets_dragged(
             taxable,
@@ -581,6 +606,7 @@ def simulate_dragged_depletion_only(
             age=age,
             bracket_fill_target=bracket_fill_target,
             prior_tax_deferred=prior_tax_deferred,
+            extra_ltcg=extra_ltcg,
         )
         taxable = step_result.taxable
         tax_deferred = step_result.tax_deferred

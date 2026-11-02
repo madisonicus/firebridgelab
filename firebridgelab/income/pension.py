@@ -4,14 +4,14 @@ Amounts are entered in today's dollars, or, with ``pension_nominal_until_start``
 the nominal check at commencement (deflated at ``assumed_inflation``). The real path
 after commencement depends on the COLA (``full`` keeps it level; ``fers_diet`` applies
 the FERS rule of 5 U.S.C. 8462), the stress-only ``pension_real_drift``, and the
-survivor fraction after the first death.
+survivor fraction after the first death. The arithmetic is shared by every
+stream kind and lives in ``income.household``; this module keeps the COLA vocabulary
+and the FERS rule.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-
-from firebridgelab.income.survivor import is_survivor_year
 
 if TYPE_CHECKING:
     from firebridgelab.engine.scenario import Scenario
@@ -32,34 +32,9 @@ def fers_diet_cola(inflation: float) -> float:
     return inflation - 0.01
 
 
-def _pension_multiplier(scenario: Scenario, age: int, start_age: int) -> float:
-    """Real value of $1 of a pension's entered amount at ``age`` (it began at
-    ``start_age``): pre-commencement nominal freeze, post-commencement COLA
-    shortfall, and the stress-only ``pension_real_drift``."""
-    years_paid = age - start_age
-    mult = (1.0 - scenario.pension_real_drift) ** years_paid
-    infl = scenario.assumed_inflation
-    if scenario.pension_nominal_until_start:
-        mult /= (1.0 + infl) ** max(0, start_age - scenario.start_age)
-    if scenario.pension_cola == PENSION_COLA_FERS_DIET:
-        mult *= ((1.0 + fers_diet_cola(infl)) / (1.0 + infl)) ** years_paid
-    return mult
-
-
 def pension_income_at_age(scenario: Scenario, age: int) -> float:
-    """Summed real pension income at ``age`` (both pensions; see the Scenario
-    pension-inflation and survivor fields)."""
-    streams = (
-        ("a", scenario.person_a_pension_amount, scenario.person_a_pension_start_age),
-        ("b", scenario.person_b_pension_amount, scenario.person_b_pension_start_age),
-    )
-    survivor = is_survivor_year(scenario, age)
-    total = 0.0
-    for who, amount, start in streams:
-        if age < start:
-            continue
-        value = amount * _pension_multiplier(scenario, age, start)
-        if survivor and who == scenario.survivor_decedent:
-            value *= scenario.survivor_pension_fraction
-        total += value
-    return total
+    """Summed real pension income at ``age`` (every pension-kind stream, after
+    the COLA, nominal and survivor rules; see ``income.household``)."""
+    from firebridgelab.income.household import household
+
+    return household(scenario).year(age).pension

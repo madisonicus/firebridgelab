@@ -1,7 +1,8 @@
 """The plan inputs: the ``Scenario`` dataclass and its defaults.
 
-Defines ``Scenario`` (horizon, portfolio, allocation, spending, the four per-person
-guaranteed-income streams, and the optional strategy, tax, stress and survivor
+Defines ``Scenario`` (horizon, portfolio, allocation, spending, the household —
+people, income streams, cash events and spending adjustments, with the four legacy
+per-person stream fields — and the optional strategy, tax, stress and survivor
 fields), the 3-bucket ``Bucket`` / ``BucketConfig`` types, and ``default_scenario()``.
 All monetary values are real (today's) dollars. Every optional field defaults to
 the plain behaviour (constant spending, one blended balance, no tax split, no fee),
@@ -17,6 +18,12 @@ from firebridgelab.engine.allocation import (
     CLASS_MENU,
     DEFAULT_CORRELATION,
     _legacy_default_volatility,
+)
+from firebridgelab.income.household import (
+    CashEvent,
+    IncomeStream,
+    Person,
+    SpendingAdjustment,
 )
 from firebridgelab.income.pension import PENSION_COLA_FULL
 from firebridgelab.income.social_security import effective_ss_amount
@@ -206,12 +213,11 @@ class Scenario:
     # Spending (real dollars per year, constant)
     annual_spending: float
 
-    # Guaranteed income streams (real dollars per year, activating at the
-    # listed age and continuing thereafter). Split per-person (Person A /
-    # Person B) so the two can claim independently — e.g. Person B delays SS to
-    # 70 while Person A claims at 67. Four named streams; the engine sums
-    # whichever are active at a given age. (Not a generic stream abstraction —
-    # exactly these four.)
+    # The LEGACY guaranteed-income fields (real dollars per year, activating at
+    # the listed age and continuing thereafter): a pension and Social Security
+    # (the EFFECTIVE benefit at the claim age) per person. When
+    # ``income_streams`` is None they are converted into the canonical stream
+    # list (``income.household``); when it is set they are ignored.
     person_a_pension_amount: float
     person_a_pension_start_age: int
     person_b_pension_amount: float
@@ -382,17 +388,21 @@ class Scenario:
     # ``pension_cola`` selects the post-commencement adjustment: "full" (CPI,
     # real value constant) or "fers_diet" (CPI if <=2%, 2% if 2-3%, CPI-1% if
     # >3%, evaluated at ``assumed_inflation``). These compose with the
-    # stress-only ``pension_real_drift`` above.
+    # stress-only ``pension_real_drift`` above. Both apply to the LEGACY pension
+    # fields only; an explicit ``IncomeStream`` carries its own ``cola`` and
+    # ``nominal_until_start``. ``assumed_inflation`` applies to every stream.
     pension_nominal_until_start: bool = False
     pension_cola: str = PENSION_COLA_FULL
     assumed_inflation: float = 0.025
     # Survivor case. ``survivor_age`` (None = both live to end_age) is the
-    # household age at which ``survivor_decedent`` ("a" or "b") dies. From
-    # then on: the survivor keeps the LARGER of the two Social Security benefits
-    # (SSA survivor rule, both already claimed), the decedent's pension continues
-    # at ``survivor_pension_fraction`` (FERS full survivor annuity = 0.5), spending
+    # decedent's OWN age at which ``survivor_decedent`` ("a" or "b") dies (for
+    # the legacy same-age couple, the household age). From then on: the
+    # survivor keeps the LARGER of the two Social Security benefits (SSA
+    # survivor rule, both already claimed), the decedent's other streams
+    # continue at their survivor fraction (the legacy pensions at
+    # ``survivor_pension_fraction``; FERS full survivor annuity = 0.5), spending
     # scales by ``survivor_spending_fraction``, and federal tax uses single-filer
-    # brackets.
+    # brackets. Not allowed for a one-person household.
     survivor_age: Optional[int] = None
     survivor_decedent: str = "b"
     survivor_pension_fraction: float = 0.5
@@ -401,6 +411,26 @@ class Scenario:
     # [floor, ceiling] rails after each nudge, so the rule's state never drifts
     # far outside what is actually spent (default False = the original rule).
     guard_clamp_base: bool = False
+
+    # Household (see ``income.household`` for the full rules). All four default
+    # to the legacy household: two same-age people and the four person_* streams.
+    #   people — one or two ``Person`` (ids "a", "b"), each with an age at plan
+    #     start and a planning end age. The year axis stays person A's age:
+    #     ``start_age`` must equal A's start age and ``end_age`` the latest end age
+    #     on A's axis (``income.household.with_household`` sets both). ``None`` =
+    #     the legacy same-age couple.
+    #   income_streams — a tuple of ``IncomeStream``. When given (even empty) it
+    #     REPLACES the four person_* streams and the scenario-level
+    #     pension_cola / pension_nominal_until_start / survivor_pension_fraction
+    #     (each stream carries its own). ``None`` = convert the person_* fields.
+    #   cash_events — one-off inflows / outflows (``CashEvent``).
+    #   spending_adjustments — required extra spending over an age range
+    #     (``SpendingAdjustment``), added on top of the spending rule's output.
+    # With people set, ``survivor_age`` is the decedent's OWN age at death.
+    people: Optional[tuple[Person, ...]] = None
+    income_streams: Optional[tuple[IncomeStream, ...]] = None
+    cash_events: tuple[CashEvent, ...] = ()
+    spending_adjustments: tuple[SpendingAdjustment, ...] = ()
 
 
 def default_scenario() -> Scenario:

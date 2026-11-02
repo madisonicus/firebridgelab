@@ -65,7 +65,8 @@ import numpy as np
 
 from firebridgelab.engine.scenario import Scenario
 from firebridgelab.engine.step import net_return
-from firebridgelab.income.guaranteed import gi_at_age
+from firebridgelab.income.guaranteed import net_income_at_age
+from firebridgelab.income.household import household_year
 from firebridgelab.spending.base import BucketsGuardrailsNotComposable, SpendingStrategy
 from firebridgelab.spending.lifecycle import spending_multiplier, spending_for_age
 from firebridgelab.spending.modes import (
@@ -356,7 +357,7 @@ def simulate_buckets_cohort(
     ONCE before the loop (buckets compose with the pure-age strategies —
     constant / lifecycle; dynamic modes are fenced). The rolling cash/income
     TARGETS for next year are recomputed each step from the scenario (so they shrink
-    as GI lands), and GI is the SAME four-stream sum the single path uses.
+    as GI lands), and GI is the SAME household sum the single path uses.
 
     Guardrails and the funded-ratio modes are FENCED in buckets mode (the two do
     not compose): raise the typed ``BucketsGuardrailsNotComposable`` here
@@ -388,13 +389,16 @@ def simulate_buckets_cohort(
         r_cash = net_return(float(bucket_returns[bc.cash.id][step]), fee)
         r_inc = net_return(float(bucket_returns[bc.income.id][step]), fee)
         r_gro = net_return(float(bucket_returns[bc.growth.id][step]), fee)
-        gi = gi_at_age(scenario, age)
+        hy = household_year(scenario, age)
+        gi = hy.gi
         # Spending from the strategy. The "begin-of-year portfolio" denominator the
         # guardrail rate uses isn't meaningful for a bucket split (and guardrails is
         # fenced anyway), so we pass the summed begin-of-year balance for signature
         # parity; the pure-age strategies ignore it.
         begin_total = cash + income + growth
-        spending = strategy.spend_for_year(scenario, age, begin_total, gi)
+        spending = strategy.spend_for_year(
+            scenario, age, begin_total, gi - hy.required_spending
+        )
         # Cost-of-living real drift: the SAME post-strategy multiplier the
         # single-sourcing loops apply (engine.deterministic / engine.sim_core) —
         # mirrored here so the two sourcing modes can't diverge on drift semantics
@@ -402,6 +406,9 @@ def simulate_buckets_cohort(
         # sustained_cost_drift). Applied BEFORE ``_step_buckets`` so the buckets
         # sell enough to fund the drifted spend. Default 0.0 makes it exactly 1.0.
         spending *= spending_multiplier(scenario, age)
+        # Required spending rides on top of the rule; a cash event is a
+        # mid-year flow like GI (``income.household``).
+        spending += hy.required_spending
 
         # Rolling targets for NEXT year (the refill brings the safe buckets up to
         # where they need to be entering a+1). At end_age these clip to 0/empty.
@@ -415,7 +422,7 @@ def simulate_buckets_cohort(
             _step_buckets(
                 (cash, income, growth),
                 (r_cash, r_inc, r_gro),
-                gi,
+                gi + hy.cash_event,
                 spending,
                 cash_tgt_next,
                 income_tgt_next,
@@ -577,16 +584,18 @@ def effective_equity_glidepath(scenario: Scenario) -> list[dict]:
 
 
 def gap_for_age(scenario: Scenario, age: int) -> float:
-    """The forward GAP at ``age`` = max(0, spending − guaranteed income).
+    """The forward GAP at ``age`` = max(0, spending + required spending − guaranteed income).
 
-    ``gap(k) = max(0, spending_for_age(scenario, k) − GI(k))``. The safe buckets are
+    ``gap(k) = max(0, spending_for_age(scenario, k) − net_income(k))``, where
+    ``net_income`` is GI minus the required spending adjustments
+    (``income.household.net_income_at_age``). The safe buckets are
     sized in years of THIS gap (not gross spending), so as GI lands the gap — and the
     safe targets — shrink. Uses the SAME ``spending_for_age`` the engines use for
     constant / lifecycle and the SAME GI sum (``gi_at_age``), so the bucket targets
     can't drift from the engine's spending / GI. (Buckets compose with constant /
     lifecycle only; the dynamic modes are fenced.)
     """
-    return max(0.0, spending_for_age(scenario, age) - gi_at_age(scenario, age))
+    return max(0.0, spending_for_age(scenario, age) - net_income_at_age(scenario, age))
 
 
 def cash_target(scenario: Scenario, age: int) -> float:

@@ -71,6 +71,7 @@ from firebridgelab.engine.scenario import SOURCING_MODE_SINGLE, Scenario
 from firebridgelab.engine.sim_core import _simulate_cohort
 from firebridgelab.engine.step import net_return
 from firebridgelab.income.guaranteed import gi_at_age
+from firebridgelab.income.household import scale_social_security
 from firebridgelab.spending.registry import make_strategy
 from firebridgelab.tax.location import has_tax_split
 from firebridgelab.tax.location_path import deterministic_blended_returns, simulate_path_decomposition
@@ -403,8 +404,9 @@ def _ss_haircut_23(scenario: Scenario) -> Scenario:
 
     The ~2034 SSA trustee projection is that, absent legislation, the trust fund
     depletes and benefits become payable at ~77% of scheduled — the framework's
-    "SS at 77%" assumption. We model that as a flat ×0.77 on ``person_a_ss_amount`` and
-    ``person_b_ss_amount``. Pensions, spending, allocation, and everything else are
+    "SS at 77%" assumption. We model that as a flat ×0.77 on every Social Security
+    benefit (``income.household.scale_social_security``: the legacy
+    ``person_*_ss_amount`` fields and any explicit Social Security streams). Pensions, spending, allocation, and everything else are
     left unchanged — this is an income-side shock on the SS streams ONLY.
 
     Timing note (why a FLAT 23% cut is correct here, no per-year ramp): both SS
@@ -415,11 +417,7 @@ def _ss_haircut_23(scenario: Scenario) -> Scenario:
     timing logic is needed. (Were SS claimed before ~2034 a phased haircut would be
     needed; that is out of scope — the default household claims at 67 and 70.)
     """
-    return replace(
-        scenario,
-        person_a_ss_amount=scenario.person_a_ss_amount * 0.77,
-        person_b_ss_amount=scenario.person_b_ss_amount * 0.77,
-    )
+    return scale_social_security(scenario, 0.77)
 
 
 def _cost_of_living_shock(scenario: Scenario) -> Scenario:
@@ -467,12 +465,7 @@ def _government_austerity(scenario: Scenario) -> Scenario:
     per-year real erosion. Spending, allocation, portfolio, horizon all ride
     through unchanged — an income-side shock on the whole government-GI stack.
     """
-    return replace(
-        scenario,
-        person_a_ss_amount=scenario.person_a_ss_amount * 0.77,
-        person_b_ss_amount=scenario.person_b_ss_amount * 0.77,
-        pension_real_drift=0.025,
-    )
+    return replace(scale_social_security(scenario, 0.77), pension_real_drift=0.025)
 
 
 def _sustained_cost_drift(scenario: Scenario) -> Scenario:

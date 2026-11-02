@@ -155,7 +155,7 @@ def _historical_evaluator(scenario: Scenario, data: ShillerData | None = None):
         depletion_count = 0
         for returns in cohort_returns:
             # Reuse the SAME per-cohort math as simulate_historical (midpoint
-            # withdrawal, four GI streams, spending_for_age, floor at zero); we
+            # withdrawal, household flows, spending_for_age, floor at zero); we
             # take only depleted_age and discard the trajectory — no percentile
             # fan, no trajectory list retained.
             _ends, depleted_age, _spends = _simulate_cohort(probe, returns)

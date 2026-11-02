@@ -11,6 +11,9 @@ The documented public API:
   whose survival fraction clears ``threshold`` → ``SolverResult``.
 - ``simulate_stress(scenario, stress_id)``: an authored adverse return path
   (ids in ``STRESS_SCENARIOS``) → ``Trajectory``.
+- ``Person`` / ``IncomeStream`` / ``CashEvent`` / ``SpendingAdjustment`` and
+  ``with_household(scenario, people=..., ...)``: one- or two-person households
+  with any income streams (see ``firebridgelab.income.household``).
 - ``data_dir()``: where the fetched data lives (see ``firebridgelab.returns.paths``).
 
 Everything else exported here is supported but more specialised. The
@@ -59,7 +62,17 @@ from firebridgelab.engine.scenario import (
     default_scenario,
 )
 from firebridgelab.engine.validation import ScenarioValidationError, validate_scenario
-from firebridgelab.income.guaranteed import gi_at_age
+from firebridgelab.income.guaranteed import gi_at_age, net_income_at_age
+from firebridgelab.income.household import (
+    CashEvent,
+    HouseholdYear,
+    IncomeStream,
+    Person,
+    SpendingAdjustment,
+    household_year,
+    legacy_income_streams,
+    with_household,
+)
 from firebridgelab.returns.paths import data_dir
 from firebridgelab.returns.series import renormalized_weights
 from firebridgelab.spending.base import AdjustmentEvent, SpendingStrategy
@@ -104,6 +117,11 @@ __all__ = [
     "AmortizationFrontierStrategy",
     "AssetClass",
     "Bucket",
+    "CashEvent",
+    "HouseholdYear",
+    "IncomeStream",
+    "Person",
+    "SpendingAdjustment",
     "BucketConfig",
     "DepletionDistribution",
     "FederalTaxOverlayAggregate",
@@ -137,6 +155,10 @@ __all__ = [
     "default_scenario",
     "gap_for_age",
     "gi_at_age",
+    "net_income_at_age",
+    "household_year",
+    "legacy_income_streams",
+    "with_household",
     "glidepath_boundaries",
     "income_target",
     "effective_spending_rails",

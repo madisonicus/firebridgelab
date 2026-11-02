@@ -144,7 +144,6 @@ from firebridgelab.tax.core import (
     EARLY_WITHDRAWAL_PENALTY_RATE,
     federal_tax_total,
     standard_deduction,
-    n_65_plus_at_age,
 )
 from firebridgelab.tax.rmd import RMD_START_AGE, rmd_factor
 
@@ -220,12 +219,13 @@ def resolve_split(scenario) -> tuple[float, float, float]:
 
 
 def _pension_income_at_age(scenario, age: int) -> float:
-    """Pension half of ``gi_at_age`` (fully ordinary income). Delegates to
-    ``income.pension.pension_income_at_age`` so the tax split can never drift
-    from the GI sum the rest of the engine reads."""
-    from firebridgelab.income.pension import pension_income_at_age
+    """The ordinary-income share of ``gi_at_age``: every income stream taxed as
+    ordinary income (pensions, annuities, work, rental unless marked tax-free).
+    Named for the pensions it held when the streams were fixed; read from
+    ``income.household`` so the tax split can never drift from the GI sum."""
+    from firebridgelab.income.household import household
 
-    return pension_income_at_age(scenario, age)
+    return household(scenario).year(age).ordinary
 
 
 def _ss_income_at_age(scenario, age: int) -> float:
@@ -236,15 +236,24 @@ def _ss_income_at_age(scenario, age: int) -> float:
     return ss_income_at_age(scenario, age)
 
 
-def _filing_profile(scenario, age: int) -> tuple[int, bool]:
-    """``(n_65_plus, single)`` for a year: joint filing with both spouses aged
-    together, or — after ``survivor_age`` — a single filer with one 65+
-    addition."""
-    from firebridgelab.income.survivor import is_survivor_year
+def _other_ordinary_and_ltcg(scenario, age: int) -> tuple[float, float]:
+    """Income a household adds to the return beyond its streams and account
+    draws: the cash events' ordinary income and long-term gain that year."""
+    from firebridgelab.income.household import household
 
-    if is_survivor_year(scenario, age):
-        return (1 if age >= 65 else 0), True
-    return n_65_plus_at_age(age), False
+    hy = household(scenario).year(age)
+    return hy.event_ordinary, hy.event_ltcg
+
+
+def _filing_profile(scenario, age: int) -> tuple[int, bool]:
+    """``(n_65_plus, single)`` for a year: joint filing for a couple with one
+    65+ addition per spouse aged 65+ (each on their own age), single filing
+    after the first death (``survivor_age``) and for a one-person household.
+    For the legacy same-age couple this is ``n_65_plus_at_age`` exactly."""
+    from firebridgelab.income.household import household
+
+    hy = household(scenario).year(age)
+    return hy.n_65_plus, hy.single_filer
 
 
 def _source_net(
@@ -389,6 +398,7 @@ def step_buckets_dragged(
     single: bool = False,
     bracket_fill_target: float | None,
     prior_tax_deferred: float,
+    extra_ltcg: float = 0.0,
 ) -> DraggedYearStep:
     """One year of the DRAGGED access-aware decomposition.
 
@@ -415,6 +425,9 @@ def step_buckets_dragged(
     denominator input (future RMDs shrink through the real table: each year's
     excess movement reduces next year's ``prior_tax_deferred``). ``bracket_fill_target`` is ``None``
     when the lever is off (every iteration then skips the lever entirely).
+    ``pension_ss_ordinary`` also carries any other non-account ordinary income
+    (a cash event taxed as ordinary), and ``extra_ltcg`` is long-term gain that
+    did not come from a taxable-account draw (a cash event's capital gain).
     """
     # 1. Grow each account (step_year's exact operand order: b + b*r).
     taxable = taxable + taxable * r
@@ -516,6 +529,8 @@ def step_buckets_dragged(
 
         ordinary_income = pension_ss_ordinary + total_td_draw + lever_extra + rmd_excess
         ltcg_income = total_taxable_draw * gains_fraction
+        if extra_ltcg:
+            ltcg_income += extra_ltcg
         penalty = EARLY_WITHDRAWAL_PENALTY_RATE * total_td_draw if not penalty_free else 0.0
 
         T_next = _tax_total(ordinary_income, ltcg_income, n_65_plus, single) + penalty

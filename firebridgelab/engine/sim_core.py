@@ -8,8 +8,8 @@ return mode — the pieces all three modes (and the solver) run in common:
     Historical start-year window, a Monte Carlo *trial*, or the solver's
     candidate path). Each return mode constructs its own return sequences, but
     they all hand them to this one loop, so the per-year withdrawal math
-    (midpoint convention, four GI streams, strategy-shaped spending, floor at
-    zero) is identical across modes and can't drift.
+    (midpoint convention, household income and required spending, strategy-shaped
+    spending, floor at zero) is identical across modes and can't drift.
   - The shared result dataclasses (``AdjustmentStats``, ``WorstCohortYear``,
     ``WorstCohort``, ``BufferSurvivalStats``) that a cohort/trial run reduces to,
     reused field-for-field by the Historical and Monte Carlo public results.
@@ -37,7 +37,7 @@ from firebridgelab.engine.step import (
     net_return,
     step_year,
 )
-from firebridgelab.income.guaranteed import gi_at_age
+from firebridgelab.income.household import household_year
 from firebridgelab.income.survivor import is_survivor_year
 from firebridgelab.spending.base import AdjustmentEvent, SpendingStrategy
 from firebridgelab.spending.lifecycle import spending_multiplier
@@ -220,8 +220,8 @@ def _simulate_cohort(
 ) -> tuple[list[float], int | None, list[float]]:
     """Run one cohort: the deterministic sim with a per-year return sequence.
 
-    Identical math to ``engine.deterministic.simulate`` (midpoint withdrawal, four GI
-    streams, strategy-shaped spending, floor at zero) except ``r`` comes from
+    Identical math to ``engine.deterministic.simulate`` (midpoint withdrawal, household
+    flows, strategy-shaped spending, floor at zero) except ``r`` comes from
     ``returns[step]`` each year instead of a constant blend. ``returns`` has one
     entry per age-step (start_age .. end_age inclusive).
 
@@ -248,16 +248,22 @@ def _simulate_cohort(
 
     for step, age in enumerate(range(scenario.start_age, scenario.end_age + 1)):
         r = net_return(float(returns[step]), scenario.annual_fee)
-        gi = gi_at_age(scenario, age)
+        hy = household_year(scenario, age)
+        gi = hy.gi
         # Spending from the strategy. The begin-of-year portfolio is ``portfolio``
         # at the TOP of this iteration (the prior year's ``end``, before this
         # year's growth/withdrawal) — the denominator the guardrail rate uses.
-        # constant/lifecycle ignore it.
-        spending = strategy.spend_for_year(scenario, age, portfolio, gi)
+        # constant/lifecycle ignore it. The strategy sees income net of required
+        # spending (``income.household``); the required amount is added back.
+        spending = strategy.spend_for_year(
+            scenario, age, portfolio, gi - hy.required_spending
+        )
         # Cost-of-living real drift: a post-strategy multiplier on the funded
         # spend, applied in BOTH loops for consistency. Default
         # spending_real_drift 0.0 makes it exactly 1.0.
         spending *= spending_multiplier(scenario, age)
+        spending += hy.required_spending
+        flow = gi + hy.cash_event
         # Realized-spend cap: the strategy returns the INTENDED spend; a depleting
         # cohort year can only fund what the portfolio + GI cover. The RECORDED
         # spend (the ``spends`` list that feeds the fan + adjustment stats) is capped
@@ -267,12 +273,12 @@ def _simulate_cohort(
         # (the flag fires on end < 0; max_fundable lands exactly ON 0 and would NOT
         # flag, so it must not be the value stepped). The strategy keeps its own
         # intended base, so the guardrail nudge is unaffected.
-        realized_spend = min(spending, max_fundable_spend(portfolio, r, gi))
+        realized_spend = min(spending, max_fundable_spend(portfolio, r, flow))
         # Midpoint convention via the shared engine step (the canonical
         # ``portfolio + portfolio*r`` form, ADR 0002). Stepped with the INTENDED
         # spend to preserve the depletion flag (see above).
         already_depleted = depleted_age is not None
-        end, depleted_this_year = step_year(portfolio, r, gi, spending)
+        end, depleted_this_year = step_year(portfolio, r, flow, spending)
         if depleted_this_year and depleted_age is None:
             depleted_age = age
         # Absorbing depletion: once a path has depleted, the portfolio
@@ -333,6 +339,15 @@ def _compute_adjustment_stats(
         )
     start_spend = scenario.annual_spending
     floor = scenario.spending_floor
+    # The rails and the start level bound DISCRETIONARY spending; required
+    # spending (``income.household``) rides on top, so take it back out before
+    # comparing.
+    required = [
+        household_year(scenario, scenario.start_age + k).required_spending
+        for k in range(len(cohort_spends[0]))
+    ]
+    if any(required):
+        cohort_spends = [[s_ - q for s_, q in zip(sp, required)] for sp in cohort_spends]
 
     per_cohort_min = [min(spends) for spends in cohort_spends]
 

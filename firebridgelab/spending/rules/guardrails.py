@@ -13,7 +13,10 @@ and withdrawal — ``portfolio`` at the top of the iteration in
 
   1. ``rate = max(0, base_spend - gi) / begin_year_portfolio`` — the portfolio-
      funded withdrawal rate on the UNtapered nudged base (scaled by the survivor
-     spending fraction after a first death). If ``begin_year_portfolio <= 0``,
+     spending fraction after a first death). ``gi`` here is guaranteed income NET
+     of required spending (``income.household``): a spending adjustment raises
+     the rate like a withdrawal the rule cannot cut, and the rule only ever moves
+     the discretionary part; the engine adds the required amount on top. If ``begin_year_portfolio <= 0``,
      SKIP nudging (the floor clamp governs).
   2. If ``rate > initial_rate*(1+GUARD)`` → ``base_spend *= (1 - ADJUST)`` (cut);
      elif ``rate < initial_rate*(1-GUARD)`` → ``base_spend *= (1 + ADJUST)``
@@ -62,7 +65,7 @@ Degenerate cases
 from __future__ import annotations
 
 from firebridgelab.engine.scenario import Scenario
-from firebridgelab.income.guaranteed import gi_at_age
+from firebridgelab.income.guaranteed import net_income_at_age
 from firebridgelab.income.survivor import is_survivor_year
 from firebridgelab.spending.base import AdjustmentEvent, SpendingStrategy
 from firebridgelab.spending.lifecycle import activity_multiplier
@@ -78,7 +81,8 @@ class GuardrailStrategy(SpendingStrategy):
 
       - ``initial_portfolio`` = ``scenario.initial_portfolio``
       - ``base_spend_0``      = ``scenario.annual_spending`` (the UNtapered base)
-      - ``initial_gi``        = the GI active at ``start_age`` (0 for the default household)
+      - ``initial_gi``        = the income active at ``start_age`` net of required
+        spending (``net_income_at_age``; 0 for the default household)
       - ``initial_rate``      = ``max(0, base_spend_0 - initial_gi) / initial_portfolio``
 
     and carries mutable state ``base_spend`` (the nudged, untapered level) across
@@ -100,7 +104,7 @@ class GuardrailStrategy(SpendingStrategy):
     def __init__(self, scenario: Scenario) -> None:
         self.initial_portfolio = scenario.initial_portfolio
         self.base_spend_0 = scenario.annual_spending
-        self.initial_gi = gi_at_age(scenario, scenario.start_age)
+        self.initial_gi = net_income_at_age(scenario, scenario.start_age)
         # Portfolio-funded withdrawal rate at the start age, on the untapered base.
         # A non-positive initial portfolio (guarded at the API as >0) or a base ≤ GI
         # both yield initial_rate == 0 → guardrail disabled.

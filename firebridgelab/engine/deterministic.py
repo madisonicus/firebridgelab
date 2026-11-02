@@ -1,8 +1,8 @@
 """Deterministic year-by-year projection (``simulate``).
 
 One constant real return per allocation (per phase under a glidepath), the
-spending strategy selected by ``spending_mode``, and the four per-person GI streams
-(two pensions + two Social Security) that activate at fixed ages. No randomness and
+spending strategy selected by ``spending_mode``, and the household's income streams,
+required spending and cash events (``income.household``). No randomness and
 no historical sequence. ``sourcing_mode == "buckets"`` routes to the 3-bucket
 mechanic in ``engine.buckets`` and returns the same ``Trajectory`` shape. All values
 are real (today's) dollars.
@@ -37,7 +37,7 @@ from firebridgelab.engine.step import (
     net_return,
     step_year,
 )
-from firebridgelab.income.guaranteed import gi_at_age
+from firebridgelab.income.household import household_year
 from firebridgelab.spending.base import SpendingStrategy
 from firebridgelab.spending.lifecycle import spending_multiplier
 from firebridgelab.spending.registry import make_strategy
@@ -116,19 +116,27 @@ def simulate(
         # product from the same operands, so the two agree exactly.
         growth = start_portfolio * r
 
-        # Guaranteed income is the sum of the four named streams that are
-        # active at this age (age >= the stream's start age), from the canonical
-        # sum in ``income.guaranteed.gi_at_age``.
-        gi = gi_at_age(scenario, age)
+        # The year's household flows (``income.household``): guaranteed income
+        # from every active stream, required spending from the spending
+        # adjustments, and any one-off cash event.
+        hy = household_year(scenario, age)
+        gi = hy.gi
 
         # Spending comes from the strategy. begin_year_portfolio is the balance
         # BEFORE this year's growth/withdrawal (start_portfolio) — the denominator
-        # the guardrail rate uses. constant/lifecycle ignore it.
-        spending = strategy.spend_for_year(scenario, age, start_portfolio, gi)
+        # the guardrail rate uses. constant/lifecycle ignore it. The strategy sees
+        # income NET of required spending, so it treats required spending as a
+        # draw it cannot cut; the required amount is added back on top.
+        spending = strategy.spend_for_year(
+            scenario, age, start_portfolio, gi - hy.required_spending
+        )
         # Cost-of-living real drift: a post-strategy multiplier on the funded
         # spend, composing with ANY strategy. Default spending_real_drift 0.0
         # makes it exactly 1.0.
         spending *= spending_multiplier(scenario, age)
+        spending += hy.required_spending
+        # A cash event is a mid-year flow like GI (the strategy never sees it).
+        flow = gi + hy.cash_event
 
         # Realized-spend cap: the strategy returns the INTENDED spend, but a
         # depleting year can't fund it — the household can only spend what the
@@ -140,14 +148,14 @@ def simulate(
         # unaffected (the flag fires on end < 0; max_fundable would land exactly
         # ON 0 and NOT flag, so it must not be the value stepped). The
         # strategy keeps its own intended base, so there is no feedback loop.
-        realized_spend = min(spending, max_fundable_spend(start_portfolio, r, gi))
+        realized_spend = min(spending, max_fundable_spend(start_portfolio, r, flow))
 
         # Midpoint convention: half the year's spending earns a half-year
         # of growth before being consumed (ADR 0002). Stepped with
         # the INTENDED spend to preserve the depletion flag (see above).
         already_depleted = depleted_age is not None
         end_portfolio, depleted_this_year = step_year(
-            start_portfolio, r, gi, spending
+            start_portfolio, r, flow, spending
         )
         if depleted_this_year and depleted_age is None:
             depleted_age = age

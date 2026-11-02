@@ -2,20 +2,21 @@
 
 The funded-ratio spending strategies discount a per-year *gap* between a real
 target spend and the year's guaranteed income, then divide a smoothed portfolio
-by that NPV; they compute the table once at construction with
+by that NPV (GI here is net of required spending, ``net_income_at_age``, so a
+spending adjustment is part of every gap); they compute the table once at
+construction with
 ``compute_npv_gaps_by_age`` and look up the value per year. The amortization
 frontier bisects on the single-age form, ``npv_gaps_at_age``.
 
 Pure math — no I/O, no mutation, no dataclass state. The GI summation reuses
-``gi_at_age`` (``income.guaranteed``) so the NPV's per-year GI can never drift
-from the engine's per-year GI. Single age axis: both people share one age
-timeline and every GI stream fires on ``age >= start_age``.
+``net_income_at_age`` (``income.guaranteed``) so the NPV's per-year GI can never
+drift from the engine's per-year GI. Ages are person A's age (the engine axis).
 """
 
 from __future__ import annotations
 
 from firebridgelab.engine.scenario import Scenario
-from firebridgelab.income.guaranteed import gi_at_age
+from firebridgelab.income.guaranteed import net_income_at_age
 
 
 def compute_npv_gaps_by_age(
@@ -32,12 +33,12 @@ def compute_npv_gaps_by_age(
                    / (1 + discount_rate)^t
 
     where ``GI(a)`` is the summed guaranteed income active at age ``a`` — the
-    SAME four-stream sum the engines use per year (via
-    ``income.guaranteed.gi_at_age``), so the NPV denominator can't drift from the
-    engine's per-year GI.
+    SAME household sum the engines hand the spending rule each year, net of
+    required spending (``income.guaranteed.net_income_at_age``), so the NPV
+    denominator can't drift from the engine's per-year income.
 
     Args:
-        scenario: the run's Scenario (supplies the horizon + the four GI streams).
+        scenario: the run's Scenario (supplies the horizon + the household flows).
         target_real: the per-year real spending level whose gap above GI is
             discounted. This is the FR *numerator-equivalent* target — its choice
             is load-bearing (the ``fr_tiers`` variant discounts the MAX go-go
@@ -62,7 +63,7 @@ def compute_npv_gaps_by_age(
     # O(n) and is slightly more accurate numerically than re-summing each age.
     gaps_by_age: dict[int, float] = {}
     for age in range(start_age, end_age + 1):
-        gi = gi_at_age(scenario, age)
+        gi = net_income_at_age(scenario, age)
         gaps_by_age[age] = max(target_real - gi, 0.0)
 
     # NPV(a) = gap(a) + NPV(a+1) / (1 + r). Walk from the horizon backward.
@@ -110,7 +111,7 @@ def npv_gaps_at_age(
     npv = 0.0
     factor = 1.0  # 1 / (1 + r)^t, accumulated forward from t = 0
     for a in range(age, end_age + 1):
-        gap = max(target_real - gi_at_age(scenario, a), 0.0)
+        gap = max(target_real - net_income_at_age(scenario, a), 0.0)
         npv += gap * factor
         factor /= discount
     return npv

@@ -193,9 +193,10 @@ def glidepath_boundaries(scenario: Scenario) -> list[int]:
 
         sorted distinct set of
           { ALLOCATION_401K_ACCESS_AGE }                       # fixed IRS constant
-          ∪ { person_a_pension_start_age, person_b_pension_start_age,  # existing inputs
-              person_a_ss_start_age,      person_b_ss_start_age }
+          ∪ { every income stream's start age and end age, on person A's axis }
         clipped to [start_age, end_age]
+
+    (For the legacy fields that is the four pension / SS start ages.)
 
     Returned as the ascending list of phase-START ages, ALWAYS beginning with
     ``start_age`` (the first phase opens at the start regardless of the first
@@ -210,20 +211,13 @@ def glidepath_boundaries(scenario: Scenario) -> list[int]:
     Person B claim at different ages, an extra boundary (and phase) simply appears;
     that is the whole point of deriving rather than entering.
 
-    SINGLE-AGE-AXIS LIMITATION: the model
-    treats both people as the same age — every GI stream fires on
-    ``age >= start_age`` against ONE timeline, and these boundaries live on that
-    same single axis. True per-person event timing (an age gap that makes Person B's
-    "62" land at a different timeline age) needs a two-person age axis, which the
-    model does not have. Do not infer two-person ages from this helper.
+    The boundaries live on the engine's age axis, person A's age; a stream owned
+    by person B is converted from B's age with the household age offset
+    (``income.household``).
     """
-    inflections = {
-        ALLOCATION_401K_ACCESS_AGE,
-        scenario.person_a_pension_start_age,
-        scenario.person_b_pension_start_age,
-        scenario.person_a_ss_start_age,
-        scenario.person_b_ss_start_age,
-    }
+    from firebridgelab.income.household import household
+
+    inflections = {ALLOCATION_401K_ACCESS_AGE, *household(scenario).stream_ages()}
     # Keep only inflections strictly inside the horizon — one that opens AFTER
     # start_age and is reachable AT or before end_age. (An inflection == start_age
     # is already the first boundary; one <= start_age collapses into it; one >

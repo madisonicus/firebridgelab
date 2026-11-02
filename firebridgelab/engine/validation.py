@@ -15,7 +15,24 @@ from firebridgelab.engine.scenario import (
     SOURCING_MODE_SINGLE,
     Scenario,
 )
+from firebridgelab.income.household import (
+    COLA_FIXED,
+    COLA_FULL,
+    EVENT_TAX_TREATMENTS,
+    KIND_SOCIAL_SECURITY,
+    OWNER_HOUSEHOLD,
+    PERSON_IDS,
+    STREAM_COLAS,
+    STREAM_KINDS,
+    STREAM_TAX_TREATMENTS,
+    TAX_FREE,
+    TAX_SOCIAL_SECURITY,
+    household_people,
+    plan_end_age,
+    stream_tax_treatment,
+)
 from firebridgelab.income.pension import PENSION_COLAS
+from firebridgelab.income.social_security import MAX_CLAIM_AGE, MIN_CLAIM_AGE
 from firebridgelab.income.survivor import SURVIVOR_DECEDENTS
 from firebridgelab.spending.registry import registered_modes
 
@@ -256,22 +273,189 @@ def validate_scenario(scenario: Scenario) -> None:
         raise ScenarioValidationError(
             f"assumed_inflation must be between 0 and 0.10 (got {scenario.assumed_inflation})"
         )
-    if scenario.survivor_age is not None and not (
+    if scenario.survivor_decedent not in SURVIVOR_DECEDENTS:
+        raise ScenarioValidationError(
+            f"survivor_decedent must be one of {SURVIVOR_DECEDENTS} "
+            f"(got {scenario.survivor_decedent!r})"
+        )
+    _validate_household(scenario)
+    if scenario.people is None and scenario.survivor_age is not None and not (
         scenario.start_age < scenario.survivor_age <= scenario.end_age
     ):
         raise ScenarioValidationError(
             f"survivor_age must be after start_age and at most end_age "
             f"(got {scenario.survivor_age})"
         )
-    if scenario.survivor_decedent not in SURVIVOR_DECEDENTS:
-        raise ScenarioValidationError(
-            f"survivor_decedent must be one of {SURVIVOR_DECEDENTS} "
-            f"(got {scenario.survivor_decedent!r})"
-        )
     for name in ("survivor_pension_fraction", "survivor_spending_fraction"):
         value = getattr(scenario, name)
         if not (0.0 <= value <= 1.0):
             raise ScenarioValidationError(f"{name} must be between 0 and 1 (got {value})")
+
+
+def _check_age(name: str, value) -> None:
+    if not isinstance(value, int) or not (_VALIDATE_AGE_MIN <= value <= _VALIDATE_AGE_MAX):
+        raise ScenarioValidationError(
+            f"{name} must be an integer age between {_VALIDATE_AGE_MIN} and "
+            f"{_VALIDATE_AGE_MAX} (got {value!r})"
+        )
+
+
+def _check_fraction(name: str, value) -> None:
+    if not (0.0 <= value <= 1.0):
+        raise ScenarioValidationError(f"{name} must be between 0 and 1 (got {value})")
+
+
+def _validate_household(scenario: Scenario) -> None:
+    """The people, income streams, cash events and spending adjustments
+    (``income.household``). Messages name the offending item by index and id."""
+    people = scenario.people
+    if people is not None:
+        if not 1 <= len(people) <= 2:
+            raise ScenarioValidationError(
+                f"people must list one or two people (got {len(people)})"
+            )
+        for i, person in enumerate(people):
+            if person.id != PERSON_IDS[i]:
+                raise ScenarioValidationError(
+                    f"people[{i}].id must be {PERSON_IDS[i]!r} (got {person.id!r})"
+                )
+            _check_age(f"people[{i}].start_age", person.start_age)
+            _check_age(f"people[{i}].end_age", person.end_age)
+            if person.end_age <= person.start_age:
+                raise ScenarioValidationError(
+                    f"people[{i}].end_age ({person.end_age}) must be greater than "
+                    f"its start_age ({person.start_age})"
+                )
+        expected_end = plan_end_age(people)
+        if scenario.start_age != people[0].start_age or scenario.end_age != expected_end:
+            raise ScenarioValidationError(
+                f"start_age/end_age ({scenario.start_age}/{scenario.end_age}) must "
+                f"match the people: person a's start age {people[0].start_age} and "
+                f"the latest end age on a's axis {expected_end} (build the scenario "
+                f"with income.household.with_household)"
+            )
+    person_ids = tuple(p.id for p in household_people(scenario))
+    couple = len(person_ids) == 2
+    owners = person_ids + (OWNER_HOUSEHOLD,)
+    offsets = {p.id: p.start_age - scenario.start_age for p in household_people(scenario)}
+    offsets[OWNER_HOUSEHOLD] = 0
+
+    if scenario.survivor_age is not None and people is not None:
+        if not couple:
+            raise ScenarioValidationError(
+                "survivor_age needs a two-person household (this household has one person)"
+            )
+        death = scenario.survivor_age - offsets[scenario.survivor_decedent]
+        if not (scenario.start_age < death <= scenario.end_age):
+            raise ScenarioValidationError(
+                f"survivor_age {scenario.survivor_age} (person "
+                f"{scenario.survivor_decedent!r}'s own age) must fall after the first "
+                f"plan year and no later than the last"
+            )
+
+    if scenario.income_streams is not None:
+        seen: set[str] = set()
+        for i, st in enumerate(scenario.income_streams):
+            where = f"income_streams[{i}] ({st.id!r})"
+            if not st.id:
+                raise ScenarioValidationError(f"income_streams[{i}].id is required")
+            if st.id in seen:
+                raise ScenarioValidationError(f"{where}: duplicate stream id")
+            seen.add(st.id)
+            if st.kind not in STREAM_KINDS:
+                raise ScenarioValidationError(
+                    f"{where}: kind must be one of {STREAM_KINDS} (got {st.kind!r})"
+                )
+            if st.owner not in owners:
+                raise ScenarioValidationError(
+                    f"{where}: owner must be one of {owners} (got {st.owner!r})"
+                )
+            if st.amount < 0:
+                raise ScenarioValidationError(f"{where}: amount must be >= 0 (got {st.amount})")
+            _check_age(f"{where} start_age", st.start_age)
+            if st.end_age is not None:
+                _check_age(f"{where} end_age", st.end_age)
+                if st.end_age <= st.start_age:
+                    raise ScenarioValidationError(
+                        f"{where}: end_age ({st.end_age}) must be greater than "
+                        f"start_age ({st.start_age})"
+                    )
+            if st.cola not in STREAM_COLAS:
+                raise ScenarioValidationError(
+                    f"{where}: cola must be one of {STREAM_COLAS} (got {st.cola!r})"
+                )
+            if st.cola == COLA_FIXED and not (-0.05 <= st.cola_rate <= 0.10):
+                raise ScenarioValidationError(
+                    f"{where}: cola_rate must be between -0.05 and 0.10 (got {st.cola_rate})"
+                )
+            if st.survivor_fraction is not None:
+                _check_fraction(f"{where} survivor_fraction", st.survivor_fraction)
+            tax = stream_tax_treatment(st)
+            if tax not in STREAM_TAX_TREATMENTS:
+                raise ScenarioValidationError(
+                    f"{where}: tax_treatment must be one of {STREAM_TAX_TREATMENTS} "
+                    f"(got {tax!r})"
+                )
+            if (tax == TAX_SOCIAL_SECURITY) != (st.kind == KIND_SOCIAL_SECURITY):
+                raise ScenarioValidationError(
+                    f"{where}: the social_security tax treatment applies to, and only "
+                    f"to, kind social_security"
+                )
+            if st.kind == KIND_SOCIAL_SECURITY:
+                if st.owner == OWNER_HOUSEHOLD:
+                    raise ScenarioValidationError(
+                        f"{where}: a Social Security stream belongs to a person, not the household"
+                    )
+                if st.cola != COLA_FULL or st.nominal_until_start or st.end_age is not None:
+                    raise ScenarioValidationError(
+                        f"{where}: Social Security is paid for life with a full COLA "
+                        f"(cola 'full', no nominal_until_start, no end_age)"
+                    )
+                if not (MIN_CLAIM_AGE <= st.start_age <= MAX_CLAIM_AGE):
+                    raise ScenarioValidationError(
+                        f"{where}: Social Security claim age (start_age) must be "
+                        f"between {MIN_CLAIM_AGE} and {MAX_CLAIM_AGE} (got {st.start_age})"
+                    )
+
+    for i, ev in enumerate(scenario.cash_events):
+        where = f"cash_events[{i}]" + (f" ({ev.id!r})" if ev.id else "")
+        if ev.owner not in owners:
+            raise ScenarioValidationError(
+                f"{where}: owner must be one of {owners} (got {ev.owner!r})"
+            )
+        _check_age(f"{where} age", ev.age)
+        a_age = ev.age - offsets[ev.owner]
+        if not (scenario.start_age <= a_age <= scenario.end_age):
+            raise ScenarioValidationError(
+                f"{where}: age {ev.age} falls outside the plan"
+            )
+        if ev.tax_treatment not in EVENT_TAX_TREATMENTS:
+            raise ScenarioValidationError(
+                f"{where}: tax_treatment must be one of {EVENT_TAX_TREATMENTS} "
+                f"(got {ev.tax_treatment!r})"
+            )
+        if ev.amount < 0 and ev.tax_treatment != TAX_FREE:
+            raise ScenarioValidationError(
+                f"{where}: an outflow (negative amount) must use tax_treatment 'tax_free'"
+            )
+        _check_fraction(f"{where} basis_fraction", ev.basis_fraction)
+
+    for i, adj in enumerate(scenario.spending_adjustments):
+        where = f"spending_adjustments[{i}]" + (f" ({adj.id!r})" if adj.id else "")
+        if adj.owner not in owners:
+            raise ScenarioValidationError(
+                f"{where}: owner must be one of {owners} (got {adj.owner!r})"
+            )
+        if adj.amount < 0:
+            raise ScenarioValidationError(f"{where}: amount must be >= 0 (got {adj.amount})")
+        _check_age(f"{where} start_age", adj.start_age)
+        _check_age(f"{where} end_age", adj.end_age)
+        if adj.end_age <= adj.start_age:
+            raise ScenarioValidationError(
+                f"{where}: end_age ({adj.end_age}) must be greater than start_age "
+                f"({adj.start_age})"
+            )
+        _check_fraction(f"{where} survivor_fraction", adj.survivor_fraction)
 
 
 def validate_glidepath_class_consistency(scenario: Scenario) -> None:

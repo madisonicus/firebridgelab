@@ -36,8 +36,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from firebridgelab.income.survivor import is_survivor_year
-
 if TYPE_CHECKING:
     from firebridgelab.engine.scenario import Scenario
 
@@ -121,13 +119,9 @@ def effective_ss_amount(
 
 def ss_income_at_age(scenario: Scenario, age: int) -> float:
     """Summed Social Security income at ``age``. After the first death the
-    survivor keeps the larger of the two benefits in payment (SSA survivor
-    rule; a simplification — it ignores the survivor's own early-claim limit)."""
-    streams = (
-        ("a", scenario.person_a_ss_amount, scenario.person_a_ss_start_age),
-        ("b", scenario.person_b_ss_amount, scenario.person_b_ss_start_age),
-    )
-    active = {who: amount for who, amount, start in streams if age >= start}
-    if not is_survivor_year(scenario, age):
-        return sum(active.values())
-    return max(active.values(), default=0.0)
+    survivor keeps the larger of the two people's benefits in payment (SSA
+    survivor rule; a simplification — it ignores the survivor's own early-claim
+    limit). Computed by ``income.household``."""
+    from firebridgelab.income.household import household
+
+    return household(scenario).year(age).social_security

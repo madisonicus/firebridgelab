@@ -10,12 +10,16 @@ years. It is the upper boundary of the spending envelope — "the most you could
 responsibly pull each year if you amortize to zero by the plan horizon" — and is
 deliberately UNCLAMPED: the floor/ceiling rails are chart reference lines only.
 View-only: the frontier IS the spend, so the max-spend solver is fenced.
+
+"GI" throughout is guaranteed income net of required spending
+(``net_income_at_age``): a spending adjustment is part of the gap the portfolio
+must fund, and ``L`` is the discretionary spend on top of it.
 """
 
 from __future__ import annotations
 
 from firebridgelab.engine.scenario import Scenario
-from firebridgelab.income.guaranteed import gi_at_age
+from firebridgelab.income.guaranteed import net_income_at_age
 from firebridgelab.spending.base import AdjustmentEvent, SpendingStrategy
 from firebridgelab.spending.modes import SPENDING_MODE_AMORTIZATION
 from firebridgelab.spending.registry import register
@@ -69,7 +73,7 @@ def _npv_escalated_gaps_at_age(
 
     The drift-aware sibling of ``spending.npv.npv_gaps_at_age`` (which this
     reproduces exactly at ``drift == 0``): an INDEPENDENT brute-force reference
-    (per-year ``gi_at_age`` calls, no precomputed tables) for the analytic
+    (per-year ``net_income_at_age`` calls, no precomputed tables) for the analytic
     drift-aware solve, used by ``_solve_l_bisect_drift`` and the equivalence
     tests. Monotonically increasing in ``l_base`` ⇒ bisection is valid.
 
@@ -84,7 +88,7 @@ def _npv_escalated_gaps_at_age(
     npv = 0.0
     factor = 1.0  # 1 / (1 + r)^(t - age), accumulated forward
     for a in range(age, end_age + 1):
-        gap = max(l_base * esc - gi_at_age(scenario, a), 0.0)
+        gap = max(l_base * esc - net_income_at_age(scenario, a), 0.0)
         npv += gap * factor
         factor /= discount
         esc *= growth
@@ -148,7 +152,7 @@ class AmortizationFrontierStrategy(SpendingStrategy):
     recomputed line; Historical / MC → a fan per cohort/trial). The ``action`` label
     is the sign of the year-over-year change in the solved ``L`` (raise / cut / hold).
 
-    Degenerate handling: ``P_a <= 0`` → return ``gi_at_age(scenario, a)`` (you can only
+    Degenerate handling: ``P_a <= 0`` → return ``net_income_at_age(scenario, a)`` (you can only
     spend your guaranteed income once the portfolio is gone). The engine's realized-
     spend machinery (``engine.step.max_fundable_spend``, applied by every engine loop) then
     clamps the RECORDED spend to what's actually fundable in broke years — for
@@ -196,8 +200,8 @@ class AmortizationFrontierStrategy(SpendingStrategy):
         self._start_age = int(scenario.start_age)
         self._end_age = int(scenario.end_age)
         n = self._end_age - self._start_age + 1
-        # Per-age GI(t), one ``gi_at_age`` call per age.
-        self._gi = [gi_at_age(scenario, self._start_age + i) for i in range(n)]
+        # Per-age GI(t), one ``net_income_at_age`` call per age.
+        self._gi = [net_income_at_age(scenario, self._start_age + i) for i in range(n)]
         # Absolute discount weights w(t) = (1+r)^-(t-start_age), indexed by offset.
         disc = 1.0 + self.r
         w = [0.0] * n
@@ -423,7 +427,7 @@ class AmortizationFrontierStrategy(SpendingStrategy):
         # bracket so ``hi`` dominates the root even when GI is large (the gap at a
         # given L is L - GI, so funding any P needs L at least up around GI_max).
         gi_max = max(
-            (gi_at_age(scenario, a) for a in range(age, scenario.end_age + 1)),
+            (net_income_at_age(scenario, a) for a in range(age, scenario.end_age + 1)),
             default=0.0,
         )
         lo = 0.0
@@ -460,7 +464,7 @@ class AmortizationFrontierStrategy(SpendingStrategy):
         (``pension_real_drift > 0``).
 
         Bisects on the BASE ``L`` against the independent escalated-gap NPV
-        (``_npv_escalated_gaps_at_age`` — per-year ``gi_at_age``, no precomputed
+        (``_npv_escalated_gaps_at_age`` — per-year ``net_income_at_age``, no precomputed
         tables), which is monotonically increasing in L. Returns ``L`` such that
         ``_npv_escalated_gaps_at_age(scenario, age, L, r, d) ==
         begin_year_portfolio`` to within ``_AMORT_NPV_TOL`` (or the L-bracket has
@@ -471,7 +475,7 @@ class AmortizationFrontierStrategy(SpendingStrategy):
         target_portfolio = begin_year_portfolio
 
         gi_max = max(
-            (gi_at_age(scenario, a) for a in range(age, scenario.end_age + 1)),
+            (net_income_at_age(scenario, a) for a in range(age, scenario.end_age + 1)),
             default=0.0,
         )
         # The escalation factor (1+d)^(t-start) is monotone in t, so its MINIMUM
@@ -516,7 +520,7 @@ class AmortizationFrontierStrategy(SpendingStrategy):
         # Degenerate: portfolio gone → you can only spend guaranteed income. (The
         # engine's max_fundable_spend then caps the RECORDED spend to gi.)
         if begin_year_portfolio <= 0:
-            spend = gi_at_age(scenario, age)
+            spend = max(net_income_at_age(scenario, age), 0.0)
         else:
             spend = self._solve_l(scenario, age, begin_year_portfolio)
 

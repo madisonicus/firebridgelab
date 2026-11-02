@@ -11,9 +11,10 @@ Public entry points:
     — pure year-income -> ``FederalTaxYear`` (ordinary tax / LTCG tax / NIIT /
     total); ``federal_tax_total`` is its allocation-free hot-path twin. The
     IRS-anchor tests in ``tests/test_federal_tax.py`` pin it.
-  - ``standard_deduction`` and ``n_65_plus_at_age`` — the deduction and the
-    age-keyed 65+ count the ``tax.location`` fixed point and the ``tax.overlay``
-    pass both need. The RMD helpers live in ``tax.rmd``.
+  - ``standard_deduction`` and ``n_65_plus_at_age`` — the deduction by filing
+    status and 65+ count, and the same-age couple's 65+ count (the per-person
+    count for any household comes from ``income.household``). The RMD helpers
+    live in ``tax.rmd``.
 
 The brackets, standard deduction and LTCG breakpoints are CPI-indexed in law, but
 this engine runs entirely in real (today's) dollars, so they are held fixed in
@@ -37,9 +38,9 @@ _PARAMS = params.load()
 _MFJ = _PARAMS["mfj"]
 _SINGLE = _PARAMS["single"]
 
-# Married filing jointly. The couple is treated as one age, so both get the
-# per-person 65+ addition together (``n_65_plus_at_age``). The temporary
-# 2025-2028 senior deduction is not modelled.
+# Married filing jointly. The 65+ addition is counted per person on each
+# person's own age (``income.household``). The temporary 2025-2028 senior
+# deduction is not modelled.
 _ORDINARY_BRACKETS_MFJ: params.Brackets = params.brackets(_MFJ["ordinary_brackets"])
 STANDARD_DEDUCTION_MFJ: float = _MFJ["standard_deduction"]
 ADDITIONAL_DEDUCTION_65_PLUS: float = _MFJ["additional_deduction_65_plus"]
@@ -73,18 +74,16 @@ def standard_deduction(n_65_plus: int, single: bool = False) -> float:
 # including draws that fund the tax itself).
 EARLY_WITHDRAWAL_PENALTY_RATE: float = _PARAMS["early_withdrawal"]["penalty_rate"]
 
-# Couple-same-age approximation for the extra 65+ standard deduction: both are
-# treated as 65+ together once the single engine age axis crosses 65.
+# A same-age couple turns 65 together: both get the extra 65+ deduction at once.
 _N_65_PLUS_AT_65 = 2
 
 
 def n_65_plus_at_age(age: int) -> int:
-    """The couple-same-age 65+ deduction-multiplier count at ``age``.
+    """The 65+ deduction-multiplier count at ``age`` for a same-age couple.
 
-    2 once ``age >= 65`` (both members of the couple get the extra per-person
-    standard deduction simultaneously — the documented same-age approximation),
-    else 0. Shared so the ``tax.location`` fixed point and the ``tax.overlay``
-    pass compute this identically.
+    2 once ``age >= 65``, else 0. The engine now counts each person on their own
+    age (``income.household.HouseholdYear.n_65_plus``); for the legacy same-age
+    couple that count equals this one. Kept as a public helper.
     """
     return _N_65_PLUS_AT_65 if age >= 65 else 0
 
