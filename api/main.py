@@ -62,7 +62,8 @@ from firebridgelab.income.household import (
     with_household,
 )
 from firebridgelab.income.social_security import effective_ss_amount, ss_factor
-from api import scenario_store
+from api import plan_io, scenario_store
+from api.plan_io import PLAN_EXTRA_FIELDS, TAX_OPTION_FIELDS
 from api.error_translation import engine_error_to_detail
 from api.spending_modes import (
     SAVE_VIEW_SPENDING_MODE_IDS,
@@ -493,15 +494,18 @@ class ScenarioBody(BaseModel):
     state_custom_exempt_ss: Optional[bool] = None
     state_custom_exempt_pensions: Optional[bool] = None
     state_custom_exempt_ira: Optional[bool] = None
+    # Plan-file fields the web UI has no control for (``api.plan_io``). The UI
+    # carries them from an imported plan to an exported one; omitted -> the
+    # scenario defaults.
+    slow_go_start_age: Optional[int] = None
+    no_go_start_age: Optional[int] = None
+    slow_go_multiplier: Optional[float] = None
+    no_go_multiplier: Optional[float] = None
+    spending_real_drift: Optional[float] = None
+    pension_real_drift: Optional[float] = None
 
 
-_TAX_OPTION_FIELDS = (
-    "ss_taxation", "payroll_tax", "irmaa", "irmaa_prior_magi",
-    "roth_conversion_target", "roth_conversion_start_age", "roth_conversion_end_age",
-    "roth_heir_tax_rate", "state", "state_move_age", "state_after_move",
-    "state_custom_rate", "state_custom_exempt_ss", "state_custom_exempt_pensions",
-    "state_custom_exempt_ira",
-)
+_TAX_OPTION_FIELDS = TAX_OPTION_FIELDS
 
 
 # ---------- Saved Scenarios (sv1) ----------
@@ -1168,6 +1172,113 @@ def post_solve(body: ScenarioBody = Body(...)) -> dict:
     _validate_tax_location(scenario)
     _validate_scenario_invariants(scenario)
     return _run_solve(scenario, body.mode, body.spending_mode, body.confidence)
+
+
+# ---------- Plan files (M5) ----------
+#
+# The web UI loads and downloads the same TOML plan files the command line
+# runs (docs/plan-files.md). Parsing and writing are firebridgelab.plan's;
+# api.plan_io converts a plan's Scenario into the body the UI posts.
+
+
+class PlanImportBody(BaseModel):
+    """``POST /api/plan/import``: the text of a plan file."""
+
+    toml: str
+    filename: str = "plan.toml"
+
+
+class PlanExportBody(BaseModel):
+    """``POST /api/plan/export``: a scenario body plus the plan's run settings."""
+
+    scenario: ScenarioBody
+    name: str = ""
+    description: str = ""
+    trials: Optional[int] = None
+    seed: Optional[int] = None
+    stress: Optional[List[str]] = None
+
+
+def _plan_error(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=422, detail=str(exc))
+
+
+@app.post("/api/plan/import")
+def post_plan_import(body: PlanImportBody = Body(...)) -> dict:
+    """Parse a plan file and return its scenario as an API body.
+
+    The response is ``{name, description, trials, seed, stress, body}``; ``body``
+    is what ``POST /api/trajectory`` accepts, with the household explicit. A
+    plan file that cannot be read is a 422 whose detail names the key at fault.
+    """
+    try:
+        plan = plan_io.parse_plan_text(body.toml, body.filename or "plan.toml")
+    except plan_io.PlanError as exc:
+        raise _plan_error(exc)
+    return plan_io.plan_to_payload(plan)
+
+
+@app.post("/api/plan/export")
+def post_plan_export(body: PlanExportBody = Body(...)) -> dict:
+    """Write a scenario body as plan-file TOML: ``{"toml": "..."}``.
+
+    The scenario is built and validated exactly as ``POST /api/trajectory``
+    builds it, then written by ``firebridgelab.plan.dump``. The text is read
+    back before it is returned, so a file this route writes always loads.
+    """
+    from firebridgelab.engine.monte_carlo import DEFAULT_N_TRIALS, DEFAULT_SEED
+    from firebridgelab.plan import Plan, dump
+
+    sb = body.scenario
+    _validate_modes(_MODE_DETERMINISTIC, sb.spending_mode, sb.allocation_mode)
+    _validate_sourcing(
+        sb.sourcing_mode, sb.spending_mode,
+        sb.buckets.n1 if sb.buckets else None,
+        sb.buckets.n2 if sb.buckets else None,
+    )
+    _validate_correlation(sb.correlation)
+    _validate_taxable_gains_fraction(sb.taxable_gains_fraction)
+    scenario = _build_scenario_from_body(sb)
+    _validate(scenario)
+    _validate_tax_location(scenario)
+    _validate_scenario_invariants(scenario)
+    plan = Plan(
+        scenario,
+        name=body.name,
+        description=body.description,
+        trials=body.trials if body.trials is not None else DEFAULT_N_TRIALS,
+        seed=body.seed if body.seed is not None else DEFAULT_SEED,
+        stress=tuple(body.stress or ()),
+    )
+    text = dump(plan)
+    try:
+        plan_io.parse_plan_text(text)
+    except plan_io.PlanError as exc:
+        raise HTTPException(
+            status_code=422, detail=f"this scenario cannot be written as a plan file: {exc}"
+        )
+    return {"toml": text}
+
+
+@app.get("/api/examples")
+def get_examples() -> list[dict]:
+    """The bundled example plans as ``[{id, name, description}]``."""
+    out = []
+    for name in plan_io.example_names():
+        plan = plan_io.parse_plan_text(plan_io.example_text(name), f"{name}.toml")
+        out.append({"id": name, "name": plan.name or name, "description": plan.description})
+    return out
+
+
+@app.get("/api/examples/{name}")
+def get_example(name: str) -> dict:
+    """One bundled example: the import payload plus its TOML text."""
+    try:
+        text = plan_io.example_text(name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"no example named {name!r}")
+    plan = plan_io.parse_plan_text(text, f"{name}.toml")
+    return {"id": name, **plan_io.plan_to_payload(plan, text)}
 
 
 def _class_menu_entries() -> list[dict]:
@@ -2754,6 +2865,7 @@ def _build_scenario_from_body(body: ScenarioBody):
             "survivor_spending_fraction": body.survivor_spending_fraction,
             "guard_clamp_base": body.guard_clamp_base,
             **{name: getattr(body, name) for name in _TAX_OPTION_FIELDS},
+            **{name: getattr(body, name) for name in PLAN_EXTRA_FIELDS},
         }.items()
         if v is not None
     }
