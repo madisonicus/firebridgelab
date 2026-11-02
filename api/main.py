@@ -52,6 +52,15 @@ from firebridgelab.engine.scenario import (
     default_bucket_config,
 )
 from firebridgelab.spending.modes import SPENDING_MODE_CONSTANT
+from firebridgelab.income.household import (
+    CashEvent,
+    IncomeStream,
+    Person,
+    SpendingAdjustment,
+    household,
+    plan_end_age,
+    with_household,
+)
 from firebridgelab.income.social_security import effective_ss_amount, ss_factor
 from api import scenario_store
 from api.error_translation import engine_error_to_detail
@@ -292,6 +301,58 @@ class BucketsBody(BaseModel):
     n2: Optional[int] = None
 
 
+class PersonBody(BaseModel):
+    """One household member (``income.household.Person``)."""
+
+    id: str
+    start_age: int
+    end_age: int
+    name: str = ""
+
+
+class IncomeStreamBody(BaseModel):
+    """One income stream (``income.household.IncomeStream``). Ages are in the
+    owner's age; Social Security takes the FRA amount and the claim age."""
+
+    id: str
+    kind: str
+    amount: float
+    start_age: int
+    owner: str = "a"
+    end_age: Optional[int] = None
+    cola: str = "full"
+    cola_rate: float = 0.0
+    nominal_until_start: bool = False
+    survivor_fraction: Optional[float] = None
+    tax_treatment: Optional[str] = None
+    label: str = ""
+
+
+class CashEventBody(BaseModel):
+    """A one-off cash flow (``income.household.CashEvent``)."""
+
+    age: int
+    amount: float
+    tax_treatment: str = "tax_free"
+    basis_fraction: float = 0.0
+    owner: str = "a"
+    id: str = ""
+    label: str = ""
+
+
+class SpendingAdjustmentBody(BaseModel):
+    """Required extra spending over an age range
+    (``income.household.SpendingAdjustment``)."""
+
+    amount: float
+    start_age: int
+    end_age: int
+    owner: str = "a"
+    survivor_fraction: float = 1.0
+    id: str = ""
+    label: str = ""
+
+
 class ScenarioBody(BaseModel):
     """POST JSON body for /api/trajectory and /api/solve (the multi-class path).
 
@@ -404,6 +465,14 @@ class ScenarioBody(BaseModel):
     survivor_pension_fraction: Optional[float] = None
     survivor_spending_fraction: Optional[float] = None
     guard_clamp_base: Optional[bool] = None
+    # Household (income.household). All optional; omitted → the legacy
+    # person_* fields above describe a same-age couple. ``people`` (one or two)
+    # sets start_age / end_age from the people's ages; ``income_streams``
+    # (when given, even empty) replaces the four person_* streams.
+    people: Optional[List[PersonBody]] = None
+    income_streams: Optional[List[IncomeStreamBody]] = None
+    cash_events: Optional[List[CashEventBody]] = None
+    spending_adjustments: Optional[List[SpendingAdjustmentBody]] = None
 
 
 # ---------- Saved Scenarios (sv1) ----------
@@ -816,12 +885,7 @@ def _effective_equity_payload(scenario) -> Optional[dict]:
     # The full-GI age = the latest GI start age (when the ramp finishes), clamped
     # to the horizon so a stream starting past end_age (or before start_age)
     # resolves to a real in-horizon anchor.
-    gi_starts = (
-        scenario.person_a_pension_start_age,
-        scenario.person_b_pension_start_age,
-        scenario.person_a_ss_start_age,
-        scenario.person_b_ss_start_age,
-    )
+    gi_starts = [st.start for st in household(scenario).streams] or [scenario.start_age]
     full_gi_age = max(scenario.start_age, min(scenario.end_age, max(gi_starts)))
     return {
         "ages": ages,
@@ -2700,7 +2764,63 @@ def _build_scenario_from_body(body: ScenarioBody):
         }.items()
         if v is not None
     }
-    return replace(defaults, **overrides)
+    return _apply_household_body(body, replace(defaults, **overrides))
+
+
+def _apply_household_body(body: ScenarioBody, scenario):
+    """Thread the body's household (people, income streams, cash events,
+    spending adjustments) onto the scenario. With ``people`` the horizon is
+    derived from the people (``with_household``); a ``start_age`` / ``end_age``
+    that disagrees with them is a 422 rather than silently overridden."""
+    streams = (
+        tuple(IncomeStream(**st.model_dump()) for st in body.income_streams)
+        if body.income_streams is not None
+        else None
+    )
+    events = (
+        tuple(CashEvent(**ev.model_dump()) for ev in body.cash_events)
+        if body.cash_events is not None
+        else None
+    )
+    adjustments = (
+        tuple(SpendingAdjustment(**adj.model_dump()) for adj in body.spending_adjustments)
+        if body.spending_adjustments is not None
+        else None
+    )
+    if body.people is not None:
+        if not body.people:
+            raise HTTPException(status_code=422, detail="people must list one or two people")
+        people = tuple(Person(**p.model_dump()) for p in body.people)
+        derived_end = plan_end_age(people)
+        for field, given, derived in (
+            ("start_age", body.start_age, people[0].start_age),
+            ("end_age", body.end_age, derived_end),
+        ):
+            if given is not None and given != derived:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"{field} {given} conflicts with people (derived {derived}); "
+                        f"omit {field} when people is given"
+                    ),
+                )
+        return with_household(
+            scenario,
+            people=people,
+            income_streams=streams,
+            cash_events=events,
+            spending_adjustments=adjustments,
+        )
+    changes = {
+        k: v
+        for k, v in {
+            "income_streams": streams,
+            "cash_events": events,
+            "spending_adjustments": adjustments,
+        }.items()
+        if v is not None
+    }
+    return replace(scenario, **changes) if changes else scenario
 
 
 def _validate_tax_location(scenario) -> None:
