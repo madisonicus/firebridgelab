@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e ".[dev,notebooks]"
+
+      # Downloads the freely redistributable sources and builds the staged series.
+      # The optional Nareit / testfol.io classes are absent in CI, so the tests
+      # marked requires_optional_classes are skipped.
+      - name: Fetch data
+        run: firebridgelab-fetch-data
+
+      - name: Python tests
+        run: python -m pytest -q tests
+
+      - name: JavaScript tests
+        run: node --test tests/test_*.mjs
+
+      # Notebook 03 (the Owl cross-check) is not run in CI.
+      - name: Execute notebooks 01 and 02
+        run: |
+          jupyter nbconvert --to notebook --execute --output-dir "$RUNNER_TEMP" \
+            notebooks/01-historical-backtest.ipynb \
+            notebooks/02-pension-bridge-guardrails.ipynb
