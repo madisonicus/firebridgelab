@@ -250,11 +250,126 @@
 
           <!-- Social Security: claim-age sliders surfaced into the always-visible Plan
                block — SS is a primary plan-viability lever, not a deep-tuning variable. -->
-          <div class="ss-claim-section">
+          <div class="ss-claim-section legacy-gi">
             <span class="ss-claim-label">Social Security</span>
             <div id="primary-fields-ss" class="field-rows primary-fields"></div>
           </div>
         </div>
+
+        <!-- ============ HOUSEHOLD & INCOME (M5) ============ -->
+        <!-- The household editor: one or two people, a list of income streams,
+             cash events and required spending (the API's people / income_streams /
+             cash_events / spending_adjustments), and the M4 tax options. OFF by
+             default: the legacy two pensions + two Social Security fields describe
+             the plan. Rows are rendered by app.js (renderHouseholdEditor) from
+             householdState; the pure state -> body shaping is household_editor.js.
+             Shared by scenarios A and B. -->
+        <details class="strategy-group household-group" id="household-group">
+          <summary>
+            <span class="summary-label">Household &amp; income streams</span>
+            <span class="summary-hint">people, pensions, Social Security, work, one-off events</span>
+          </summary>
+          <label class="field-row ma-check hh-enable" for="hh-enabled"><input type="checkbox" id="hh-enabled"> <span class="field-label">Describe the household with income streams</span></label>
+          <p class="cma-hint" id="hh-off-note">Off: two people of the same age, with one pension and one Social Security benefit each (set under Assumptions and the Social Security sliders). Turn this on to set each person&rsquo;s own age, add or remove income streams (part-time work, rental, annuities, more pensions), one-off cash events and required spending such as pre-Medicare health insurance. Your current pensions and Social Security become the first streams.</p>
+          <div id="hh-body" hidden>
+            <p class="cma-hint" id="hh-horizon-note" hidden>Ages are each owner&rsquo;s own age. Results are shown on person A&rsquo;s age. Start and end age under Assumptions follow the people here.</p>
+            <fieldset class="hh-section">
+              <legend>People</legend>
+              <div id="hh-people"></div>
+            </fieldset>
+            <fieldset class="hh-section">
+              <legend>Income streams</legend>
+              <div id="hh-streams" class="hh-list"></div>
+              <div class="hh-add">
+                <label class="hh-field"><span class="hh-field-label">New stream kind</span>
+                  <select id="hh-add-kind"></select></label>
+                <button type="button" class="btn btn-secondary" id="hh-add-stream">Add income stream</button>
+              </div>
+            </fieldset>
+            <fieldset class="hh-section">
+              <legend>Cash events</legend>
+              <p class="cma-hint">One-off money in (an inheritance, a home sale) or out (a car, a roof) in a single year.</p>
+              <div id="hh-events" class="hh-list"></div>
+              <div class="hh-add"><button type="button" class="btn btn-secondary" id="hh-add-event">Add cash event</button></div>
+            </fieldset>
+            <fieldset class="hh-section">
+              <legend>Required spending</legend>
+              <p class="cma-hint">Spending on top of the spending rule over an age range (health insurance before Medicare, a mortgage). Guardrails never cut it.</p>
+              <div id="hh-adjustments" class="hh-list"></div>
+              <div class="hh-add"><button type="button" class="btn btn-secondary" id="hh-add-adjustment">Add required spending</button></div>
+            </fieldset>
+          </div>
+
+          <!-- M4 tax options. They change results only with the tax-location split
+               (Starting portfolio &rarr; split by tax location); without one they
+               are not sent. Read by readTaxOptionsDom() in app.js. -->
+          <fieldset class="hh-section tax-options-group" id="tax-options">
+            <legend>Tax options</legend>
+            <p class="cma-hint">Used only when the portfolio is split by tax location (the checkbox under Starting portfolio). See the methodology page for every rule.</p>
+            <div class="field-rows">
+              <div class="field-row"><label class="field-label" for="tx-ss-taxation">Social Security taxation</label>
+                <select id="tx-ss-taxation">
+                  <option value="provisional">Provisional-income formula (IRS)</option>
+                  <option value="flat85">85% of every benefit</option>
+                </select></div>
+              <label class="field-row ma-check" for="tx-payroll"><input type="checkbox" id="tx-payroll"> <span class="field-label">Payroll tax on work income</span></label>
+              <label class="field-row ma-check" for="tx-irmaa"><input type="checkbox" id="tx-irmaa"> <span class="field-label">Medicare IRMAA surcharges from 65</span></label>
+              <div class="field-row tx-irmaa-row" hidden><label class="field-label" for="tx-irmaa-prior">Income (MAGI) two years before the plan ($)</label>
+                <input type="number" id="tx-irmaa-prior" min="0" step="1000" placeholder="none"></div>
+              <div class="field-row"><label class="field-label" for="tx-roth-target">Roth conversions: fill up to</label>
+                <select id="tx-roth-target">
+                  <option value="">Off</option>
+                  <option value="10%">Top of the 10% bracket</option>
+                  <option value="12%">Top of the 12% bracket</option>
+                  <option value="22%">Top of the 22% bracket</option>
+                  <option value="24%">Top of the 24% bracket</option>
+                  <option value="32%">Top of the 32% bracket</option>
+                  <option value="35%">Top of the 35% bracket</option>
+                  <option value="dollars">A dollar amount of taxable income</option>
+                </select>
+                <input type="number" id="tx-roth-dollars" min="0" step="1000" placeholder="taxable income ($)" hidden></div>
+              <div class="field-row tx-roth-row" hidden><label class="field-label" for="tx-roth-start">First conversion at person A&rsquo;s age</label>
+                <input type="number" id="tx-roth-start" min="18" max="120" step="1" placeholder="plan start"></div>
+              <div class="field-row tx-roth-row" hidden><label class="field-label" for="tx-roth-end">Stop at age (not included)</label>
+                <input type="number" id="tx-roth-end" min="18" max="120" step="1" placeholder="plan end"></div>
+              <div class="field-row tx-roth-row" hidden><label class="field-label" for="tx-roth-heir">Heirs&rsquo; tax rate on what is left (%)</label>
+                <input type="number" id="tx-roth-heir" min="0" max="100" step="1" value="22"></div>
+              <div class="field-row"><label class="field-label" for="tx-state">State income tax</label>
+                <select id="tx-state">
+                  <option value="">Not modelled</option>
+                  <optgroup label="No income tax">
+                    <option value="AK">Alaska</option><option value="FL">Florida</option><option value="NV">Nevada</option>
+                    <option value="NH">New Hampshire</option><option value="SD">South Dakota</option><option value="TN">Tennessee</option>
+                    <option value="TX">Texas</option><option value="WY">Wyoming</option>
+                  </optgroup>
+                  <optgroup label="Flat rate">
+                    <option value="GA">Georgia</option><option value="IL">Illinois</option><option value="IN">Indiana</option>
+                    <option value="IA">Iowa</option><option value="LA">Louisiana</option><option value="MS">Mississippi</option>
+                    <option value="NC">North Carolina</option><option value="PA">Pennsylvania</option>
+                  </optgroup>
+                  <option value="custom">Custom flat rate</option>
+                </select></div>
+              <div class="field-row tx-state-row" hidden><label class="field-label" for="tx-state-move-to">Move to another state</label>
+                <select id="tx-state-move-to">
+                  <option value="">No move</option>
+                  <option value="AK">Alaska</option><option value="FL">Florida</option><option value="NV">Nevada</option>
+                  <option value="NH">New Hampshire</option><option value="SD">South Dakota</option><option value="TN">Tennessee</option>
+                  <option value="TX">Texas</option><option value="WY">Wyoming</option>
+                  <option value="GA">Georgia</option><option value="IL">Illinois</option><option value="IN">Indiana</option>
+                  <option value="IA">Iowa</option><option value="LA">Louisiana</option><option value="MS">Mississippi</option>
+                  <option value="NC">North Carolina</option><option value="PA">Pennsylvania</option>
+                  <option value="custom">Custom flat rate</option>
+                </select></div>
+              <div class="field-row tx-state-row" hidden><label class="field-label" for="tx-state-move-age">Move at person A&rsquo;s age</label>
+                <input type="number" id="tx-state-move-age" min="18" max="120" step="1"></div>
+              <div class="field-row tx-custom-row" hidden><label class="field-label" for="tx-state-rate">Custom state rate (% of federal AGI)</label>
+                <input type="number" id="tx-state-rate" min="0" max="20" step="0.1" value="0"></div>
+              <label class="field-row ma-check tx-custom-row" for="tx-state-exempt-ss" hidden><input type="checkbox" id="tx-state-exempt-ss"> <span class="field-label">Custom state exempts Social Security</span></label>
+              <label class="field-row ma-check tx-custom-row" for="tx-state-exempt-pensions" hidden><input type="checkbox" id="tx-state-exempt-pensions"> <span class="field-label">Custom state exempts pensions</span></label>
+              <label class="field-row ma-check tx-custom-row" for="tx-state-exempt-ira" hidden><input type="checkbox" id="tx-state-exempt-ira"> <span class="field-label">Custom state exempts IRA and 401(k) withdrawals</span></label>
+            </div>
+          </fieldset>
+        </details>
 
         <!-- ============ STRATEGY & TUNING (single disclosure) ============ -->
         <!-- UX REFRESH (ux1): everything that isn't a top-level Plan decision lives
@@ -483,8 +598,8 @@
                 <input type="number" id="ma-annual-fee" min="0" max="3" step="0.05" value="0"></div>
               <div class="field-row"><label class="field-label" for="ma-assumed-inflation">Assumed inflation (%)</label>
                 <input type="number" id="ma-assumed-inflation" min="0" max="10" step="0.1" value="2.5"></div>
-              <label class="field-row ma-check" for="ma-pension-nominal"><input type="checkbox" id="ma-pension-nominal"> <span class="field-label">Pensions fixed in dollars until they start</span></label>
-              <div class="field-row"><label class="field-label" for="ma-pension-cola">Pension cost-of-living adjustment</label>
+              <label class="field-row ma-check legacy-gi" for="ma-pension-nominal"><input type="checkbox" id="ma-pension-nominal"> <span class="field-label">Pensions fixed in dollars until they start</span></label>
+              <div class="field-row legacy-gi"><label class="field-label" for="ma-pension-cola">Pension cost-of-living adjustment</label>
                 <select id="ma-pension-cola">
                   <option value="full">Full CPI</option>
                   <option value="fers_diet">FERS-style (2% cap at 2&ndash;3% CPI, CPI&minus;1% above 3%)</option>
@@ -503,7 +618,7 @@
                   <option value="b">Person B</option>
                   <option value="a">Person A</option>
                 </select></div>
-              <div class="field-row ma-survivor"><label class="field-label" for="ma-survivor-pension">Decedent&rsquo;s pension that continues (%)</label>
+              <div class="field-row ma-survivor legacy-gi"><label class="field-label" for="ma-survivor-pension">Decedent&rsquo;s pension that continues (%)</label>
                 <input type="number" id="ma-survivor-pension" min="0" max="100" step="5" value="50"></div>
               <div class="field-row ma-survivor"><label class="field-label" for="ma-survivor-spending">Survivor spending (% of two-person spending)</label>
                 <input type="number" id="ma-survivor-spending" min="0" max="100" step="5" value="75"></div>
@@ -586,12 +701,12 @@
             </div>
           </fieldset>
 
-          <fieldset class="gi-group">
+          <fieldset class="gi-group legacy-gi">
             <legend>Person A's guaranteed income</legend>
             <div id="person-a-gi-fields" class="field-rows"></div>
           </fieldset>
 
-          <fieldset class="gi-group">
+          <fieldset class="gi-group legacy-gi">
             <legend>Person B's guaranteed income</legend>
             <div id="person-b-gi-fields" class="field-rows"></div>
           </fieldset>
@@ -697,6 +812,19 @@
              saved scenarios are kept). Sits next to the Scenarios control. -->
         <button type="button" id="reset-btn" class="btn btn-secondary"
                 title="Restore the default scenario, lens, and allocation (your saved scenarios are kept)">Reset</button>
+        <!-- Plan files (M5): load a .toml plan, download the current scenario as
+             one, or load a bundled example. The same files the command line runs
+             (docs/plan-files.md). Wired by initPlanFiles() in app.js. -->
+        <div class="plan-file-control" id="plan-file-control">
+          <select id="examples-select" class="examples-select" aria-label="Load an example plan">
+            <option value="">Examples&hellip;</option>
+          </select>
+          <button type="button" id="plan-load-btn" class="btn btn-secondary"
+                  title="Load a .toml plan file (the same files the firebridgelab command runs)">Load plan</button>
+          <input type="file" id="plan-file-input" accept=".toml,text/plain,application/toml" hidden>
+          <button type="button" id="plan-download-btn" class="btn btn-secondary"
+                  title="Download scenario A as a .toml plan file">Download plan</button>
+        </div>
         <div class="solve-control" id="solve-control">
           <div class="solve-dial" id="solve-dial" role="group" aria-label="Confidence target">
             <span class="solve-dial-label">Confidence</span>
@@ -712,6 +840,8 @@
         <!-- Validation / allocation error, relocated from .form-actions. -->
         <span id="form-error" class="form-error" role="alert"></span>
       </div>
+      <!-- Plan-file / example status line (M5). -->
+      <p id="plan-file-status" class="plan-file-status" role="status" hidden></p>
       <!-- One-line achieved-% readout written after a solve (or an error). -->
       <p id="solve-readout" class="solve-readout" role="status" hidden></p>
       <!-- Muted caption matching .allocation-caption. Shown alongside a
@@ -1406,6 +1536,8 @@
   <script src="static/chart.min.js"></script>
   <script src="static/chart_view.js?v=r1011"></script>
   <script src="static/comparison_state.js?v=r1011"></script>
+  <script src="static/household_editor.js?v=m5"></script>
+  <script src="static/plan_io.js?v=m5"></script>
   <script src="static/payload_assembler.js?v=r1011"></script>
   <script src="static/scenario_store.js?v=r1011"></script>
   <script src="static/ss_claim.js?v=r1011"></script>

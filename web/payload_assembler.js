@@ -40,6 +40,11 @@
 //       taxableGainsFraction             // number (0..1) or undefined (inactive)
 //       bracketFillTarget                // number, null (active but blank), or
 //                                        // undefined (inactive) — tax-drag td1
+//       household                        // M5: {people, income_streams,
+//                                        // cash_events, spending_adjustments}
+//                                        // or null (editor off)
+//       taxOptions                       // M5: non-default M4 tax keys or null
+//       planExtras                       // M5: imported plan-only keys or null
 //     }
 //
 //   PayloadAssembler.buildPostBody(params) -> body
@@ -178,7 +183,30 @@
     // pre-td1 when the lever is off.
     attachBracketFillTarget(a, formState.bracketFillTarget);
     attachBracketFillTarget(b, formState.bracketFillTarget);
-    return { a, b };
+    // Plan-file extras (M5): values an imported plan carries that the UI has no
+    // control for (lifecycle phase ages, drift, Student-t df). Shared by A and B.
+    if (formState.planExtras) {
+      Object.assign(a, formState.planExtras);
+      Object.assign(b, formState.planExtras);
+    }
+    // Household editor and M4 tax options (M5): shared by A and B. The
+    // household replaces the legacy start/end age and person_* keys (the API
+    // derives the horizon from the people). Both are null/undefined when unused,
+    // so a request without them is byte-identical to before.
+    return applyHousehold({ a, b }, formState.household, formState.taxOptions);
+  }
+
+  // Apply a household body ({people, income_streams, cash_events,
+  // spending_adjustments}) and the tax-option keys to both scenarios. The
+  // per-key rules live in HouseholdEditor.applyToParams (web/household_editor.js).
+  function applyHousehold(pair, household, taxOptions) {
+    if (!household && !taxOptions) return pair;
+    const HE = global.HouseholdEditor;
+    if (!HE) throw new Error("household_editor.js is not loaded");
+    return {
+      a: HE.applyToParams(pair.a, household || null, taxOptions || null),
+      b: HE.applyToParams(pair.b, household || null, taxOptions || null),
+    };
   }
 
   // Reshape a flat `params` object into the ScenarioBody the API expects:

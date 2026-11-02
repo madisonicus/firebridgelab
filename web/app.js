@@ -2448,6 +2448,14 @@ const GlidepathView = {
   // {pension/SS start ages}, clipped to (start_age, end_age], plus start_age itself
   // (the first phase always opens at the start). Ascending, distinct.
   boundaries(ages) {
+    if (Array.isArray(ages.streamAges)) {
+      // Household streams (M5): 401(k) access plus every stream start and end.
+      const set = new Set([ages.startAge]);
+      for (const age of [ALLOCATION_401K_ACCESS_AGE, ...ages.streamAges.map((x) => x.age)]) {
+        if (age > ages.startAge && age <= ages.endAge) set.add(age);
+      }
+      return Array.from(set).sort((x, y) => x - y);
+    }
     const inflections = [
       ALLOCATION_401K_ACCESS_AGE,
       ages.personAPension,
@@ -2471,6 +2479,13 @@ const GlidepathView = {
   // warn loudly rather than silently mislabel (Fix 3).
   phaseEvent(boundaryAge, ages) {
     if (boundaryAge === ages.startAge) return "Bridge";
+    if (Array.isArray(ages.streamAges)) {
+      const kinds = ages.streamAges.filter((x) => x.age === boundaryAge).map((x) => x.kind);
+      if (kinds.includes("social_security")) return "Social Security";
+      if (kinds.includes("pension")) return "Pension";
+      if (kinds.length) return "Income change";
+      return "401(k) access";
+    }
     if (boundaryAge === ages.personASs || boundaryAge === ages.personBSs)
       return "Social Security";
     if (boundaryAge === ages.personAPension || boundaryAge === ages.personBPension)
@@ -3604,6 +3619,13 @@ window.FederalTaxView = FederalTaxView;
 // Read the current GI / horizon ages off the inputs into the `ages` shape the pure
 // GlidepathView functions take.
 function glidepathAges() {
+  // Household editor on: the phases derive from the streams' start and end
+  // ages on person A's axis, as the engine derives them.
+  const HE = householdApi();
+  if (HE && householdEnabled()) {
+    const { startAge, endAge } = HE.planAges(householdState);
+    return { startAge, endAge, streamAges: HE.axisAges(householdState) };
+  }
   return {
     startAge: readAgeInput("start_age", 50),
     endAge: readAgeInput("end_age", 95),
@@ -4895,6 +4917,16 @@ function readFormState() {
     // bracket_fill_target (byte-identical to pre-td1 for that field).
     bracketFillTarget: taxLocationActive() ? readBracketFillTarget() : undefined,
     modelAssumptions: readModelAssumptions(),
+    // Household editor (M5): the people / streams / events / adjustments body,
+    // or null while the editor is off (the legacy FIELDS then describe the
+    // household and the request is unchanged). Throws on a bad row, like
+    // readFieldValue, so the error shows before any POST.
+    household: readHouseholdBody(),
+    // M4 tax options: only non-default keys, only with an active split; null
+    // otherwise.
+    taxOptions: readTaxOptionsBody(),
+    // Imported plan-file values the UI does not edit (null when none).
+    planExtras: planExtras && Object.keys(planExtras).length ? planExtras : null,
   };
 }
 
@@ -4998,6 +5030,779 @@ function initModelAssumptions() {
   });
 }
 
+// ---------- Household editor (M5) ----------
+//
+// One or two people with their own ages and planning horizons, a list of income
+// streams, cash events and required-spending adjustments (the API's `people`,
+// `income_streams`, `cash_events`, `spending_adjustments`; docs/plan-files.md
+// documents every field). OFF by default: the legacy two-pension / two-Social-
+// Security FIELDS describe the plan, exactly as before. Turning it on converts
+// those four into income streams (HouseholdEditor.fromLegacy) unless the editor
+// already holds rows. The household is SHARED by scenarios A and B, like the
+// model assumptions.
+//
+// The rows live in `householdState` (plain data); renderHouseholdEditor() draws
+// them and every input writes straight back into the state. The pure shaping —
+// state -> API body, validation, legacy conversion — is web/household_editor.js.
+// Everything here no-ops when that module is not loaded (the node:vm tests load
+// app.js without it).
+
+function householdApi() {
+  return typeof window !== "undefined" && window.HouseholdEditor ? window.HouseholdEditor : null;
+}
+
+let householdState = null; // HouseholdEditor state, or null before init
+// Plan-file values the UI has no control for (lifecycle phase ages and
+// multipliers, spending and pension drift, Student-t degrees of freedom). Set
+// from an imported plan, sent with every request and written back on export.
+let planExtras = null;
+// The imported plan's name, description and run settings (trials, seed,
+// stress), so a downloaded plan keeps them.
+let planMeta = null;
+
+function householdEnabled() {
+  return !!(householdState && householdState.enabled);
+}
+
+function hhEl(id) {
+  return document.getElementById(id);
+}
+
+// The legacy fields the conversion reads, off the live form (A side).
+function readLegacyHouseholdFields() {
+  const out = {};
+  for (const name of [
+    "start_age", "end_age",
+    "person_a_pension_amount", "person_a_pension_start_age",
+    "person_b_pension_amount", "person_b_pension_start_age",
+    "person_a_ss_fra_amount", "person_a_ss_claim_age",
+    "person_b_ss_fra_amount", "person_b_ss_claim_age",
+  ]) {
+    const el = aInputEl(name);
+    out[name] = el ? Number(el.value) : NaN;
+  }
+  return out;
+}
+
+// The household body for the request, or null when the editor is off.
+function readHouseholdBody() {
+  const HE = householdApi();
+  if (!HE || !householdEnabled()) return null;
+  return HE.buildHousehold(householdState);
+}
+
+// ---- tax options (M4 fields) ----
+
+const TAX_OPTION_IDS = {
+  ss_taxation: "tx-ss-taxation",
+  payroll_tax: "tx-payroll",
+  irmaa: "tx-irmaa",
+  irmaa_prior_magi: "tx-irmaa-prior",
+  roth_target_choice: "tx-roth-target",
+  roth_target_dollars: "tx-roth-dollars",
+  roth_conversion_start_age: "tx-roth-start",
+  roth_conversion_end_age: "tx-roth-end",
+  roth_heir_tax_rate: "tx-roth-heir",
+  state: "tx-state",
+  state_move_age: "tx-state-move-age",
+  state_after_move: "tx-state-move-to",
+  state_custom_rate: "tx-state-rate",
+  state_custom_exempt_ss: "tx-state-exempt-ss",
+  state_custom_exempt_pensions: "tx-state-exempt-pensions",
+  state_custom_exempt_ira: "tx-state-exempt-ira",
+};
+
+// Read the tax-options panel into a HouseholdEditor tax state. Blank selects
+// read as the default (so a fake or missing panel reads as "all defaults").
+// Percent inputs (heir rate, custom state rate) convert to fractions.
+function readTaxOptionsDom() {
+  const v = (key) => {
+    const el = hhEl(TAX_OPTION_IDS[key]);
+    return el && typeof el.value === "string" ? el.value.trim() : "";
+  };
+  const c = (key) => {
+    const el = hhEl(TAX_OPTION_IDS[key]);
+    return !!(el && el.checked === true);
+  };
+  const pct = (key) => {
+    const raw = v(key);
+    if (raw === "") return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n / 100 : raw;
+  };
+  const choice = v("roth_target_choice");
+  let rothTarget = null;
+  if (choice === "dollars") rothTarget = v("roth_target_dollars");
+  else if (choice) rothTarget = choice;
+  return {
+    ss_taxation: v("ss_taxation") || "provisional",
+    payroll_tax: c("payroll_tax"),
+    irmaa: c("irmaa"),
+    irmaa_prior_magi: v("irmaa_prior_magi"),
+    roth_conversion_target: rothTarget,
+    roth_conversion_start_age: v("roth_conversion_start_age"),
+    roth_conversion_end_age: v("roth_conversion_end_age"),
+    roth_heir_tax_rate: pct("roth_heir_tax_rate"),
+    state: v("state") || null,
+    state_move_age: v("state_move_age"),
+    state_after_move: v("state_after_move") || null,
+    state_custom_rate: pct("state_custom_rate"),
+    state_custom_exempt_ss: c("state_custom_exempt_ss"),
+    state_custom_exempt_pensions: c("state_custom_exempt_pensions"),
+    state_custom_exempt_ira: c("state_custom_exempt_ira"),
+  };
+}
+
+// Inverse of readTaxOptionsDom: write a tax state (null -> defaults).
+function applyTaxOptionsDom(taxState) {
+  const HE = householdApi();
+  if (!HE || !hhEl("tax-options")) return;
+  const t = { ...HE.TAX_DEFAULTS, ...(taxState || {}) };
+  const set = (key, value) => {
+    const el = hhEl(TAX_OPTION_IDS[key]);
+    if (el) el.value = value === null || value === undefined ? "" : String(value);
+  };
+  const check = (key, on) => {
+    const el = hhEl(TAX_OPTION_IDS[key]);
+    if (el) el.checked = !!on;
+  };
+  set("ss_taxation", t.ss_taxation);
+  check("payroll_tax", t.payroll_tax);
+  check("irmaa", t.irmaa);
+  set("irmaa_prior_magi", t.irmaa_prior_magi);
+  const target = t.roth_conversion_target;
+  if (target === null || target === undefined || target === "") {
+    set("roth_target_choice", "");
+    set("roth_target_dollars", "");
+  } else if (HE.ROTH_BRACKETS.includes(target)) {
+    set("roth_target_choice", target);
+    set("roth_target_dollars", "");
+  } else {
+    set("roth_target_choice", "dollars");
+    set("roth_target_dollars", target);
+  }
+  set("roth_conversion_start_age", t.roth_conversion_start_age);
+  set("roth_conversion_end_age", t.roth_conversion_end_age);
+  set("roth_heir_tax_rate", +(Number(t.roth_heir_tax_rate) * 100).toFixed(4));
+  set("state", t.state);
+  set("state_move_age", t.state_move_age);
+  set("state_after_move", t.state_after_move);
+  set("state_custom_rate", +(Number(t.state_custom_rate) * 100).toFixed(4));
+  check("state_custom_exempt_ss", t.state_custom_exempt_ss);
+  check("state_custom_exempt_pensions", t.state_custom_exempt_pensions);
+  check("state_custom_exempt_ira", t.state_custom_exempt_ira);
+  syncTaxOptionRows();
+}
+
+// Show only the rows that apply: the IRMAA prior-income box under IRMAA, the
+// Roth window under a Roth target, the move and custom-rate rows under a state.
+function syncTaxOptionRows() {
+  const panel = hhEl("tax-options");
+  if (!panel || typeof panel.querySelectorAll !== "function") return;
+  const t = readTaxOptionsDom();
+  const show = (cls, on) => {
+    panel.querySelectorAll(cls).forEach((row) => {
+      row.hidden = !on;
+    });
+  };
+  show(".tx-irmaa-row", t.irmaa);
+  show(".tx-roth-row", t.roth_conversion_target !== null);
+  const dollarsEl = hhEl(TAX_OPTION_IDS.roth_target_dollars);
+  if (dollarsEl) dollarsEl.hidden = hhEl(TAX_OPTION_IDS.roth_target_choice).value !== "dollars";
+  show(".tx-state-row", !!t.state);
+  show(".tx-custom-row", t.state === "custom" || t.state_after_move === "custom");
+}
+
+// The M4 tax keys for the request: only non-default values, and only while a
+// tax-location split is active (the API rejects the opt-ins without one).
+function readTaxOptionsBody() {
+  const HE = householdApi();
+  if (!HE || !hhEl("tax-options")) return null;
+  if (!taxLocationActive()) return null;
+  const out = HE.buildTaxOptions(readTaxOptionsDom());
+  return Object.keys(out).length ? out : null;
+}
+
+// ---- rendering ----
+
+function hhOption(sel, value, label, selected) {
+  const o = document.createElement("option");
+  o.value = value;
+  o.textContent = label;
+  if (selected) o.selected = true;
+  sel.appendChild(o);
+}
+
+function hhOwnerLabel(id) {
+  const people = householdState.people;
+  if (id === "household") return "Household";
+  const idx = id === "b" ? 1 : 0;
+  const name = people[idx] && people[idx].name ? ` (${people[idx].name})` : "";
+  return `Person ${id.toUpperCase()}${name}`;
+}
+
+function hhOwnerOptions() {
+  return householdState.people.length === 2 ? ["a", "b", "household"] : ["a", "household"];
+}
+
+// One labelled control bound to `obj[field]`. kind: "number", "text",
+// "checkbox" or "select" (with `options` as [value, label] pairs). Edits write
+// straight into the state; `onChange` (optional) runs on change for fields
+// that alter which other controls show.
+function hhControl(obj, field, label, kind, opts = {}) {
+  const wrap = document.createElement("label");
+  wrap.className = kind === "checkbox" ? "hh-field hh-check" : "hh-field";
+  let input;
+  if (kind === "select") {
+    input = document.createElement("select");
+    for (const [value, text] of opts.options) {
+      hhOption(input, value, text, String(obj[field] ?? "") === String(value));
+    }
+  } else {
+    input = document.createElement("input");
+    input.type = kind;
+    if (kind === "checkbox") {
+      input.checked = !!obj[field];
+    } else {
+      input.value = obj[field] === null || obj[field] === undefined ? "" : String(obj[field]);
+      if (kind === "number") {
+        if (opts.step !== undefined) input.step = String(opts.step);
+        if (opts.min !== undefined) input.min = String(opts.min);
+        if (opts.max !== undefined) input.max = String(opts.max);
+        input.inputMode = "decimal";
+      }
+      if (opts.placeholder) input.placeholder = opts.placeholder;
+    }
+  }
+  if (opts.dataField) input.dataset.field = opts.dataField;
+  const read = () => {
+    if (kind === "checkbox") return input.checked;
+    if (opts.scale) {
+      const raw = input.value.trim();
+      if (raw === "") return null;
+      const n = Number(raw);
+      return Number.isFinite(n) ? n / opts.scale : raw;
+    }
+    return input.value;
+  };
+  if (opts.scale && obj[field] !== null && obj[field] !== undefined && kind === "number") {
+    input.value = String(+(Number(obj[field]) * opts.scale).toFixed(4));
+  }
+  input.addEventListener(kind === "select" || kind === "checkbox" ? "change" : "input", () => {
+    obj[field] = read();
+    if (opts.onChange) opts.onChange();
+  });
+  const span = document.createElement("span");
+  span.className = "hh-field-label";
+  span.textContent = label;
+  if (kind === "checkbox") {
+    wrap.appendChild(input);
+    wrap.appendChild(span);
+  } else {
+    wrap.appendChild(span);
+    wrap.appendChild(input);
+  }
+  if (opts.hidden) wrap.hidden = true;
+  return wrap;
+}
+
+function hhRemoveButton(label, onClick) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "btn btn-secondary hh-remove";
+  btn.textContent = "Remove";
+  btn.setAttribute("aria-label", label);
+  btn.addEventListener("click", onClick);
+  return btn;
+}
+
+function renderHouseholdPeople() {
+  const box = hhEl("hh-people");
+  if (!box) return;
+  box.innerHTML = "";
+  const count = document.createElement("label");
+  count.className = "hh-field";
+  const countLabel = document.createElement("span");
+  countLabel.className = "hh-field-label";
+  countLabel.textContent = "People in the plan";
+  const sel = document.createElement("select");
+  sel.id = "hh-people-count";
+  hhOption(sel, "1", "One person", householdState.people.length === 1);
+  hhOption(sel, "2", "Two people", householdState.people.length === 2);
+  sel.addEventListener("change", () => setHouseholdPeopleCount(Number(sel.value)));
+  count.appendChild(countLabel);
+  count.appendChild(sel);
+  box.appendChild(count);
+
+  householdState.people.forEach((p, i) => {
+    const row = document.createElement("div");
+    row.className = "hh-row hh-person";
+    const head = document.createElement("div");
+    head.className = "hh-row-head";
+    head.textContent = `Person ${i === 0 ? "A" : "B"}`;
+    row.appendChild(head);
+    const grid = document.createElement("div");
+    grid.className = "hh-grid";
+    grid.appendChild(hhControl(p, "name", "Name (optional)", "text", { dataField: "name" }));
+    grid.appendChild(hhControl(p, "start_age", "Age now", "number",
+      { step: 1, min: 18, max: 110, dataField: "start_age", onChange: syncHouseholdDerived }));
+    grid.appendChild(hhControl(p, "end_age", "Plan to age", "number",
+      { step: 1, min: 19, max: 120, dataField: "end_age", onChange: syncHouseholdDerived }));
+    row.appendChild(grid);
+    box.appendChild(row);
+  });
+}
+
+function setHouseholdPeopleCount(n) {
+  const people = householdState.people;
+  if (n === 1 && people.length === 2) {
+    people.splice(1);
+    // Person B's rows have no owner left: move them to the household.
+    for (const list of [householdState.streams, householdState.cashEvents, householdState.adjustments]) {
+      for (const item of list) if (item.owner === "b") item.owner = "household";
+    }
+  } else if (n === 2 && people.length === 1) {
+    people.push({ id: "b", name: "", start_age: people[0].start_age, end_age: people[0].end_age });
+  }
+  renderHouseholdEditor();
+  syncHouseholdDerived();
+}
+
+function streamRowFields(st) {
+  const isSS = st.kind === "social_security";
+  const two = householdState.people.length === 2;
+  const refresh = () => renderHouseholdEditor();
+  const fields = [
+    hhControl(st, "id", "Id", "text", { dataField: "id" }),
+    hhControl(st, "kind", "Kind", "select", {
+      dataField: "kind",
+      options: householdApi().STREAM_KINDS.map((k) => [k, householdApi().KIND_LABELS[k]]),
+      onChange: () => {
+        if (st.kind === "social_security") {
+          st.end_age = null;
+          st.cola = "full";
+          if (st.start_age < 62 || st.start_age > 70) st.start_age = 67;
+        }
+        refresh();
+        syncHouseholdDerived();
+      },
+    }),
+    hhControl(st, "owner", "Owner", "select", {
+      dataField: "owner",
+      options: hhOwnerOptions().map((o) => [o, hhOwnerLabel(o)]),
+      onChange: syncHouseholdDerived,
+    }),
+    hhControl(st, "amount", isSS ? "Benefit at full retirement age ($/yr)"
+      : st.nominal_until_start ? "Check at start ($/yr, nominal)" : "Amount ($/yr, today's dollars)",
+      "number", { step: 1000, min: 0, dataField: "amount" }),
+    hhControl(st, "start_age", isSS ? "Claim age (62-70)" : "Starts at owner's age", "number",
+      { step: 1, min: isSS ? 62 : 18, max: isSS ? 70 : 120, dataField: "start_age",
+        onChange: syncHouseholdDerived }),
+  ];
+  if (!isSS) {
+    fields.push(hhControl(st, "end_age", "Stops at age (blank = for life)", "number",
+      { step: 1, min: 18, max: 120, dataField: "end_age", placeholder: "for life",
+        onChange: syncHouseholdDerived }));
+    fields.push(hhControl(st, "cola", "Cost-of-living rule", "select", {
+      dataField: "cola",
+      options: [
+        ["full", "Full CPI (keeps its value)"],
+        ["none", "None (fixed in dollars)"],
+        ["fixed", "Fixed rate a year"],
+        ["fers_diet", "FERS-style (diet COLA)"],
+      ],
+      onChange: refresh,
+    }));
+    fields.push(hhControl(st, "cola_rate", "COLA rate (% a year, nominal)", "number",
+      { step: 0.1, dataField: "cola_rate", scale: 100, hidden: st.cola !== "fixed" }));
+    fields.push(hhControl(st, "nominal_until_start", "Fixed in dollars until it starts", "checkbox",
+      { dataField: "nominal_until_start", onChange: refresh }));
+    fields.push(hhControl(st, "survivor_fraction", "Continues after owner's death (%)", "number",
+      { step: 5, min: 0, max: 100, dataField: "survivor_fraction", scale: 100,
+        placeholder: "default", hidden: !two || st.owner === "household" }));
+  }
+  const taxOptions = [["", "Default"], ["ordinary", "Ordinary income"], ["tax_free", "Tax-free"]];
+  if (isSS) taxOptions.push(["social_security", "Social Security rules"]);
+  fields.push(hhControl(st, "tax_treatment", "Tax treatment", "select",
+    { dataField: "tax_treatment", options: taxOptions }));
+  if (st.kind === "work") {
+    fields.push(hhControl(st, "self_employed", "Self-employed (payroll option)", "checkbox",
+      { dataField: "self_employed" }));
+  }
+  fields.push(hhControl(st, "label", "Label (optional)", "text", { dataField: "label" }));
+  return fields;
+}
+
+function renderHouseholdList(containerId, list, title, fieldsFor, noun) {
+  const box = hhEl(containerId);
+  if (!box) return;
+  box.innerHTML = "";
+  if (!list.length) {
+    const empty = document.createElement("p");
+    empty.className = "hh-empty";
+    empty.textContent = `No ${noun}.`;
+    box.appendChild(empty);
+    return;
+  }
+  list.forEach((item, i) => {
+    const row = document.createElement("div");
+    row.className = "hh-row";
+    row.dataset.index = String(i);
+    const head = document.createElement("div");
+    head.className = "hh-row-head";
+    const t = document.createElement("span");
+    t.textContent = title(item, i);
+    head.appendChild(t);
+    head.appendChild(hhRemoveButton(`Remove ${t.textContent}`, () => {
+      list.splice(i, 1);
+      renderHouseholdEditor();
+      syncHouseholdDerived();
+    }));
+    row.appendChild(head);
+    const grid = document.createElement("div");
+    grid.className = "hh-grid";
+    for (const f of fieldsFor(item)) grid.appendChild(f);
+    row.appendChild(grid);
+    box.appendChild(row);
+  });
+}
+
+function cashEventFields(ev) {
+  const refresh = () => renderHouseholdEditor();
+  return [
+    hhControl(ev, "id", "Id (optional)", "text", { dataField: "id" }),
+    hhControl(ev, "owner", "Owner", "select",
+      { dataField: "owner", options: hhOwnerOptions().map((o) => [o, hhOwnerLabel(o)]) }),
+    hhControl(ev, "age", "At owner's age", "number", { step: 1, min: 18, max: 120, dataField: "age" }),
+    hhControl(ev, "amount", "Amount ($, + in / - out)", "number", { step: 1000, dataField: "amount" }),
+    hhControl(ev, "tax_treatment", "Tax treatment", "select", {
+      dataField: "tax_treatment",
+      options: [["tax_free", "Tax-free"], ["ordinary", "Ordinary income"], ["capital_gain", "Capital gain"]],
+      onChange: refresh,
+    }),
+    hhControl(ev, "basis_fraction", "Basis (% not taxed)", "number",
+      { step: 5, min: 0, max: 100, scale: 100, dataField: "basis_fraction",
+        hidden: ev.tax_treatment !== "capital_gain" }),
+    hhControl(ev, "label", "Label (optional)", "text", { dataField: "label" }),
+  ];
+}
+
+function adjustmentFields(adj) {
+  const two = householdState.people.length === 2;
+  return [
+    hhControl(adj, "id", "Id (optional)", "text", { dataField: "id" }),
+    hhControl(adj, "owner", "Owner", "select",
+      { dataField: "owner", options: hhOwnerOptions().map((o) => [o, hhOwnerLabel(o)]) }),
+    hhControl(adj, "amount", "Extra spending ($/yr)", "number", { step: 500, min: 0, dataField: "amount" }),
+    hhControl(adj, "start_age", "From owner's age", "number", { step: 1, min: 18, max: 120, dataField: "start_age" }),
+    hhControl(adj, "end_age", "Until age (not included)", "number", { step: 1, min: 18, max: 120, dataField: "end_age" }),
+    hhControl(adj, "survivor_fraction", "Continues after owner's death (%)", "number",
+      { step: 5, min: 0, max: 100, scale: 100, dataField: "survivor_fraction", hidden: !two }),
+    hhControl(adj, "label", "Label (optional)", "text", { dataField: "label" }),
+  ];
+}
+
+function renderHouseholdEditor() {
+  const HE = householdApi();
+  if (!HE || !householdState || !hhEl("household-group")) return;
+  const enabled = householdEnabled();
+  const box = hhEl("hh-enabled");
+  if (box) box.checked = enabled;
+  const body = hhEl("hh-body");
+  if (body) body.hidden = !enabled;
+  const offNote = hhEl("hh-off-note");
+  if (offNote) offNote.hidden = enabled;
+  if (!enabled) return;
+  renderHouseholdPeople();
+  renderHouseholdList("hh-streams", householdState.streams,
+    (st, i) => `${i + 1}. ${HE.KIND_LABELS[st.kind] || st.kind} · ${hhOwnerLabel(st.owner)}`,
+    streamRowFields, "income streams");
+  renderHouseholdList("hh-events", householdState.cashEvents,
+    (ev, i) => `Cash event ${i + 1}`, cashEventFields, "cash events");
+  renderHouseholdList("hh-adjustments", householdState.adjustments,
+    (adj, i) => `Required spending ${i + 1}`, adjustmentFields, "required spending");
+}
+
+// Keep the rest of the form consistent with the household: the horizon fields
+// show the plan's start and end on person A's axis (other views read them), the
+// legacy guaranteed-income fieldsets and legacy-only pension assumptions hide,
+// and the glidepath phases re-derive from the streams.
+function syncHouseholdDerived() {
+  const HE = householdApi();
+  if (!HE || !householdState) return;
+  const enabled = householdEnabled();
+  if (enabled) {
+    const { startAge, endAge } = HE.planAges(householdState);
+    if (Number.isFinite(startAge)) setFieldInputValue("start_age", startAge);
+    if (Number.isFinite(endAge)) setFieldInputValue("end_age", endAge);
+  }
+  for (const name of ["start_age", "end_age"]) {
+    const el = aInputEl(name);
+    if (el) el.disabled = enabled;
+  }
+  if (typeof document.querySelectorAll === "function") {
+    document.querySelectorAll(".legacy-gi").forEach((el) => {
+      el.hidden = enabled;
+    });
+  }
+  const note = hhEl("hh-horizon-note");
+  if (note) note.hidden = !enabled;
+  if (allocationMode === "glidepath") renderGlidepathPhases();
+}
+
+// The enable checkbox. Turning it on with an empty editor converts the legacy
+// fields; turning it off keeps the rows (so turning it back on restores them).
+function setHouseholdEnabled(on) {
+  const HE = householdApi();
+  if (!HE) return;
+  if (on && !householdState.streams.length && !householdState.cashEvents.length
+      && !householdState.adjustments.length) {
+    const ma = { ...MODEL_ASSUMPTION_DEFAULTS, ...(readModelAssumptions() || {}) };
+    householdState = HE.fromLegacy(readLegacyHouseholdFields(), ma);
+  }
+  householdState.enabled = !!on;
+  renderHouseholdEditor();
+  syncHouseholdDerived();
+}
+
+// Replace the editor from a saved block / import (null -> off and empty).
+function applyHouseholdState(saved) {
+  const HE = householdApi();
+  if (!HE) return;
+  const start = readAgeInput("start_age", 50);
+  const end = readAgeInput("end_age", 95);
+  if (saved && typeof saved === "object" && Array.isArray(saved.people)) {
+    householdState = {
+      ...HE.defaultState(start, end),
+      ...JSON.parse(JSON.stringify(saved)),
+    };
+  } else {
+    householdState = HE.defaultState(start, end);
+  }
+  renderHouseholdEditor();
+  syncHouseholdDerived();
+}
+
+function initHouseholdEditor() {
+  const HE = householdApi();
+  if (!HE) return;
+  householdState = HE.defaultState(readAgeInput("start_age", 50), readAgeInput("end_age", 95));
+  const box = hhEl("hh-enabled");
+  if (box && typeof box.addEventListener === "function") {
+    box.addEventListener("change", () => setHouseholdEnabled(box.checked));
+  }
+  const addKind = hhEl("hh-add-kind");
+  if (addKind && addKind.options && addKind.options.length === 0) {
+    for (const k of HE.STREAM_KINDS) hhOption(addKind, k, HE.KIND_LABELS[k], k === "pension");
+  }
+  const bind = (id, fn) => {
+    const el = hhEl(id);
+    if (el && typeof el.addEventListener === "function") el.addEventListener("click", fn);
+  };
+  bind("hh-add-stream", () => {
+    const kind = addKind ? addKind.value : "pension";
+    householdState.streams.push(HE.newStream(householdState, kind, "a"));
+    renderHouseholdEditor();
+    syncHouseholdDerived();
+  });
+  bind("hh-add-event", () => {
+    householdState.cashEvents.push(HE.newCashEvent(householdState, "a"));
+    renderHouseholdEditor();
+  });
+  bind("hh-add-adjustment", () => {
+    householdState.adjustments.push(HE.newAdjustment(householdState, "a"));
+    renderHouseholdEditor();
+  });
+  const tax = hhEl("tax-options");
+  if (tax && typeof tax.querySelectorAll === "function") {
+    tax.querySelectorAll("input, select").forEach((el) => {
+      el.addEventListener("change", syncTaxOptionRows);
+    });
+  }
+  applyTaxOptionsDom(null);
+  renderHouseholdEditor();
+  syncHouseholdDerived();
+}
+
+// ---------- Plan files and examples (M5) ----------
+//
+// The UI reads and writes the same TOML plan files as the command line
+// (docs/plan-files.md). Parsing and writing stay in Python: the UI posts the
+// file's text to /api/plan/import and gets back the API body, then turns it into
+// a saved-scenario blob (PlanIO.blobFromImport) and loads it with the same
+// applyScenarioToForm a saved scenario uses. Download posts the current scenario
+// A body to /api/plan/export and saves the TOML it returns. The Examples picker
+// loads /api/examples/<name> through the same path.
+
+const PLAN_IMPORT_URL = "api/plan/import";
+const PLAN_EXPORT_URL = "api/plan/export";
+const EXAMPLES_URL = "api/examples";
+
+function setPlanStatus(msg, isError) {
+  const el = hhEl("plan-file-status");
+  if (!el) return;
+  el.textContent = msg || "";
+  el.hidden = !msg;
+  if (el.classList) el.classList.toggle("is-error", !!isError);
+}
+
+async function planApiError(resp) {
+  let detail = `HTTP ${resp.status}`;
+  try {
+    const j = await resp.json();
+    if (j && j.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+  } catch (_e) { /* keep the status */ }
+  return new Error(detail);
+}
+
+// Load an import payload ({name, description, trials, seed, stress, body}) into
+// the form: one recompute, like loading a saved scenario.
+async function loadPlanPayload(payload, sourceLabel) {
+  const blob = PlanIO.blobFromImport(payload, {
+    classIds: ASSET_CLASSES.map((c) => c.id),
+    simMode,
+  });
+  await applyScenarioToForm(blob);
+  const warn = blob.warnings && blob.warnings.length ? ` ${blob.warnings.join(" ")}` : "";
+  setPlanStatus(`Loaded ${sourceLabel}.${warn}`, false);
+  return blob;
+}
+
+async function importPlanText(text, filename) {
+  const resp = await fetch(PLAN_IMPORT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ toml: text, filename: filename || "plan.toml" }),
+  });
+  if (!resp.ok) throw await planApiError(resp);
+  return loadPlanPayload(await resp.json(), filename || "the plan file");
+}
+
+async function onPlanFileChosen(e) {
+  const input = e.target;
+  const file = input && input.files && input.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    await importPlanText(text, file.name);
+  } catch (err) {
+    setPlanStatus(`Could not load ${file.name}: ${err.message}`, true);
+  } finally {
+    input.value = "";
+  }
+}
+
+// The request body for scenario A (the focused side while comparing), exactly
+// what Recompute posts, wrapped for /api/plan/export.
+function buildExportRequest() {
+  const { a, b } = readScenarios();
+  const side = compareState.focusedScenario() === "B" ? b : a;
+  const body = buildPostBody(side);
+  // Outside the dynamic rules the request omits the guardrail knobs; the plan
+  // file still records them, so take them from their inputs.
+  if (!isDynamicSpending()) {
+    body.guard_band = readGuardrailNumber(GUARD_BAND_INPUT_ID, GUARDRAIL_DEFAULTS.guardBand, 100);
+    body.guard_adjust = readGuardrailNumber(GUARD_ADJUST_INPUT_ID, GUARDRAIL_DEFAULTS.guardAdjust, 100);
+    body.spending_floor = readGuardrailNumber(SPENDING_FLOOR_INPUT_ID, GUARDRAIL_DEFAULTS.floor);
+    body.spending_ceiling = readGuardrailNumber(SPENDING_CEILING_INPUT_ID, GUARDRAIL_DEFAULTS.ceiling);
+  }
+  return PlanIO.exportRequest(body, planMeta);
+}
+
+async function downloadPlanFile() {
+  let req;
+  try {
+    req = buildExportRequest();
+  } catch (err) {
+    setPlanStatus(`Cannot write a plan file: ${err.message}`, true);
+    return null;
+  }
+  try {
+    const resp = await fetch(PLAN_EXPORT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    });
+    if (!resp.ok) throw await planApiError(resp);
+    const { toml } = await resp.json();
+    const name = PlanIO.fileName(planMeta && planMeta.name);
+    const blob = new Blob([toml], { type: "application/toml" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setPlanStatus(`Downloaded ${name}. Run it with: firebridgelab run ${name}`, false);
+    return toml;
+  } catch (err) {
+    setPlanStatus(`Cannot write a plan file: ${err.message}`, true);
+    return null;
+  }
+}
+
+async function loadExamplesMenu() {
+  const sel = hhEl("examples-select");
+  if (!sel || typeof sel.addEventListener !== "function") return;
+  try {
+    const resp = await fetch(EXAMPLES_URL);
+    if (!resp.ok) return;
+    const rows = await resp.json();
+    for (const row of rows) {
+      const o = document.createElement("option");
+      o.value = row.id;
+      o.textContent = row.name;
+      o.title = row.description || "";
+      sel.appendChild(o);
+    }
+  } catch (_e) {
+    // Examples are optional; the picker keeps its placeholder.
+  }
+  sel.addEventListener("change", async () => {
+    const id = sel.value;
+    if (!id) return;
+    try {
+      const resp = await fetch(`${EXAMPLES_URL}/${encodeURIComponent(id)}`);
+      if (!resp.ok) throw await planApiError(resp);
+      const payload = await resp.json();
+      await loadPlanPayload(payload, `the example "${payload.name || id}"`);
+      if (payload.description) {
+        setPlanStatus(`Loaded the example "${payload.name || id}": ${payload.description}`, false);
+      }
+    } catch (err) {
+      setPlanStatus(`Could not load the example: ${err.message}`, true);
+    } finally {
+      sel.value = "";
+    }
+  });
+}
+
+function initPlanFiles() {
+  const file = hhEl("plan-file-input");
+  if (file && typeof file.addEventListener === "function") {
+    file.addEventListener("change", onPlanFileChosen);
+  }
+  const load = hhEl("plan-load-btn");
+  if (load && file && typeof load.addEventListener === "function") {
+    load.addEventListener("click", () => file.click());
+  }
+  const dl = hhEl("plan-download-btn");
+  if (dl && typeof dl.addEventListener === "function") dl.addEventListener("click", downloadPlanFile);
+  loadExamplesMenu();
+}
+
+// Exposed for tests; not a stable API.
+window.HouseholdUI = {
+  state: () => householdState,
+  setEnabled: setHouseholdEnabled,
+  applyState: applyHouseholdState,
+  readTaxOptionsDom,
+  buildExportRequest,
+  loadPlanPayload,
+};
+
 // ---------- Saved Scenarios (sv1) ----------
 //
 // Persist the current scenario as a named, reloadable blob (one JSON per save,
@@ -5086,7 +5891,7 @@ function captureScenario(name) {
   // The DOM/global reads are resolved above; ScenarioStore.capture does the PURE,
   // byte-identical blob shaping (same keys/nesting/values as the old DOM-fused
   // captureScenario). See web/scenario_store.js for the seam.
-  return ScenarioStore.capture({
+  const blob = ScenarioStore.capture({
     schemaVersion: SCENARIO_SCHEMA_VERSION,
     name,
     fieldNames: FIELDS.map((f) => f.name),
@@ -5106,6 +5911,16 @@ function captureScenario(name) {
     bracketFillTarget,
     modelAssumptions: readModelAssumptions(),
   });
+  // M5 blocks, present only when used, so a save without them is unchanged.
+  if (householdEnabled()) blob.inputs.household = JSON.parse(JSON.stringify(householdState));
+  const HE = householdApi();
+  if (HE && hhEl("tax-options")) {
+    const tax = HE.buildTaxOptions(readTaxOptionsDom());
+    if (Object.keys(tax).length) blob.inputs.tax_options = HE.taxStateFromBody(tax);
+  }
+  if (planExtras && Object.keys(planExtras).length) blob.inputs.plan_extras = { ...planExtras };
+  if (planMeta) blob.inputs.plan_meta = { ...planMeta };
+  return blob;
 }
 
 // Set one scalar field input's value (the A/shared input; on load we present a
@@ -5231,6 +6046,13 @@ async function applyScenarioToForm(blob) {
   const view = blob.view || {};
   const inputs = blob.inputs || {};
   applyModelAssumptions(inputs.model_assumptions);
+  // M5: the household editor, tax options and plan-file extras. Absent blocks
+  // (an older save, Reset) turn the editor off and restore the defaults.
+  planExtras = inputs.plan_extras && typeof inputs.plan_extras === "object"
+    ? { ...inputs.plan_extras } : null;
+  planMeta = inputs.plan_meta && typeof inputs.plan_meta === "object"
+    ? { ...inputs.plan_meta } : null;
+  applyTaxOptionsDom(inputs.tax_options || null);
 
   // Suppress subscriber-driven recomputes while we write the new form values.
   // Collapsing an active comparison below notifies compareState subscribers ->
@@ -5256,6 +6078,10 @@ async function applyScenarioToForm(blob) {
         setFieldInputValue(f.name, inputs[f.name]);
       }
     }
+
+    // 1b) The household editor (M5). After the scalar fields, because an
+    // enabled household rewrites the horizon fields from its people.
+    applyHouseholdState(inputs.household || null);
 
     // 2) The allocation matrix. Drive ASSET_CLASSES from the saved allocation
     // (matched by class id), zeroing any class not present, then rebuild the
@@ -9391,6 +10217,7 @@ function wireUp() {
 // "Projection"-title layout is in place before the chart draws.
 async function init() {
   initModelAssumptions();
+  initPlanFiles();
   wireUp();
   // Slice 8: register the single subscriber for every ComparisonState
   // transition. The subscribed function handles chrome refresh + row sync +
@@ -9432,6 +10259,9 @@ async function init() {
   // carry their defaults — so a fresh load shows the correct default effective
   // benefit (e.g. "Claim at 67 · $33,000/yr · 100% of FRA" for Person A).
   refreshAllSsReadouts();
+  // Household editor (M5): off by default; built after the field rows so its
+  // default people read the seeded horizon.
+  initHouseholdEditor();
   // Slice 11b-1: build the editable allocation matrix + shared return inputs and
   // run the first live refresh (Total + blended-return line). Built here so all
   // input construction happens in one place on load; ASSET_CLASSES now carries the

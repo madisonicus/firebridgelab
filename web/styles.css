@@ -3435,3 +3435,112 @@ header h1 {
   gap: 0.45rem;
   cursor: pointer;
 }
+
+/* ---------- Household editor and plan files (M5) ---------- */
+.household-group .hh-section {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 10px 0;
+  padding: 8px 10px;
+}
+.household-group legend {
+  font-weight: 600;
+  padding: 0 4px;
+}
+.hh-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hh-row {
+  border: 1px solid var(--border-faint);
+  border-radius: 6px;
+  background: var(--panel);
+  padding: 8px;
+}
+.hh-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.hh-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+}
+.hh-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.85rem;
+  min-width: 0;
+}
+.hh-field-label {
+  color: var(--muted);
+}
+.hh-field input,
+.hh-field select {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--input-bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 5px;
+  font: inherit;
+}
+.hh-field[hidden],
+.household-group [hidden] {
+  display: none;
+}
+.hh-check {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.hh-check input {
+  width: auto;
+}
+.hh-remove {
+  font-size: 0.8rem;
+  padding: 2px 8px;
+}
+.hh-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.hh-empty {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 4px 0;
+}
+.plan-file-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.examples-select {
+  background: var(--input-bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font: inherit;
+  max-width: 14rem;
+}
+.plan-file-status {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.plan-file-status.is-error {
+  color: var(--error);
+}
