@@ -1,0 +1,74 @@
+# Documentation site. Build with:  pip install -e ".[docs]" && mkdocs build --strict
+# The pages are the repository's own Markdown: README.md is the home page and
+# DATA-SOURCES.md the data-sources page (added by scripts/mkdocs_hooks.py, which
+# also points links to code and notebooks at GitHub). Publishing the site is the
+# repository owner's choice; see docs/deploy-docs-workflow.yml.
+site_name: FIRE Bridge Lab
+site_description: Stress-test the bridge years between early retirement and pension and Social Security.
+repo_url: https://github.com/madisonicus/firebridgelab
+repo_name: madisonicus/firebridgelab
+edit_uri: ""
+docs_dir: docs
+site_dir: site
+strict: true
+
+hooks:
+  - scripts/mkdocs_hooks.py
+
+exclude_docs: |
+  deploy-docs-workflow.yml
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - FAQ for non-programmers: faq.md
+      - Examples gallery: examples.md
+      - Glossary: glossary.md
+  - Using it:
+      - Plan files: plan-files.md
+      - Python library: library.md
+  - How it works:
+      - Methodology: methodology.md
+      - Data sources: data-sources.md
+      - Design decisions:
+          - adr/README.md
+          - adr/0001-byte-stable-canary-discipline.md
+          - adr/0002-step-year-canonical-form.md
+          - adr/0003-zero-build-step-frontend.md
+          - adr/0004-real-dollar-engine.md
+          - adr/0005-gi-streams-supplied-not-derived.md
+          - adr/0006-spending-strategies-stateful-once-per-run.md
+          - adr/0007-spending-mode-registry.md
+          - adr/0008-ss-claim-age-ui-derivation.md

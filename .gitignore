@@ -23,3 +23,4 @@ scenarios/
 # Node / browser checks
 node_modules/
 package-lock.json
+site/

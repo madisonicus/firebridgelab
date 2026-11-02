@@ -23,7 +23,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install -e ".[dev,notebooks,report]"
+          pip install -e ".[dev,notebooks,report,docs]"
 
       # Downloads the freely redistributable sources and builds the staged series.
       # The optional Nareit / testfol.io classes are absent in CI, so the tests
@@ -46,8 +46,16 @@ jobs:
         run: node --test tests/test_*.mjs
 
       # Notebook 03 (the Owl cross-check) is not run in CI.
-      - name: Execute notebooks 01 and 02
+      - name: Execute notebooks 01, 02 and 04
         run: |
           jupyter nbconvert --to notebook --execute --output-dir "$RUNNER_TEMP" \
             notebooks/01-historical-backtest.ipynb \
-            notebooks/02-pension-bridge-guardrails.ipynb
+            notebooks/02-pension-bridge-guardrails.ipynb \
+            notebooks/04-what-if-experiments.ipynb
+
+      # Builds the documentation site; it is not deployed (see
+      # docs/deploy-docs-workflow.yml).
+      - name: Build the docs site
+        env:
+          NO_MKDOCS_2_WARNING: "1"
+        run: mkdocs build --strict

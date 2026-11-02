@@ -47,6 +47,12 @@ notebooks = [
     "owlplanner",
 ]
 
+# The documentation site (mkdocs.yml): `mkdocs build --strict`.
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+]
+
 [project.scripts]
 firebridgelab = "firebridgelab.cli:main"
 firebridgelab-fetch-data = "firebridgelab.returns.fetch:main"

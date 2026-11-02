@@ -1,0 +1,47 @@
+# GitHub Pages deploy for the documentation site: DISABLED.
+#
+# This file is deliberately not in .github/workflows/, and every line is
+# commented out, so nothing publishes the site. CI only checks that the site
+# builds (`mkdocs build --strict`). Publishing is the repository owner's choice.
+# To publish: enable GitHub Pages for the repository with "GitHub Actions" as
+# the source, copy this file to .github/workflows/docs.yml, and uncomment it.
+#
+# name: Docs
+#
+# on:
+#   push:
+#     branches: [main]
+#   workflow_dispatch:
+#
+# permissions:
+#   contents: read
+#   pages: write
+#   id-token: write
+#
+# concurrency:
+#   group: pages
+#   cancel-in-progress: true
+#
+# jobs:
+#   build:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+#       - uses: actions/setup-python@v5
+#         with:
+#           python-version: "3.13"
+#       - run: pip install -e ".[docs]"
+#       - run: mkdocs build --strict
+#       - uses: actions/upload-pages-artifact@v3
+#         with:
+#           path: site
+#
+#   deploy:
+#     needs: build
+#     runs-on: ubuntu-latest
+#     environment:
+#       name: github-pages
+#       url: ${{ steps.deployment.outputs.page_url }}
+#     steps:
+#       - id: deployment
+#         uses: actions/deploy-pages@v4
