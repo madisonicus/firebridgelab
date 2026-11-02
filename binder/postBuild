@@ -1,0 +1,7 @@
+#!/bin/bash
+# Runs once when Binder builds the image, from the repository root.
+set -euo pipefail
+pip install --no-cache-dir --no-deps -e .
+# The public return data (Shiller, Damodaran, Fama-French, FRED), about 10 MB.
+# Goes to data/cache/ in this checkout, where the notebooks look for it.
+firebridgelab-fetch-data

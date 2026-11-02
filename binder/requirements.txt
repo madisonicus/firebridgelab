@@ -1,0 +1,9 @@
+# Binder (mybinder.org) environment for the notebooks. postBuild installs the
+# package itself from this checkout and downloads the public return data.
+numpy==2.4.4
+pandas==3.0.3
+xlrd==2.0.2
+matplotlib==3.11.2
+ipykernel==7.4.0
+# Notebook 03 cross-checks against Owl.
+owlplanner==2026.10.28
