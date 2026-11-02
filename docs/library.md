@@ -149,7 +149,7 @@ them in `scenario`.
 | `returns/` | data location (`paths`), download and build (`fetch`, `data_build`), the Shiller and asset-class series, the class → series registry (`series`), correlation estimates, Monte Carlo samplers (`sampling`) |
 | `income/` | the household (`household`: people, income streams, cash events, spending adjustments, resolved per age), Social Security claim factors, the FERS COLA rule, survivor timing, and `gi_at_age` / `net_income_at_age`, the sums every engine reads |
 | `spending/` | the `SpendingStrategy` interface (`base`), one module per rule in `spending/rules/`, and the `registry` that maps `Scenario.spending_mode` to a rule |
-| `tax/` | federal tax (`core`), RMDs (`rmd`), the tax-location fixed point (`location`, `location_path`, `location_risk`) and the federal-tax overlay; the yearly constants are in `tax/data/federal_2026.toml` |
+| `tax/` | federal tax (`core`), RMDs (`rmd`), Social Security taxation (`ss_taxation`), payroll tax (`payroll`), Medicare IRMAA (`irmaa`), Roth conversions (`roth`), state income tax (`state`), unindexed thresholds (`thresholds`), the tax-location fixed point (`location`, `location_path`, `location_risk`) and the tax overlay; the yearly constants are in `tax/data/*.toml` |
 | `engine/` | `Scenario` and its validation, the yearly step, and the deterministic, historical and Monte Carlo drivers, plus bucket sourcing |
 | `analysis/` | the max-spend solver and the stress tests |
 
@@ -159,10 +159,32 @@ defines a `SpendingStrategy` and decorates it (or a factory) with
 imports every module in that package. The web API also needs a descriptor in
 `api/spending_modes.py`.
 
-To update the tax year, edit `firebridgelab/tax/data/federal_2026.toml` (or add
-`federal_<year>.toml` and change `TAX_YEAR` in `firebridgelab/tax/params.py`).
-Each table carries a `source` field naming the IRS revenue procedure or code
-section it comes from.
+To update the tax year, edit the files in `firebridgelab/tax/data/`
+(`federal_2026.toml`, `medicare_2026.toml`, `states_2026.toml`), or add
+`<name>_<year>.toml` files and change `TAX_YEAR` in
+`firebridgelab/tax/params.py`. Each table carries a `source` field naming the
+publication, notice or statute it comes from; a test fails without one.
+
+## Tax options
+
+With a tax-location split, these `Scenario` fields refine the tax bill (plan
+file `[tax]`, docs/plan-files.md; rules and sources, docs/methodology.md):
+
+```python
+plan = replace(
+    plan,
+    ss_taxation="provisional",          # default; "flat85" is the old rule
+    payroll_tax=True,                    # FICA / SE tax on work streams
+    irmaa=True, irmaa_prior_magi=140_000.0,
+    roth_conversion_target="22%",        # or a dollar amount of taxable income
+    roth_conversion_start_age=60, roth_conversion_end_age=73,
+    state="NC", state_move_age=70, state_after_move="FL",
+)
+print(rm.compare_roth_conversion(plan).to_dict())
+```
+
+A work stream marked `IncomeStream(..., self_employed=True)` pays
+self-employment tax instead of FICA.
 
 The old flat module paths (`firebridgelab.scenario`, `firebridgelab.historical`,
 `firebridgelab.monte_carlo`, `firebridgelab.tax_location`, ...) still import:

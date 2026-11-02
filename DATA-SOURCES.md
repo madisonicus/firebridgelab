@@ -57,3 +57,21 @@ Data hosts move files from time to time. If a download in
 and save it in the data directory under the name in the table. The fetcher
 reads the current Shiller link from shillerdata.com and warns if the file it
 got looks stale.
+
+## Tax and benefit tables
+
+The tax rules read small TOML tables shipped with the package in
+`firebridgelab/tax/data/` (no download needed). Every table carries a `source`
+naming the publication, notice or statute it was read from, and
+`tests/test_tax_m4.py` fails if one does not.
+
+| File | What | Source |
+| --- | --- | --- |
+| `federal_2026.toml` | 2026 brackets, standard deduction, capital-gain breakpoints, NIIT, Social Security taxation base amounts, payroll tax rates and the 2026 wage base, the 10% early-withdrawal tax, RMD start age and Uniform Lifetime Table | IRS Rev. Proc. 2025-32; IRC 1, 63, 86, 1401, 1402, 1411, 3101, 72(t), 401(a)(9); IRS Pub. 915 and 590-B; IRS Tax Topics 554, 560, 751; SSA, "Cost-of-Living Increase and Other Determinations for 2026" (Federal Register doc. 2025-19763) |
+| `medicare_2026.toml` | 2026 Part B and Part D income-related monthly adjustment amounts and MAGI tiers | CMS fact sheet "2026 Medicare Parts A & B Premiums and Deductibles"; 20 CFR 418.1115 and 418.1135 |
+| `states_2026.toml` | State income tax rates, deductions and retirement-income rules for the covered states | Each state's revenue department, legislature or form instructions; one `source` per state |
+
+To refresh a tax year, edit these files (or add `<name>_<year>.toml` and change
+`TAX_YEAR` in `firebridgelab/tax/params.py`) and update each `source`. Values
+that a body has not yet published for the year should be left out, not
+estimated (docs/methodology.md lists what was left out for 2026).

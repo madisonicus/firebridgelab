@@ -54,7 +54,7 @@ firebridgelab report plan.toml -o report.html      # one offline HTML file
 
 `run` prints success and depletion counts, the earliest depletion age, how
 often a dynamic rule hits its spending floor, spending and ending-portfolio
-percentiles, lifetime federal tax when you give a tax split, and a
+percentiles, lifetime tax when you give a tax split, and a
 year-by-year table; add `--format json` or `--format csv` for scripts. `sweep`
 runs every combination of the values you give it. Any key can be changed for
 one run with `--set`, e.g. `--set people.a.start_age=55`.
@@ -205,22 +205,31 @@ factors, and the benefit is then constant in real terms. The survivor case
 guardrail rails) by `survivor_spending_fraction`, and files single from the
 death year.
 
-**Federal tax.** Married filing jointly, federal only, with brackets and
-thresholds held constant in real dollars. 85% of Social Security is treated as
-taxable. A flat taxable-gains fraction stands in for cost basis. RMDs are
-modeled, and a bracket-fill lever moves extra money from tax-deferred to
-taxable between ages 60 and 74.
+**Tax.** With a tax split the accounts pay a yearly bill solved as a fixed
+point. Federal brackets and deductions are the 2026 IRS tables, held constant
+in real dollars; amounts the law does not index (the Social Security base
+amounts, the NIIT and additional-Medicare thresholds) shrink at the assumed
+inflation rate. Social Security is taxed by the provisional-income formula by
+default (`tax.ss_taxation`). Options add payroll tax on work income, Medicare
+IRMAA surcharges, a Roth conversion policy, and state income tax for the
+no-tax and flat-rate states whose rules could be read from the state (AK, FL,
+NV, NH, SD, TN, TX, WY, GA, IL, IN, IA, LA, MS, NC, PA) or a custom flat rate.
+A flat taxable-gains fraction stands in for cost basis. RMDs are modelled, and
+a bracket-fill lever moves extra money from tax-deferred to taxable between
+ages 60 and 74. Every rule, its source and what is left out are in
+[docs/methodology.md](docs/methodology.md).
 
-**What the model does not do:** state or foreign tax, IRMAA, automatic ACA or
-Medicare premiums (enter them as required spending), long-term-care shocks as
-explicit lines, tracked cost basis, tax on
-taxable-account dividends and interest, Roth conversions (the bracket-fill
-lever moves money to taxable instead), 72(t)/SEPP access before 59½ (the
-penalty is applied and reported instead), accounts tracked per person
-(access ages and RMDs follow person A), mortality-weighted horizons, and
-valuation-conditioned or regime-switching returns. Monte Carlo has no
-autocorrelation or parameter uncertainty. Its fixed seed means success rates
-carry about ±0.5 point of sampling noise.
+**What the model does not do:** tax without a tax split, graduated-bracket
+states and the flat-rate states not listed above, local income taxes, state
+credits, foreign tax, automatic ACA or standard Medicare premiums (enter them
+as required spending), long-term-care shocks as explicit lines, tracked cost
+basis, tax on taxable-account dividends and interest, Roth five-year rules,
+72(t)/SEPP access before 59½ (the penalty is applied and reported instead),
+the FERS no-COLA-before-62 rule, accounts tracked per person (access ages and
+RMDs follow person A), mortality-weighted horizons, and valuation-conditioned
+or regime-switching returns. Monte Carlo has no autocorrelation or parameter
+uncertainty. Its fixed seed means success rates carry about ±0.5 point of
+sampling noise.
 
 ## Validation
 
