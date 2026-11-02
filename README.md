@@ -2,28 +2,74 @@
 
 ![FIRE Bridge Lab: stress-test the bridge years between early retirement and pension + Social Security](docs/img/social-preview.png)
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg) [![Launch the notebooks on Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/madisonicus/firebridgelab/main?labpath=notebooks%2F04-what-if-experiments.ipynb)
 
 *Stress-test the bridge years: backtests, Monte Carlo and guardrails from early retirement to pension and Social Security.*
 
-A free, open-source lab for people planning **FIRE** (Financial Independence, Retire Early) who want to model and experiment with the risk in their plan. Change the variables (retirement age, spending, asset mix, pensions, Social Security and when you claim it, a spouse dying first, fees, taxes) and see how each one moves your odds across every historical retirement since 1871 and thousands of Monte Carlo scenarios.
+A free, open-source lab for people planning **FIRE** (Financial Independence, Retire Early) who want to model and experiment with the risk in their plan. Change the variables (retirement age, spending, asset mix, pensions, Social Security and when you claim it, part-time work, a spouse dying first, fees, taxes) and see how each one moves your odds across every historical retirement since 1871 and thousands of Monte Carlo scenarios.
 
 It is built for the common FIRE situation where you stop working years before guaranteed income starts: the portfolio has to carry everything during those **bridge years**, then only the gap that pensions and Social Security don't cover.
 
-**What you can vary:**
+**Educational software, not financial advice.** It shows how a plan behaved under past and simulated markets, given your assumptions. Consult a qualified advisor before acting.
+
+## Try it in 2 minutes
+
+No Python needed for the first two. The [FAQ for non-programmers](docs/faq.md) walks through each.
+
+**1. In your browser, nothing to install.** [![Launch Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/madisonicus/firebridgelab/main?labpath=notebooks%2F04-what-if-experiments.ipynb)
+opens the worked notebooks in JupyterLab on [Binder](https://mybinder.org), a free public
+service. The first launch takes a few minutes while it builds and downloads the return data.
+Start with [04 · What-if experiments](notebooks/04-what-if-experiments.ipynb), change the plan at the top, and choose **Run → Run All Cells**.
+
+**2. The web app on your computer, with Docker.** One line builds the image from GitHub and starts it:
+
+```bash
+docker build -t firebridgelab https://github.com/madisonicus/firebridgelab.git#main && docker run --rm -p 127.0.0.1:8000:8000 firebridgelab
+```
+
+Then open <http://127.0.0.1:8000/>, pick a household from **Examples…**, or describe your own under **Household & income streams**, and press **Recompute**. **Download plan** saves your scenario as a plan file the command line runs too.
+
+**3. The command line, with Python 3.11 or newer.**
+
+```bash
+pipx install "git+https://github.com/madisonicus/firebridgelab"   # or pip install
+firebridgelab-fetch-data             # the public return data, once (about 10 MB)
+firebridgelab init my-plan.toml      # a commented starter plan: edit it
+firebridgelab run my-plan.toml       # deterministic, historical and Monte Carlo
+```
+
+## Examples gallery
+
+Six fictional households ship as plan files. Load them from the web app's **Examples…** menu,
+or copy one with `firebridgelab init --example <name> my-plan.toml`. The
+[gallery](docs/examples.md) shows each one's story, its plan file and what `firebridgelab run`
+prints for it.
+
+| Example | The story |
+| --- | --- |
+| `deferred-federal-couple` | Both left federal service at 50; deferred pensions frozen until 62, then the FERS COLA; taxes modeled. |
+| `mra10-single` | A federal retiree at MRA with a 25% reduced annuity, no COLA until 62. |
+| `leanfire-single` | Retired at 40 on $45k a year, no pension, Social Security at 70, guardrails. |
+| `ss-only-couple-age-gap` | No pensions, a five-year age gap, a glidepath, and a survivor case. |
+| `part-time-bridge` | Consulting to 55, marketplace health insurance to 65, taxes modeled. |
+| `rental-and-pension` | A pension with a 50% survivor benefit and a rental sold at 75. |
+
+## What it models
+
+What you can vary:
 
 - **When:** retirement age, plan horizon, pension start ages, Social Security claiming ages (62–70, with the exact SSA adjustment)
 - **How much:** starting portfolio, annual spending, a spending floor and ceiling, a lifecycle "go-go / slow-go / no-go" taper
 - **Spending rule:** constant, Guyton-Klinger-style guardrails, funded-ratio rules, or an amortization (VPW-style) frontier
-- **Household:** one or two people with their own ages and planning horizons; any number of income streams (pensions, Social Security, annuities, part-time work, rental, other) each with its own start and end age, COLA rule (full, none, a fixed percentage, or FERS-style), survivor fraction and tax treatment; one-off cash events such as a home sale or a car; required spending over an age range such as pre-Medicare healthcare or a mortgage; and a survivor case (library, API and plan files; the web UI still edits two pensions and two Social Security benefits)
+- **Household:** one or two people with their own ages and planning horizons; any number of income streams (pensions, Social Security, annuities, part-time work, rental, other) each with its own start and end age, COLA rule (full, none, a fixed percentage, or FERS-style), survivor fraction and tax treatment; one-off cash events such as a home sale or a car; required spending over an age range such as pre-Medicare healthcare or a mortgage; and a survivor case
 - **Markets:** asset mix across up to 12 asset classes (five need optional data you download yourself), historical replay or Monte Carlo (Normal or fat-tailed), fees, and authored stress scenarios
-- **Taxes:** taxable, tax-deferred and Roth balances, with 2026 US federal brackets, capital gains, RMDs and the pre-59½ penalty
+- **Taxes:** taxable, tax-deferred and Roth balances, with 2026 US federal brackets, capital gains, RMDs and the pre-59½ penalty; Social Security taxed by the provisional-income formula; optional payroll tax, Medicare IRMAA, a Roth conversion policy, and state income tax for the no-tax and flat-rate states
 
-Not yet modeled: state or non-US taxes; payroll tax on work income; Social Security spousal benefits and the earnings test; a person's planning end age as a death (it is a horizon only; deaths come from the survivor case); and per-person retirement accounts (the 59½ and RMD ages follow the first person).
+Not yet modeled: graduated-bracket state taxes and non-US taxes; Social Security spousal benefits and the earnings test; a person's planning end age as a death (it is a horizon only; deaths come from the survivor case); and per-person retirement accounts (the 59½ and RMD ages follow the first person).
 
 It ships as a command line that runs plans written as small text files, a Python library, worked Jupyter notebooks, and a self-hosted web UI.
 
-### Why another FIRE calculator?
+## Why another FIRE calculator?
 
 The popular free tools (cFIREsim, FIRECalc, FI Calc, ERN's SWR Toolbox) are excellent at constant-income backtests. FIRE Bridge Lab focuses on what they leave out or approximate:
 
@@ -31,8 +77,6 @@ The popular free tools (cFIREsim, FIRECalc, FI Calc, ERN's SWR Toolbox) are exce
 - **Taxes:** taxable, tax-deferred and Roth accounts, 2026 federal brackets, capital gains stacking, NIIT, RMDs and the pre-59½ penalty, solved each year.
 - **Pensions as they really work:** amounts fixed in dollars until they start, FERS-style partial COLAs, survivor benefits, single-filer brackets after a first death.
 - **Validated:** Trinity/Bengen backtests reproduced, and a per-cohort cross-check against the independent optimizer [Owl](https://github.com/mdlacasse/Owl) (see the notebooks).
-
-**Educational software, not financial advice. Consult a qualified advisor before acting.**
 
 ## Quick start with a plan file
 
@@ -62,7 +106,7 @@ one run with `--set`, e.g. `--set people.a.start_age=55`.
 a deferred federal couple, an MRA+10 single retiree, a leanfire single, a
 Social Security-only couple with an age gap, a part-time bridge with ACA
 premiums, and rental income with a pension. `firebridgelab ui` starts the web
-UI from a checkout.
+UI from a checkout. The web UI loads and downloads the same files.
 
 ## The example household
 
@@ -71,7 +115,9 @@ age 95, a $1.8M portfolio, $110k a year of real spending, pensions of $24k
 (from 60) and $9k (from 65), and Social Security of $33k and $26k at full
 retirement age, claimed at 67 and 70.
 
-## Three ways to use it
+## Ways to use it
+
+Besides the command line above:
 
 ### 1. Library
 
@@ -89,6 +135,9 @@ a quickstart.
 
 ### 2. Notebooks
 
+Run them in the browser on [Binder](https://mybinder.org/v2/gh/madisonicus/firebridgelab/main)
+with no install (the `binder/` folder holds its setup), or locally:
+
 ```bash
 git clone https://github.com/madisonicus/firebridgelab
 cd firebridgelab
@@ -101,8 +150,9 @@ jupyter lab notebooks/
 | Notebook | What it shows |
 | --- | --- |
 | [01-historical-backtest](notebooks/01-historical-backtest.ipynb) | Trinity/Bengen-style checks: 30-year 4% withdrawals on four stock/bond mixes, success rates, failing start years, worst-cohort safe withdrawal rates, and the limits of the Shiller data. |
-| [02-pension-bridge-guardrails](notebooks/02-pension-bridge-guardrails.ipynb) | A fictional early-retiree couple bridging to pensions and Social Security: constant spending vs guardrails vs the amortization frontier, FERS-style pension options, a survivor case, fees, and Student-t Monte Carlo. |
+| [02-pension-bridge-guardrails](notebooks/02-pension-bridge-guardrails.ipynb) | A fictional early-retiree couple, written as people and income streams, bridging to pensions and Social Security: constant spending vs guardrails vs the amortization frontier, FERS-style pension options, a survivor case, fees, Student-t Monte Carlo, and the household as a plan file. |
 | [03-owl-cross-check](notebooks/03-owl-cross-check.ipynb) | The same household through [Owl](https://github.com/mdlacasse/Owl), an independent optimizer, for every historical start year. |
+| [04-what-if-experiments](notebooks/04-what-if-experiments.ipynb) | One fictional household, one change at a time: retirement age, spending, both together, Social Security claim age, a pension's COLA rule, and years of part-time work, with tables and charts. |
 
 The notebooks are committed with their outputs, so they read on GitHub without
 running anything.
@@ -110,7 +160,11 @@ running anything.
 ### 3. Self-hosted web UI
 
 The browser UI compares two scenarios side by side, and the same JSON API
-serves scripts. With Docker or Podman:
+serves scripts. Its **Household & income streams** section edits one or two
+people and any list of income streams, cash events and required spending, plus
+the tax options; **Examples…**, **Load plan** and **Download plan** read and
+write the same plan files as the command line. With Docker or Podman (or the
+one-line `docker build` from a URL in [Try it in 2 minutes](#try-it-in-2-minutes)):
 
 ```bash
 git clone https://github.com/madisonicus/firebridgelab
@@ -127,12 +181,13 @@ Or from a checkout, without a container:
 ```bash
 pip install -r requirements.txt -e ".[web]"
 firebridgelab-fetch-data
-uvicorn api.main:app --host 127.0.0.1 --port 8000
+firebridgelab ui              # or: uvicorn api.main:app --host 127.0.0.1 --port 8000
 ```
 
 The API describes itself at `/docs`. The main endpoints are `GET`/`POST
 /api/trajectory` (all three modes and stress tests), `/api/solve` (max
-sustainable spend), `/api/classes` and `/api/presets`. The page loads its
+sustainable spend), `/api/classes`, `/api/presets`, `/api/plan/import` and
+`/api/plan/export` (plan-file text to and from a POST body) and `/api/examples`. The page loads its
 assets and calls the API by relative path, so it also works behind a reverse
 proxy under a path prefix.
 
@@ -290,14 +345,31 @@ suite. The settled design decisions are in [docs/adr/](docs/adr/README.md).
 ## Layout
 
 ```
-firebridgelab/  the library (pure Python, real dollars), the data fetcher and the CLI (cli/)
-firebridgelab/examples/  fictional plan files (package data, so `firebridgelab init --example` works anywhere)
-api/                 FastAPI app: parameter parsing, validation, serialization
-web/                 zero-build vanilla-JS frontend
-notebooks/           worked examples, committed with outputs
-tests/               pytest and node:test suites, Playwright browser checks
-docs/                library quickstart and architecture decision records
+firebridgelab/           the library (pure Python, real dollars), the data fetcher and the CLI (cli/)
+firebridgelab/examples/  fictional plan files, shipped as package data
+api/                     FastAPI app: parameter parsing, validation, serialization, plan files
+web/                     zero-build vanilla-JS frontend
+notebooks/               worked examples, committed with outputs
+binder/                  the Binder environment for running the notebooks in a browser
+docs/                    the documentation site's pages and architecture decision records
+mkdocs.yml               the documentation site (mkdocs build --strict)
+scripts/                 the data fetcher wrapper, the examples-page generator, the mkdocs hooks
+tests/                   pytest and node:test suites, Playwright browser checks
 ```
+
+## Documentation site
+
+The pages in `docs/`, with this README as the home page, build into a site with
+[MkDocs](https://www.mkdocs.org) and the Material theme:
+
+```bash
+pip install -e ".[docs]"
+mkdocs serve                  # http://127.0.0.1:8000/, or: mkdocs build --strict
+```
+
+CI builds it on every push but does not publish it; `docs/deploy-docs-workflow.yml`
+is a disabled GitHub Pages workflow for the owner to turn on.
+`python scripts/build_examples_page.py` regenerates the examples gallery.
 
 ## Contributing and support
 

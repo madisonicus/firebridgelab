@@ -73,3 +73,18 @@ computes no tax.
 - In the bundled examples, `part-time-bridge` (deterministic) pays $385,831
   of lifetime tax instead of $392,594 and ends $36,286 richer.
   `deferred-federal-couple` is unchanged: its income keeps it in the 85% tier.
+
+### M5: the easiest way in
+
+- The web UI edits households: one or two people with their own ages, a list
+  of income streams, cash events, required spending and the M4 tax options.
+  The legacy two-pension / two-Social-Security fields still work, and turning
+  the editor on converts them to streams.
+- The web UI loads and downloads plan files and loads the bundled examples
+  (`/api/plan/import`, `/api/plan/export`, `/api/examples`).
+- Notebook 02 uses households and plan files; notebook 04 runs what-if
+  sweeps. The notebooks run in a browser on Binder (`binder/`).
+- A documentation site (`mkdocs.yml`) with an examples gallery, a FAQ for
+  non-programmers and a glossary; CI builds it with `--strict`.
+- The examples are real package data in `firebridgelab/examples/` (they were
+  a symlink, which Windows checkouts break).
