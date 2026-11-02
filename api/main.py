@@ -329,6 +329,7 @@ class IncomeStreamBody(BaseModel):
     tax_treatment: Optional[str] = None
     label: str = ""
     self_employed: bool = False
+    fers_cola_before_62: bool = False
 
 
 class CashEventBody(BaseModel):

@@ -72,8 +72,9 @@ One table per stream of guaranteed income. Zero or more.
 | `start_age` | integer | required | Owner's age at the first payment. For `social_security`, the claim age (62–70). |
 | `owner` | string | `"a"` | `a`, `b`, or `household` (household streams use person `a`'s age). |
 | `end_age` | integer | for life | Owner's age at which payments stop (exclusive: paid through `end_age - 1`). Not allowed for Social Security. |
-| `cola` | string | `"full"` | `full` keeps real value constant; `none` is fixed in nominal dollars and loses `assumptions.inflation` a year; `fixed` adds `cola_rate` a year in nominal terms; `fers_diet` applies the FERS rule (CPI up to 2%, 2% for CPI of 2–3%, CPI − 1% above 3%). Social Security must be `full`. |
+| `cola` | string | `"full"` | `full` keeps real value constant; `none` is fixed in nominal dollars and loses `assumptions.inflation` a year; `fixed` adds `cola_rate` a year in nominal terms; `fers_diet` applies the FERS rule (CPI up to 2%, 2% for CPI of 2–3%, CPI − 1% above 3%) from the owner's 62, and holds the nominal check fixed before 62 (5 U.S.C. 8462(c)(3)). Social Security must be `full`. |
 | `cola_rate` | number | `0` | The nominal yearly COLA for `cola = "fixed"`. |
+| `fers_cola_before_62` | boolean | `false` | `fers_diet` streams only: pay the FERS COLA from `start_age` even before the owner's 62. For the annuitants exempt from the age-62 rule: disability retirees, special-provision law enforcement officers, firefighters and air traffic controllers, and survivor annuities. |
 | `nominal_until_start` | boolean | `false` | `amount` is the nominal check at `start_age`, eroded by inflation from plan start (a deferred FERS annuity, a frozen pension). |
 | `survivor_fraction` | number 0–1 | by kind | Share that continues after the owner dies (survivor case). Default 0 for a person's pension, annuity, work and other income, 1 for rental and household-owned streams. Social Security follows the survivor rule instead. |
 | `tax_treatment` | string | by kind | `ordinary` (default), `tax_free`, or `social_security` (Social Security only, and its default; how much is taxable is set by `tax.ss_taxation`). |

@@ -160,6 +160,7 @@
       cola: "full",
       cola_rate: 0,
       nominal_until_start: false,
+      fers_cola_before_62: false,
       survivor_fraction: null,
       tax_treatment: null,
       self_employed: false,
@@ -253,6 +254,7 @@
     if (cola !== "full") out.cola = cola;
     if (cola === "fixed") out.cola_rate = num(st.cola_rate, where("COLA rate"));
     if (kind !== "social_security" && st.nominal_until_start) out.nominal_until_start = true;
+    if (cola === "fers_diet" && st.fers_cola_before_62) out.fers_cola_before_62 = true;
     if (kind !== "social_security" && !blank(st.survivor_fraction)) {
       out.survivor_fraction = fraction(st.survivor_fraction, where("survivor share"));
     }
@@ -483,6 +485,7 @@
       cola: st.cola || "full",
       cola_rate: st.cola_rate || 0,
       nominal_until_start: !!st.nominal_until_start,
+      fers_cola_before_62: !!st.fers_cola_before_62,
       survivor_fraction: st.survivor_fraction == null ? null : st.survivor_fraction,
       tax_treatment: st.tax_treatment == null ? null : st.tax_treatment,
       self_employed: !!st.self_employed,

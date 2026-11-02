@@ -45,7 +45,13 @@ A stream pays in owner-ages ``[start_age, end_age)`` (``end_age`` exclusive;
   - ``cola`` per year paid: ``full`` keeps real value constant; ``none`` erodes
     at ``assumed_inflation`` (``1 / (1 + i)``); ``fixed`` applies a stated
     nominal COLA ``c`` (``(1 + c) / (1 + i)``); ``fers_diet`` applies the FERS
-    rule (``income.pension.fers_diet_cola``).
+    rule (``income.pension.fers_diet_cola``) for each year paid from the
+    owner's 62 on, and holds the check fixed in nominal terms (as ``none``)
+    for the years paid before 62 (5 U.S.C. 8462(c)(3)). A stream with
+    ``fers_cola_before_62`` gets the COLA from its start instead: the
+    annuitants 8462(c)(3)(B) exempts (disability retirees; special-provision
+    law enforcement officers, firefighters and air traffic controllers) and
+    survivor annuities, which 8462(c)(3) does not cover.
 
 Social Security streams take the FRA amount (the PIA) as ``amount`` and the
 claim age as ``start_age``; the effective benefit is
@@ -182,6 +188,10 @@ class IncomeStream:
     survivor_fraction: Optional[float] = None
     tax_treatment: Optional[str] = None
     label: str = ""
+    # ``fers_diet`` streams only: COLAs from the start age even before the
+    # owner's 62 (disability, special-provision and survivor annuities).
+    # Default: no COLA before 62 (5 U.S.C. 8462(c)(3)).
+    fers_cola_before_62: bool = False
     # ``work`` streams only: the income is self-employment income (Schedule SE)
     # rather than wages. Read by the payroll tax (``Scenario.payroll_tax``).
     self_employed: bool = False
@@ -364,6 +374,9 @@ class _Stream:
     survivor_fraction: float
     tax: str
     self_employed: bool = False
+    # ``fers_diet`` only: the first A-age from which COLAs are paid (the
+    # owner's 62, or the start with ``fers_cola_before_62``).
+    cola_from: int = 0
 
 
 @dataclass(frozen=True)
@@ -530,7 +543,12 @@ class Household:
             if st.nominal_until_start:
                 mult /= (1.0 + infl) ** max(0, st.start - s.start_age)
             if st.cola == COLA_FERS_DIET:
-                mult *= ((1.0 + fers_diet_cola(infl)) / (1.0 + infl)) ** years_paid
+                # No COLA before the owner's 62 (5 U.S.C. 8462(c)(3)): the
+                # nominal check is fixed until then, then gets the 8462(b)
+                # COLA once a year.
+                cola_years = max(0, age - max(st.start, st.cola_from))
+                mult *= ((1.0 + fers_diet_cola(infl)) / (1.0 + infl)) ** cola_years
+                mult /= (1.0 + infl) ** (years_paid - cola_years)
             elif st.cola == COLA_NONE:
                 mult /= (1.0 + infl) ** years_paid
             elif st.cola == COLA_FIXED:
@@ -632,7 +650,12 @@ def _resolve_stream(stream: IncomeStream, offsets: dict[str, int]) -> _Stream:
         survivor_fraction=stream_survivor_fraction(stream),
         tax=stream_tax_treatment(stream),
         self_employed=stream.self_employed,
+        cola_from=(stream.start_age - off) if stream.fers_cola_before_62 else FERS_COLA_AGE - off,
     )
+
+
+# 5 U.S.C. 8462(c)(3): no FERS COLA for an annuitant under 62.
+FERS_COLA_AGE = 62
 
 
 def _legacy_streams(scenario: Scenario, couple: bool) -> tuple[_Stream, ...]:
@@ -654,6 +677,7 @@ def _legacy_streams(scenario: Scenario, couple: bool) -> tuple[_Stream, ...]:
                 nominal_until_start=scenario.pension_nominal_until_start,
                 survivor_fraction=scenario.survivor_pension_fraction,
                 tax=TAX_ORDINARY,
+                cola_from=FERS_COLA_AGE,
             )
         )
     for who in owners:
@@ -676,7 +700,9 @@ def _legacy_streams(scenario: Scenario, couple: bool) -> tuple[_Stream, ...]:
         # own ages, so shift them onto A's axis.
         off = scenario.people[1].start_age - scenario.people[0].start_age
         out = [
-            replace(st, start=st.start - off) if st.owner == "b" else st for st in out
+            replace(st, start=st.start - off, cola_from=st.cola_from - off)
+            if st.owner == "b" else st
+            for st in out
         ]
     return tuple(out)
 

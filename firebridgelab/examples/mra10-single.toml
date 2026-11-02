@@ -3,9 +3,8 @@
 # Morgan retires at 57, the minimum retirement age, with 15 years of service.
 # An MRA+10 annuity taken before 62 is reduced 5% for each year under 62:
 # 25% here, so a $30,000 annuity pays $22,500. FERS retirees under 62 get no
-# COLA, so the annuity is modeled as two streams: a fixed nominal check from
-# 57 to 62, then the same nominal check (deflated to today's dollars) with the
-# FERS COLA from 62 on.
+# COLA (5 U.S.C. 8462(c)(3)): a "fers_diet" stream holds the nominal check
+# fixed until Morgan is 62, then applies the FERS COLA each year.
 #
 # Try: firebridgelab solve mra10-single.toml --confidence 0.9
 
@@ -18,20 +17,11 @@ start_age = 57
 end_age = 95
 
 [[income_streams]]
-id = "fers_before_62"
+id = "fers"
 kind = "pension"
 amount = 22_500
 start_age = 57
-end_age = 62
-cola = "none"              # fixed nominal: loses inflation each year
-
-[[income_streams]]
-id = "fers_from_62"
-kind = "pension"
-amount = 22_500            # the same nominal check, worth less by 62
-start_age = 62
-nominal_until_start = true
-cola = "fers_diet"
+cola = "fers_diet"         # fixed nominal until 62, then the FERS COLA
 
 [[income_streams]]
 id = "ss"

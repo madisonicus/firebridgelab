@@ -119,11 +119,15 @@ def test_pension_nominal_until_start_and_diet_cola():
     b_at_start = s.person_b_pension_amount / 1.025**b_frozen
     # Only A's pension is in payment at A's start age.
     assert pension_income_at_age(s, s.person_a_pension_start_age) == pytest.approx(a_at_start)
-    # Ten years later: ten COLA years for A, and B has been paid for the years
-    # since its own start.
+    # Ten years later. A's pension started at 60, and FERS pays no COLA under
+    # 62 (5 U.S.C. 8462(c)(3)): the check is fixed in nominal terms for the
+    # two years 60-61, then gets the diet COLA for the eight years 62-69. B's
+    # started at 65, past 62, so every year since is a COLA year.
+    assert s.person_a_pension_start_age == 60 and s.person_b_pension_start_age >= 62
     age = s.person_a_pension_start_age + 10
     b_years = age - s.person_b_pension_start_age
-    expected = a_at_start * (1.02 / 1.025) ** 10 + b_at_start * (1.02 / 1.025) ** b_years
+    expected = (a_at_start / 1.025**2 * (1.02 / 1.025) ** 8
+                + b_at_start * (1.02 / 1.025) ** b_years)
     assert pension_income_at_age(s, age) == pytest.approx(expected)
     # Social Security is untouched.
     assert ss_income_at_age(s, 72) == ss_income_at_age(default_scenario(), 72)
