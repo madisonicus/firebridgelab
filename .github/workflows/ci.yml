@@ -36,7 +36,7 @@ jobs:
 
       - name: Run every example plan
         run: |
-          for plan in examples/*.toml; do
+          for plan in firebridgelab/examples/*.toml; do
             echo "::group::$plan"
             firebridgelab run "$plan" --trials 1000
             echo "::endgroup::"

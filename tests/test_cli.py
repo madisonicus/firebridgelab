@@ -13,10 +13,10 @@ from firebridgelab import cli
 from firebridgelab.cli import outcomes as oc
 
 ROOT = Path(__file__).resolve().parent.parent
-EXAMPLES = sorted((ROOT / "examples").glob("*.toml"))
-LEAN = str(ROOT / "examples" / "leanfire-single.toml")
-TAXED = str(ROOT / "examples" / "part-time-bridge.toml")
-MRA = str(ROOT / "examples" / "mra10-single.toml")
+EXAMPLES = sorted((ROOT / "firebridgelab" / "examples").glob("*.toml"))
+LEAN = str(ROOT / "firebridgelab" / "examples" / "leanfire-single.toml")
+TAXED = str(ROOT / "firebridgelab" / "examples" / "part-time-bridge.toml")
+MRA = str(ROOT / "firebridgelab" / "examples" / "mra10-single.toml")
 
 
 def run(capsys, *argv):
@@ -96,7 +96,7 @@ def test_run_csv_and_years(capsys):
 
 
 def test_run_stress_mode(capsys):
-    code, out, _ = run(capsys, "run", ROOT / "examples" / "rental-and-pension.toml",
+    code, out, _ = run(capsys, "run", ROOT / "firebridgelab" / "examples" / "rental-and-pension.toml",
                        "--mode", "stress")
     assert code == 0 and "stress gfc_2008" in out
 
@@ -161,7 +161,7 @@ def test_sweep_invalid_cell_is_reported(capsys):
 
 def test_unknown_key_and_bad_value_exit_2(capsys, tmp_path):
     bad = tmp_path / "bad.toml"
-    bad.write_text((ROOT / "examples" / "mra10-single.toml").read_text()
+    bad.write_text((ROOT / "firebridgelab" / "examples" / "mra10-single.toml").read_text()
                    .replace("annual = 44_000", "anual = 44_000\nannual = 44_000"))
     code, out, err = run(capsys, "run", bad)
     assert code == 2 and out == ""

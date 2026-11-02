@@ -58,7 +58,7 @@ percentiles, lifetime tax when you give a tax split, and a
 year-by-year table; add `--format json` or `--format csv` for scripts. `sweep`
 runs every combination of the values you give it. Any key can be changed for
 one run with `--set`, e.g. `--set people.a.start_age=55`.
-`firebridgelab init --list` shows the [examples](examples/), all fictional:
+`firebridgelab init --list` shows the [examples](firebridgelab/examples/), all fictional:
 a deferred federal couple, an MRA+10 single retiree, a leanfire single, a
 Social Security-only couple with an age gap, a part-time bridge with ACA
 premiums, and rental income with a pension. `firebridgelab ui` starts the web
@@ -291,7 +291,7 @@ suite. The settled design decisions are in [docs/adr/](docs/adr/README.md).
 
 ```
 firebridgelab/  the library (pure Python, real dollars), the data fetcher and the CLI (cli/)
-examples/            fictional plan files for the command line
+firebridgelab/examples/  fictional plan files (package data, so `firebridgelab init --example` works anywhere)
 api/                 FastAPI app: parameter parsing, validation, serialization
 web/                 zero-build vanilla-JS frontend
 notebooks/           worked examples, committed with outputs

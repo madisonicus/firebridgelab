@@ -14,7 +14,7 @@ from firebridgelab.engine.deterministic import simulate
 from tests._canary import DET_FINAL_CANARY
 
 ROOT = Path(__file__).resolve().parent.parent
-EXAMPLES = sorted((ROOT / "examples").glob("*.toml"))
+EXAMPLES = sorted((ROOT / "firebridgelab" / "examples").glob("*.toml"))
 STARTER = ROOT / "firebridgelab" / "plan_starter.toml"
 
 # The default fictional couple, written as a plan file.
