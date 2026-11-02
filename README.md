@@ -6,7 +6,22 @@
 
 *Stress-test the bridge years: backtests, Monte Carlo and guardrails from early retirement to pension and Social Security.*
 
-An open-source **FIRE calculator** and **safe withdrawal rate (SWR)** lab in Python, built for early retirees whose pensions or Social Security start years after they stop working. It replays every historical retirement since 1871 (cFIREsim/FIRECalc-style backtests), runs Monte Carlo with optional fat tails, and applies dynamic spending rules such as Guyton-Klinger-style guardrails and an amortization (VPW-style) frontier. Guaranteed income, including US federal (FERS-style) pensions with their COLA rules, a survivor case, and US federal tax by account type, is netted out of spending year by year, so the rules see the real gap the portfolio has to bridge. It ships as a Python library, worked Jupyter notebooks, and a self-hosted web UI.
+A free, open-source lab for people planning **FIRE** (Financial Independence, Retire Early) who want to model and experiment with the risk in their plan. Change the variables (retirement age, spending, asset mix, pensions, Social Security and when you claim it, a spouse dying first, fees, taxes) and see how each one moves your odds across every historical retirement since 1871 and thousands of Monte Carlo scenarios.
+
+It is built for the common FIRE situation where you stop working years before guaranteed income starts: the portfolio has to carry everything during those **bridge years**, then only the gap that pensions and Social Security don't cover.
+
+**What you can vary:**
+
+- **When:** retirement age, plan horizon, pension start ages, Social Security claiming ages (62–70, with the exact SSA adjustment)
+- **How much:** starting portfolio, annual spending, a spending floor and ceiling, a lifecycle "go-go / slow-go / no-go" taper
+- **Spending rule:** constant, Guyton-Klinger-style guardrails, funded-ratio rules, or an amortization (VPW-style) frontier
+- **Income:** two pensions (with an optional freeze until they start and FERS-style partial COLAs) and two Social Security benefits, plus a survivor case
+- **Markets:** asset mix across up to 12 asset classes (five need optional data you download yourself), historical replay or Monte Carlo (Normal or fat-tailed), fees, and authored stress scenarios
+- **Taxes:** taxable, tax-deferred and Roth balances, with 2026 US federal brackets, capital gains, RMDs and the pre-59½ penalty
+
+Not yet modeled: other income streams such as part-time work, rental income or annuities you add yourself, and state or non-US taxes.
+
+It ships as a Python library, worked Jupyter notebooks, and a self-hosted web UI.
 
 ### Why another FIRE calculator?
 
@@ -19,15 +34,7 @@ The popular free tools (cFIREsim, FIRECalc, FI Calc, ERN's SWR Toolbox) are exce
 
 **Educational software, not financial advice. Consult a qualified advisor before acting.**
 
-## Who it is for
-
-People planning an early retirement (FIRE) with a gap to bridge: years of
-portfolio withdrawals before pensions and Social Security start, then a
-portfolio that only has to cover what guaranteed income does not. The model
-treats that bridge explicitly: guaranteed income is netted out of spending each
-year, the dynamic spending rules (guardrails, funded ratio, amortization) see
-the gap rather than the gross spend, and the solver finds the largest spend a
-plan can sustain.
+## The example household
 
 The built-in default household is fictional: two people aged 50 who plan to
 age 95, a $1.8M portfolio, $110k a year of real spending, pensions of $24k
