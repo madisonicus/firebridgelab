@@ -185,7 +185,9 @@ def compute_federal_tax(
       ordinary_income))``.
     - Ordinary tax: marginal brackets on ``taxable_ordinary``.
     - LTCG tax: STACKED on top of ``taxable_ordinary`` through the 0/15/20
-      breakpoints (``_stacked_ltcg_tax``) — never flat-rated.
+      breakpoints (``_stacked_ltcg_tax``) — never flat-rated — and capped so
+      the total never exceeds the regular tax on all taxable income
+      (Qualified Dividends and Capital Gain Tax Worksheet, line 25).
     - NIIT: 3.8% x ``min(ltcg_income, max(0, MAGI - threshold))`` ($250k MFJ),
       MAGI ~= ``ordinary_income + ltcg_income`` (pre-deduction, an
       approximation).
@@ -261,6 +263,15 @@ def _tax_components(
     ltcg_tax = _stacked_ltcg_tax(
         taxable_ordinary, taxable_ltcg, ltcg_breaks
     )
+    if ltcg_tax > 0.0:
+        # Qualified Dividends and Capital Gain Tax Worksheet, line 25: the tax
+        # is the smaller of the stacked computation and the regular tax on all
+        # taxable income. The stacked one is larger only where the 15% band
+        # starts below the top of the 12% bracket (taxable income just over
+        # $98,900 joint / $49,450 single), by at most a few tens of dollars.
+        all_ordinary = _marginal_tax(taxable_ordinary + taxable_ltcg, brackets)
+        if ordinary_tax + ltcg_tax > all_ordinary:
+            ltcg_tax = all_ordinary - ordinary_tax
 
     magi = ordinary_income + ltcg_income
     niit_base = magi - niit_threshold
