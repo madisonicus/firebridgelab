@@ -211,12 +211,13 @@ taxable. A flat taxable-gains fraction stands in for cost basis. RMDs are
 modeled, and a bracket-fill lever moves extra money from tax-deferred to
 taxable between ages 60 and 74.
 
-**What the model does not do:** state or foreign tax, IRMAA, ACA or Medicare
-premiums, long-term-care shocks as explicit lines, tracked cost basis, tax on
+**What the model does not do:** state or foreign tax, IRMAA, automatic ACA or
+Medicare premiums (enter them as required spending), long-term-care shocks as
+explicit lines, tracked cost basis, tax on
 taxable-account dividends and interest, Roth conversions (the bracket-fill
 lever moves money to taxable instead), 72(t)/SEPP access before 59½ (the
-penalty is applied and reported instead), spouses of different ages (both
-people share one age axis), mortality-weighted horizons, and
+penalty is applied and reported instead), accounts tracked per person
+(access ages and RMDs follow person A), mortality-weighted horizons, and
 valuation-conditioned or regime-switching returns. Monte Carlo has no
 autocorrelation or parameter uncertainty. Its fixed seed means success rates
 carry about ±0.5 point of sampling noise.
