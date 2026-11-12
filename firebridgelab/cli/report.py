@@ -336,8 +336,11 @@ def build_report(plan: Plan, name: str, source: str) -> str:
         f'<p class="sub">Plan file <code>{_e(source)}</code>; generated '
         f'{_dt.date.today().isoformat()} by firebridgelab.</p>',
         '<div class="notice"><strong>Educational software, not financial advice.</strong> '
-        "These are model outputs under the assumptions below, not predictions. Consult a "
-        "qualified advisor before acting.</div>",
+        "These are model outputs under the assumptions below, not predictions. It is not "
+        "financial, investment, tax or legal advice, and its author is not a financial advisor. "
+        "Tax and benefit rules are simplified and may be out of date. Consult a qualified "
+        "professional before acting. Full disclaimer: "
+        '<a href="https://github.com/madisonicus/firebridgelab/blob/main/DISCLAIMER.md">DISCLAIMER.md</a>.</div>',
         "<h2>Headline</h2>",
         "<p>Dollars are real (plan-start purchasing power). Ages are person A's. Success means "
         "the portfolio never ran out; with a dynamic spending rule, “ever forced to spending "

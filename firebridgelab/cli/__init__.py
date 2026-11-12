@@ -25,7 +25,7 @@ from firebridgelab.plan import Plan, PlanError, apply_override, from_document, p
 
 EXIT_OK, EXIT_FAILED, EXIT_USAGE = 0, 1, 2
 
-NOTICE = "Educational software, not financial advice. Dollars are real (plan-start); ages are person A's."
+NOTICE = "Educational software, not financial advice (see DISCLAIMER.md). Dollars are real (plan-start); ages are person A's."
 
 _EPILOG = (
     "Plan files are TOML; docs/plan-files.md lists every key. "

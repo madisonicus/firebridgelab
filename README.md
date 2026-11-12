@@ -10,7 +10,7 @@ A free, open-source lab for people planning **FIRE** (Financial Independence, Re
 
 It is built for the common FIRE situation where you stop working years before guaranteed income starts: the portfolio has to carry everything during those **bridge years**, then only the gap that pensions and Social Security don't cover.
 
-**Educational software, not financial advice.** It shows how a plan behaved under past and simulated markets, given your assumptions. Consult a qualified advisor before acting.
+> **Educational software, not financial advice.** I'm not a financial advisor, and nothing here is financial, investment, tax or legal advice. It shows how a plan behaved under past and simulated markets, given your assumptions; it does not predict what will happen to you. Tax and benefit rules are simplified and may be out of date. Consult a qualified professional before acting. Provided as is, with no warranty. Full text: [DISCLAIMER.md](DISCLAIMER.md).
 
 ## Try it in 2 minutes
 

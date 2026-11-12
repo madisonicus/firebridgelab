@@ -3544,3 +3544,23 @@ header h1 {
 .plan-file-status.is-error {
   color: var(--error);
 }
+
+/* Disclaimer banner and footer */
+.disclaimer-banner {
+  margin: 0.4rem 0 0;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--fg);
+  background: var(--surface-disabled);
+  border-left: 3px solid var(--border);
+  border-radius: 4px;
+}
+.disclaimer-footer {
+  margin: 2rem 0 1rem;
+  padding-top: 0.8rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  text-align: center;
+}

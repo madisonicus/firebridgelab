@@ -6,6 +6,7 @@
 site_name: FIRE Bridge Lab
 site_description: Stress-test the bridge years between early retirement and pension and Social Security.
 repo_url: https://github.com/madisonicus/firebridgelab
+copyright: Educational software, not financial advice. The author is not a financial advisor. Provided as is under the MIT License. <a href="https://github.com/madisonicus/firebridgelab/blob/main/DISCLAIMER.md">Disclaimer</a>
 repo_name: madisonicus/firebridgelab
 edit_uri: ""
 docs_dir: docs
@@ -52,6 +53,7 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Disclaimer: disclaimer.md
   - Getting started:
       - FAQ for non-programmers: faq.md
       - Examples gallery: examples.md

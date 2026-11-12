@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 REPO_URL = "https://github.com/madisonicus/firebridgelab"
 
 # Site page -> the repository file it is built from, for files outside docs/.
-GENERATED = {"index.md": "README.md", "data-sources.md": "DATA-SOURCES.md"}
+GENERATED = {"index.md": "README.md", "data-sources.md": "DATA-SOURCES.md", "disclaimer.md": "DISCLAIMER.md"}
 REPO_TO_PAGE = {repo: page for page, repo in GENERATED.items()}
 
 # The target of any [text](target) or ![alt](target), including a badge
