@@ -86,4 +86,4 @@ benefits and the earnings test; accounts tracked per person; tax on
 taxable-account interest and dividends. The README
 and docs/methodology.md list the rest.
 
-Educational software, not financial advice.
+**Educational software, not financial advice.** The author is not a financial advisor, and nothing in this release is financial, investment, tax or legal advice. Results are model outputs under your assumptions, not predictions; tax and benefit rules are simplified. Consult a qualified professional before acting. Provided as is, with no warranty. See [DISCLAIMER.md](https://github.com/madisonicus/firebridgelab/blob/main/DISCLAIMER.md).
